@@ -1,0 +1,19 @@
+[package]
+name = "prompt-pyo3"
+version.workspace = true
+edition.workspace = true
+description = "Python bindings for prompt-core key input parser"
+repository.workspace = true
+keywords.workspace = true
+license.workspace = true
+
+[lib]
+name = "prompt"
+crate-type = ["cdylib"]
+
+[dependencies]
+prompt-core = { path = "../prompt-core" }
+pyo3 = { version = "0.20", features = ["extension-module"] }
+
+[build-dependencies]
+pyo3-build-config = "0.20"

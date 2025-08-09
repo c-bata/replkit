@@ -258,7 +258,7 @@ func (p *KeyParser) Close() error {
 }
 ```
 
-### Python Binding (`crates/prompt-pyo3` + `bindings/python/src/lib.rs`)
+### Python Binding (`crates/prompt-pyo3`)
 
 PyO3-based Python binding:
 

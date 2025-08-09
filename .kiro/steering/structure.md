@@ -15,13 +15,16 @@
 │   ├── prompt-buffer/          # Text buffer
 │   ├── prompt-render/          # Terminal rendering (styling, ANSI control)
 │   ├── prompt-keybind/         # Key bindings (emacs)
-│   ├── prompt-wasm/            # 
+│   ├── prompt-wasm/            # WASM interface for Go bindings
 │   └── prompt-pyo3/            # PyO3-based Python binding (build with maturin)
+│       ├── examples/           # Examples of Python bindings
+│       ├── prompt/             # Python source codes
+│       ├── src/                # Rust source codes
+│       ├── python_tests/       # Tests for Python bindings (pytest)
+│       └── tests/              # Tests for the Rust source codes
 ├── bindings/                   # Language-specific bindings
-│   ├── python/                 # PyO3-based Python binding (build with maturin)
-│   │   ├── src/                # Python module implementation
-│   │   └── tests/              # Tests for Python bindings (pytest)
 │   └── go/                     # Go binding via Wasm and wazero runtime
+│       ├── _examples/          # Examples of Go bindings
 │       └── wasm/               # Wasm-compiled binaries and helpers
 ├── references/                 # Language-specific bindings
 │   └── go-prompt/              # The source code of https://github.com/c-bata/go-prompt/

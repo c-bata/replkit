@@ -2,6 +2,7 @@
 members = [
     "crates/prompt-core",
     "crates/prompt-wasm",
+    "crates/prompt-pyo3",
 ]
 resolver = "2"
 

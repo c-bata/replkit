@@ -64,14 +64,14 @@
   - Test integration with go-prompt-style applications
   - _Requirements: 4.2, 4.4, 4.5_
 
-- [ ] 9. Set up Python binding infrastructure
-  - Create `bindings/python/` directory with PyO3 project structure
-  - Configure `bindings/python/Cargo.toml` for PyO3 and maturin build
+- [x] 9. Set up Python binding infrastructure
+  - Create `crates/prompt-pyo3/` directory with PyO3 project structure
+  - Configure `crates/prompt-pyo3/Cargo.toml` for PyO3 and maturin build
   - Set up proper Python package configuration with pyproject.toml
   - _Requirements: 3.1, 3.4_
 
 - [ ] 10. Implement Python binding API
-  - Create `bindings/python/src/lib.rs` with PyO3-based KeyParser and KeyEvent classes
+  - Create `crates/prompt-pyo3/src/lib.rs` with PyO3-based KeyParser and KeyEvent classes
   - Implement feed(), flush(), and reset() methods with proper error handling
   - Add Python-native Key enum with proper string representations
   - Convert Rust panics to appropriate Python exceptions
