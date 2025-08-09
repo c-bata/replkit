@@ -6,7 +6,7 @@ pub use self::wasm_impl::*;
 
 #[cfg(feature = "wasm")]
 mod wasm_impl {
-    use crate::{Key, KeyEvent, KeyParser};
+    use crate::{Key, KeyEvent, KeyParser, Buffer, Document};
     use serde::{Deserialize, Serialize};
 
     /// Serializable version of KeyEvent for WASM interop
@@ -35,6 +35,24 @@ mod wasm_impl {
                 text: wasm_event.text,
             }
         }
+    }
+
+    /// Serializable version of Buffer state for WASM interop
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    pub struct WasmBufferState {
+        pub working_lines: Vec<String>,
+        pub working_index: usize,
+        pub cursor_position: usize,
+        pub preferred_column: Option<usize>,
+        pub last_key_stroke: Option<u32>,
+    }
+
+    /// Serializable version of Document state for WASM interop
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    pub struct WasmDocumentState {
+        pub text: String,
+        pub cursor_position: usize,
+        pub last_key: Option<u32>,
     }
 
     /// Convert Key enum to u32 for WASM serialization
@@ -261,6 +279,49 @@ mod wasm_impl {
         }
     }
 
+    /// WASM serialization methods for Buffer
+    impl Buffer {
+        /// Convert Buffer to WASM-serializable state
+        pub fn to_wasm_state(&self) -> WasmBufferState {
+            WasmBufferState {
+                working_lines: self.working_lines().clone(),
+                working_index: self.working_index(),
+                cursor_position: self.cursor_position(),
+                preferred_column: self.preferred_column(),
+                last_key_stroke: self.last_key_stroke().map(key_to_u32),
+            }
+        }
+
+        /// Create Buffer from WASM-serializable state
+        pub fn from_wasm_state(state: WasmBufferState) -> Self {
+            let mut buffer = Buffer::new();
+            buffer.set_working_lines(state.working_lines);
+            let _ = buffer.set_working_index(state.working_index); // Ignore error, will be clamped
+            buffer.set_cursor_position(state.cursor_position);
+            buffer.set_preferred_column(state.preferred_column);
+            buffer.set_last_key_stroke_optional(state.last_key_stroke.map(u32_to_key));
+            buffer
+        }
+    }
+
+    /// WASM serialization methods for Document
+    impl Document {
+        /// Convert Document to WASM-serializable state
+        pub fn to_wasm_state(&self) -> WasmDocumentState {
+            WasmDocumentState {
+                text: self.text().to_string(),
+                cursor_position: self.cursor_position(),
+                last_key: self.last_key_stroke().map(key_to_u32),
+            }
+        }
+
+        /// Create Document from WASM-serializable state
+        pub fn from_wasm_state(state: WasmDocumentState) -> Self {
+            let last_key = state.last_key.map(u32_to_key);
+            Document::with_text_and_key(state.text, state.cursor_position, last_key)
+        }
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -316,6 +377,189 @@ mod wasm_impl {
             let events = parser.flush();
             assert_eq!(events.len(), 0);
         }
+
+        #[test]
+        fn test_buffer_wasm_serialization_roundtrip() {
+            use crate::{Buffer, Key};
+
+            // Create a buffer with some state
+            let mut original_buffer = Buffer::new();
+            original_buffer.set_text("hello\nworld\ntest".to_string());
+            original_buffer.add_working_line("second line".to_string(), false);
+            original_buffer.set_cursor_position(7); // Position in "world"
+            original_buffer.set_last_key_stroke(Key::ControlA);
+            
+            // Simulate preferred column being set (normally done by cursor movement)
+            original_buffer.set_preferred_column(Some(3));
+
+            // Serialize to WASM state
+            let wasm_state = original_buffer.to_wasm_state();
+
+            // Verify serialized state
+            assert_eq!(wasm_state.working_lines.len(), 2);
+            assert_eq!(wasm_state.working_lines[0], "hello\nworld\ntest");
+            assert_eq!(wasm_state.working_lines[1], "second line");
+            assert_eq!(wasm_state.working_index, 0);
+            assert_eq!(wasm_state.cursor_position, 7);
+            assert_eq!(wasm_state.preferred_column, Some(3));
+            assert_eq!(wasm_state.last_key_stroke, Some(key_to_u32(Key::ControlA)));
+
+            // Deserialize back to Buffer
+            let restored_buffer = Buffer::from_wasm_state(wasm_state);
+
+            // Verify restored state
+            assert_eq!(restored_buffer.working_lines(), original_buffer.working_lines());
+            assert_eq!(restored_buffer.working_index(), original_buffer.working_index());
+            assert_eq!(restored_buffer.cursor_position(), original_buffer.cursor_position());
+            assert_eq!(restored_buffer.preferred_column(), original_buffer.preferred_column());
+            assert_eq!(restored_buffer.last_key_stroke(), original_buffer.last_key_stroke());
+            assert_eq!(restored_buffer.text(), original_buffer.text());
+        }
+
+        #[test]
+        fn test_document_wasm_serialization_roundtrip() {
+            use crate::{Document, Key};
+
+            // Create a document with some state
+            let original_doc = Document::with_text_and_key(
+                "hello 世界\ntest".to_string(),
+                8, // Position after "世界"
+                Some(Key::F1)
+            );
+
+            // Serialize to WASM state
+            let wasm_state = original_doc.to_wasm_state();
+
+            // Verify serialized state
+            assert_eq!(wasm_state.text, "hello 世界\ntest");
+            assert_eq!(wasm_state.cursor_position, 8);
+            assert_eq!(wasm_state.last_key, Some(key_to_u32(Key::F1)));
+
+            // Deserialize back to Document
+            let restored_doc = Document::from_wasm_state(wasm_state);
+
+            // Verify restored state
+            assert_eq!(restored_doc.text(), original_doc.text());
+            assert_eq!(restored_doc.cursor_position(), original_doc.cursor_position());
+            assert_eq!(restored_doc.last_key_stroke(), original_doc.last_key_stroke());
+        }
+
+        #[test]
+        fn test_buffer_wasm_serialization_empty_state() {
+            use crate::Buffer;
+
+            // Test with empty buffer
+            let original_buffer = Buffer::new();
+            let wasm_state = original_buffer.to_wasm_state();
+            let restored_buffer = Buffer::from_wasm_state(wasm_state);
+
+            assert_eq!(restored_buffer.text(), "");
+            assert_eq!(restored_buffer.cursor_position(), 0);
+            assert_eq!(restored_buffer.working_index(), 0);
+            assert_eq!(restored_buffer.working_lines_count(), 1);
+            assert_eq!(restored_buffer.preferred_column(), None);
+            assert_eq!(restored_buffer.last_key_stroke(), None);
+        }
+
+        #[test]
+        fn test_document_wasm_serialization_empty_state() {
+            use crate::Document;
+
+            // Test with empty document
+            let original_doc = Document::new();
+            let wasm_state = original_doc.to_wasm_state();
+            let restored_doc = Document::from_wasm_state(wasm_state);
+
+            assert_eq!(restored_doc.text(), "");
+            assert_eq!(restored_doc.cursor_position(), 0);
+            assert_eq!(restored_doc.last_key_stroke(), None);
+        }
+
+        #[test]
+        fn test_wasm_serialization_with_unicode() {
+            use crate::{Buffer, Document, Key};
+
+            // Test Buffer with Unicode content
+            let mut buffer = Buffer::new();
+            buffer.set_text("Hello 🌍 世界! 🚀".to_string());
+            buffer.set_cursor_position(9); // After "🌍 "
+            buffer.set_last_key_stroke(Key::Right);
+
+            let wasm_state = buffer.to_wasm_state();
+            let restored_buffer = Buffer::from_wasm_state(wasm_state);
+
+            assert_eq!(restored_buffer.text(), "Hello 🌍 世界! 🚀");
+            assert_eq!(restored_buffer.cursor_position(), 9);
+            assert_eq!(restored_buffer.last_key_stroke(), Some(Key::Right));
+
+            // Test Document with Unicode content
+            let doc = Document::with_text_and_key(
+                "🎉 Testing 测试 🎊".to_string(),
+                12, // After "测试"
+                Some(Key::End)
+            );
+
+            let doc_wasm_state = doc.to_wasm_state();
+            let restored_doc = Document::from_wasm_state(doc_wasm_state);
+
+            assert_eq!(restored_doc.text(), "🎉 Testing 测试 🎊");
+            assert_eq!(restored_doc.cursor_position(), 12);
+            assert_eq!(restored_doc.last_key_stroke(), Some(Key::End));
+        }
+
+        #[test]
+        fn test_wasm_serialization_bounds_handling() {
+            use crate::Buffer;
+
+            // Create a buffer with invalid state that should be corrected
+            let wasm_state = WasmBufferState {
+                working_lines: vec!["hello".to_string()],
+                working_index: 5, // Invalid - beyond working_lines length
+                cursor_position: 100, // Invalid - beyond text length
+                preferred_column: Some(50),
+                last_key_stroke: Some(key_to_u32(Key::Tab)),
+            };
+
+            let restored_buffer = Buffer::from_wasm_state(wasm_state);
+
+            // Should be corrected to valid bounds
+            assert_eq!(restored_buffer.working_index(), 0); // Clamped to valid range
+            assert_eq!(restored_buffer.cursor_position(), 5); // Clamped to text length
+            assert_eq!(restored_buffer.text(), "hello");
+            assert_eq!(restored_buffer.preferred_column(), Some(50)); // Preserved
+            assert_eq!(restored_buffer.last_key_stroke(), Some(Key::Tab)); // Preserved
+        }
+
+        #[test]
+        fn test_json_serialization_roundtrip() {
+            use crate::{Buffer, Document, Key};
+
+            // Test Buffer JSON serialization
+            let mut buffer = Buffer::new();
+            buffer.set_text("test 🌍 content".to_string());
+            buffer.set_cursor_position(7);
+            buffer.set_last_key_stroke(Key::Enter);
+
+            let wasm_state = buffer.to_wasm_state();
+            let json_str = serde_json::to_string(&wasm_state).expect("Failed to serialize to JSON");
+            let deserialized_state: WasmBufferState = serde_json::from_str(&json_str).expect("Failed to deserialize from JSON");
+            let restored_buffer = Buffer::from_wasm_state(deserialized_state);
+
+            assert_eq!(restored_buffer.text(), buffer.text());
+            assert_eq!(restored_buffer.cursor_position(), buffer.cursor_position());
+            assert_eq!(restored_buffer.last_key_stroke(), buffer.last_key_stroke());
+
+            // Test Document JSON serialization
+            let doc = Document::with_text_and_key("hello 世界".to_string(), 6, Some(Key::F5));
+            let doc_wasm_state = doc.to_wasm_state();
+            let doc_json_str = serde_json::to_string(&doc_wasm_state).expect("Failed to serialize Document to JSON");
+            let doc_deserialized_state: WasmDocumentState = serde_json::from_str(&doc_json_str).expect("Failed to deserialize Document from JSON");
+            let restored_doc = Document::from_wasm_state(doc_deserialized_state);
+
+            assert_eq!(restored_doc.text(), doc.text());
+            assert_eq!(restored_doc.cursor_position(), doc.cursor_position());
+            assert_eq!(restored_doc.last_key_stroke(), doc.last_key_stroke());
+        }
     }
 }
 
@@ -325,6 +569,12 @@ pub struct WasmKeyEvent;
 
 #[cfg(not(feature = "wasm"))]
 pub struct WasmKeyParser;
+
+#[cfg(not(feature = "wasm"))]
+pub struct WasmBufferState;
+
+#[cfg(not(feature = "wasm"))]
+pub struct WasmDocumentState;
 
 #[cfg(not(feature = "wasm"))]
 pub fn key_to_u32(_key: crate::Key) -> u32 {

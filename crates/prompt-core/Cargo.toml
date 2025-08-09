@@ -12,6 +12,9 @@ libc = { workspace = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
 unicode-width = "0.1"
 
+[dev-dependencies]
+serde_json = "1.0"
+
 [features]
 default = []
 wasm = ["serde"]

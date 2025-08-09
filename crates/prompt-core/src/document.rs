@@ -7,6 +7,8 @@
 use crate::key::Key;
 use crate::unicode;
 use crate::error::BufferResult;
+#[cfg(test)]
+use crate::error::BufferError;
 
 /// An immutable document representing text content with cursor position.
 ///

@@ -75,6 +75,21 @@ impl Buffer {
         self.working_lines.len()
     }
 
+    /// Get a reference to the working lines.
+    pub fn working_lines(&self) -> &Vec<String> {
+        &self.working_lines
+    }
+
+    /// Get the preferred column for vertical cursor movement.
+    pub fn preferred_column(&self) -> Option<usize> {
+        self.preferred_column
+    }
+
+    /// Get the last key stroke.
+    pub fn last_key_stroke(&self) -> Option<Key> {
+        self.last_key_stroke
+    }
+
     /// Get a reference to the cached Document, creating it if necessary.
     ///
     /// This method provides efficient access to Document functionality
@@ -138,6 +153,27 @@ impl Buffer {
     pub fn set_last_key_stroke(&mut self, key: Key) {
         self.last_key_stroke = Some(key);
         self.invalidate_cache();
+    }
+
+    /// Set the last key stroke (optional) for context-aware operations.
+    pub fn set_last_key_stroke_optional(&mut self, key: Option<Key>) {
+        self.last_key_stroke = key;
+        self.invalidate_cache();
+    }
+
+    /// Set the working lines directly (used for WASM deserialization).
+    pub fn set_working_lines(&mut self, lines: Vec<String>) {
+        self.working_lines = lines;
+        if self.working_lines.is_empty() {
+            self.working_lines.push(String::new());
+        }
+        self.ensure_cursor_bounds();
+        self.invalidate_cache();
+    }
+
+    /// Set the preferred column for vertical cursor movement.
+    pub fn set_preferred_column(&mut self, column: Option<usize>) {
+        self.preferred_column = column;
     }
 
     /// Create a new line at the current cursor position.

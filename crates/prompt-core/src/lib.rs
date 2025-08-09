@@ -22,6 +22,10 @@ pub use key_parser::{KeyParser, ParserState};
 pub use sequence_matcher::{SequenceMatcher, MatchResult, LongestMatchResult};
 pub use wasm::{WasmKeyEvent, WasmKeyParser, key_to_u32, u32_to_key};
 
+// Re-export WASM serialization types when wasm feature is enabled
+#[cfg(feature = "wasm")]
+pub use wasm::{WasmBufferState, WasmDocumentState};
+
 // Re-export text buffer types
 pub use buffer::Buffer;
 pub use document::Document;
