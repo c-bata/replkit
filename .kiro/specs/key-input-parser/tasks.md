@@ -56,7 +56,7 @@
   - Handle WASM module lifecycle and error propagation from WASM to Go
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
-- [ ] 8. Create Go example application
+- [x] 8. Create Go example application
   - Build `examples/go_key_demo.go` demonstrating Go binding usage
   - Set up raw terminal mode using appropriate Go libraries
   - Display parsed key events in Go-native format
