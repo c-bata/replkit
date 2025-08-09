@@ -53,7 +53,7 @@
   - Write tests for cursor movement calculations in multi-line scenarios
   - _Requirements: 3.4, 3.5, 3.6_
 
-- [ ] 7. Implement Buffer structure with working lines management
+- [x] 7. Implement Buffer structure with working lines management
   - Create Buffer struct with working_lines, working_index, cursor_position fields
   - Add cached_document, preferred_column, and last_key_stroke fields
   - Implement new() constructor with proper initialization
