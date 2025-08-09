@@ -7,8 +7,10 @@
 pub mod key;
 pub mod key_parser;
 pub mod sequence_matcher;
+pub mod wasm;
 
 // Re-export commonly used types for convenience
 pub use key::{Key, KeyEvent};
 pub use key_parser::{KeyParser, ParserState};
 pub use sequence_matcher::{SequenceMatcher, MatchResult, LongestMatchResult};
+pub use wasm::{WasmKeyEvent, WasmKeyParser, key_to_u32, u32_to_key};

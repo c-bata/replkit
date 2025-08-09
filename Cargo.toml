@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/prompt-core",
+    "crates/prompt-wasm",
 ]
 resolver = "2"
 
