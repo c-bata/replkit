@@ -51,7 +51,6 @@ Repository = "https://github.com/c-bata/prompt"
 Documentation = "https://github.com/c-bata/prompt"
 
 [tool.maturin]
-python-source = "prompt"
 features = ["pyo3/extension-module"]
 # Use uv for installing dependencies during development
 uv = true

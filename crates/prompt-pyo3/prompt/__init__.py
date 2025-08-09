@@ -10,9 +10,10 @@ with Python bindings provided through PyO3.
 """
 
 try:
-    from ._core import __version__  # type: ignore[import-untyped]
+    from .prompt import *  # type: ignore[import-untyped]
+    from .prompt import __version__  # type: ignore[import-untyped]
 except ImportError:
     # Fallback version when the extension module is not built
     __version__ = "0.1.0"
 
-__all__ = ["__version__"]
+__all__ = ["KeyParser", "KeyEvent", "Key", "__version__", "ESCAPE", "CTRL_C", "ENTER", "TAB", "UP", "DOWN", "LEFT", "RIGHT"]

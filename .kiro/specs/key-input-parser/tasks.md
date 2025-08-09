@@ -70,7 +70,7 @@
   - Set up proper Python package configuration with pyproject.toml
   - _Requirements: 3.1, 3.4_
 
-- [ ] 10. Implement Python binding API
+- [x] 10. Implement Python binding API
   - Create `crates/prompt-pyo3/src/lib.rs` with PyO3-based KeyParser and KeyEvent classes
   - Implement feed(), flush(), and reset() methods with proper error handling
   - Add Python-native Key enum with proper string representations
