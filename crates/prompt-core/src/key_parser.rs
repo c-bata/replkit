@@ -210,6 +210,13 @@ impl KeyParser {
             return;
         }
         
+        // Check for CPR (Cursor Position Report) response pattern: ESC[{row};{col}R
+        if byte == b'R' && self.is_cpr_response(&self.buffer) {
+            events.push(KeyEvent::simple(Key::CPRResponse, self.buffer.clone()));
+            self.reset_to_normal();
+            return;
+        }
+        
         // Check if we have a complete CSI sequence
         match self.sequence_matcher.match_sequence(&self.buffer) {
             MatchResult::Exact(key) => {
@@ -229,8 +236,13 @@ impl KeyParser {
                     // Continue accumulating parameters
                 } else if self.is_csi_final_byte(byte) {
                     // This is a final byte but we don't recognize the sequence
-                    // Emit as unknown sequence
-                    events.push(KeyEvent::simple(Key::NotDefined, self.buffer.clone()));
+                    // Check if it might be a special sequence we should handle
+                    if self.is_special_csi_sequence(&self.buffer) {
+                        events.push(KeyEvent::simple(Key::NotDefined, self.buffer.clone()));
+                    } else {
+                        // Emit as unknown sequence
+                        events.push(KeyEvent::simple(Key::NotDefined, self.buffer.clone()));
+                    }
                     self.reset_to_normal();
                 } else {
                     // Invalid CSI sequence, emit ESC[ and handle remaining bytes
@@ -254,12 +266,36 @@ impl KeyParser {
     fn handle_mouse_byte(&mut self, byte: u8, events: &mut Vec<KeyEvent>) {
         self.buffer.push(byte);
         
-        // Simple mouse event handling - for now, just accumulate until we have enough bytes
-        // Real mouse parsing would be more sophisticated
-        if self.buffer.len() >= 6 {
-            // Emit mouse event and reset
-            events.push(KeyEvent::simple(Key::Vt100MouseEvent, self.buffer.clone()));
-            self.reset_to_normal();
+        // Handle different mouse event formats
+        if self.buffer.starts_with(b"\x1b[M") {
+            // X10 mouse format: ESC[M + 3 bytes (button, x, y)
+            if self.buffer.len() >= 6 {
+                events.push(KeyEvent::simple(Key::Vt100MouseEvent, self.buffer.clone()));
+                self.reset_to_normal();
+            }
+        } else if self.buffer.starts_with(b"\x1b[<") {
+            // SGR mouse format: ESC[<button;x;y[Mm]
+            if byte == b'M' || byte == b'm' {
+                // Complete SGR mouse sequence
+                if self.is_valid_sgr_mouse_sequence(&self.buffer) {
+                    events.push(KeyEvent::simple(Key::Vt100MouseEvent, self.buffer.clone()));
+                } else {
+                    // Invalid SGR sequence, emit as unknown
+                    events.push(KeyEvent::simple(Key::NotDefined, self.buffer.clone()));
+                }
+                self.reset_to_normal();
+            } else if !self.is_sgr_mouse_parameter_byte(byte) {
+                // Invalid character in SGR sequence
+                events.push(KeyEvent::simple(Key::NotDefined, self.buffer.clone()));
+                self.reset_to_normal();
+            }
+            // Otherwise continue accumulating
+        } else {
+            // Unknown mouse format, treat as regular sequence after timeout
+            if self.buffer.len() >= 10 {
+                events.push(KeyEvent::simple(Key::NotDefined, self.buffer.clone()));
+                self.reset_to_normal();
+            }
         }
     }
 
@@ -336,6 +372,116 @@ impl KeyParser {
         let event = KeyEvent::with_text(Key::NotDefined, self.buffer.clone(), text);
         self.buffer.clear();
         Some(event)
+    }
+
+    /// Check if the buffer contains a CPR (Cursor Position Report) response
+    /// CPR responses have the format: ESC[{row};{col}R
+    fn is_cpr_response(&self, buffer: &[u8]) -> bool {
+        if buffer.len() < 4 || !buffer.starts_with(b"\x1b[") || !buffer.ends_with(b"R") {
+            return false;
+        }
+        
+        // Extract the middle part (between ESC[ and R)
+        let middle = &buffer[2..buffer.len()-1];
+        
+        // Check if it matches the pattern: digits, semicolon, digits
+        let mut found_semicolon = false;
+        let mut has_digits_before = false;
+        let mut has_digits_after = false;
+        
+        for &byte in middle {
+            match byte {
+                b'0'..=b'9' => {
+                    if found_semicolon {
+                        has_digits_after = true;
+                    } else {
+                        has_digits_before = true;
+                    }
+                }
+                b';' => {
+                    if found_semicolon || !has_digits_before {
+                        return false; // Multiple semicolons or semicolon without preceding digits
+                    }
+                    found_semicolon = true;
+                }
+                _ => return false, // Invalid character
+            }
+        }
+        
+        // Must have digits before and after semicolon
+        has_digits_before && found_semicolon && has_digits_after
+    }
+
+    /// Check if the buffer contains a special CSI sequence that we should handle
+    /// This includes sequences that might not be in our standard mapping but are valid
+    fn is_special_csi_sequence(&self, buffer: &[u8]) -> bool {
+        if buffer.len() < 3 || !buffer.starts_with(b"\x1b[") {
+            return false;
+        }
+        
+        let sequence = &buffer[2..];
+        
+        // Check for various special sequence patterns
+        // Device Status Report responses, etc.
+        if sequence.ends_with(b"n") || sequence.ends_with(b"c") {
+            return true;
+        }
+        
+        // Check for mouse tracking sequences that we might not have mapped
+        if sequence.starts_with(b"<") && (sequence.ends_with(b"M") || sequence.ends_with(b"m")) {
+            return true;
+        }
+        
+        false
+    }
+
+    /// Check if a byte is valid in SGR mouse parameter sequences
+    /// SGR mouse sequences contain digits and semicolons: ESC[<button;x;y[Mm]
+    fn is_sgr_mouse_parameter_byte(&self, byte: u8) -> bool {
+        matches!(byte, b'0'..=b'9' | b';')
+    }
+
+    /// Validate that the buffer contains a properly formatted SGR mouse sequence
+    /// SGR format: ESC[<button;x;y[Mm] where button, x, y are decimal numbers
+    fn is_valid_sgr_mouse_sequence(&self, buffer: &[u8]) -> bool {
+        if buffer.len() < 5 || !buffer.starts_with(b"\x1b[<") {
+            return false;
+        }
+        
+        let last_byte = buffer[buffer.len() - 1];
+        if last_byte != b'M' && last_byte != b'm' {
+            return false;
+        }
+        
+        // Extract the parameter part (between ESC[< and final M/m)
+        let params = &buffer[3..buffer.len()-1];
+        
+        // Should contain exactly two semicolons separating three numbers
+        let semicolon_count = params.iter().filter(|&&b| b == b';').count();
+        if semicolon_count != 2 {
+            return false;
+        }
+        
+        // Check that all characters are digits or semicolons
+        for &byte in params {
+            if !matches!(byte, b'0'..=b'9' | b';') {
+                return false;
+            }
+        }
+        
+        // Ensure we don't have empty parameters (consecutive semicolons or leading/trailing semicolons)
+        if params.is_empty() || params[0] == b';' || params[params.len()-1] == b';' {
+            return false;
+        }
+        
+        // Check for consecutive semicolons
+        for window in params.windows(2) {
+            if window[0] == b';' && window[1] == b';' {
+                return false;
+            }
+        }
+        
+        true
     }
 }
 
@@ -701,5 +847,378 @@ mod tests {
         assert_eq!(events[1].key, Key::Up);
         assert_eq!(events[2].key, Key::Down);
         assert_eq!(events[3].key, Key::ControlD);
+    }
+
+    // Tests for special sequence handling (Task 4)
+
+    #[test]
+    fn test_cpr_response_detection() {
+        let parser = KeyParser::new();
+        
+        // Valid CPR responses
+        assert!(parser.is_cpr_response(b"\x1b[24;80R"));
+        assert!(parser.is_cpr_response(b"\x1b[1;1R"));
+        assert!(parser.is_cpr_response(b"\x1b[999;999R"));
+        
+        // Invalid CPR responses
+        assert!(!parser.is_cpr_response(b"\x1b[24;80"));  // Missing R
+        assert!(!parser.is_cpr_response(b"\x1b[24R"));    // Missing semicolon
+        assert!(!parser.is_cpr_response(b"\x1b[;80R"));   // Missing first number
+        assert!(!parser.is_cpr_response(b"\x1b[24;R"));   // Missing second number
+        assert!(!parser.is_cpr_response(b"\x1b[24;80;1R")); // Too many semicolons
+        assert!(!parser.is_cpr_response(b"\x1b[24aR"));   // Invalid character
+        assert!(!parser.is_cpr_response(b"[24;80R"));     // Missing ESC
+    }
+
+    #[test]
+    fn test_cpr_response_parsing() {
+        let mut parser = KeyParser::new();
+        
+        // Test complete CPR response
+        let events = parser.feed(b"\x1b[24;80R");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].key, Key::CPRResponse);
+        assert_eq!(events[0].raw_bytes, b"\x1b[24;80R");
+        assert_eq!(parser.state, ParserState::Normal);
+        
+        // Test incremental CPR response
+        let mut events = parser.feed(b"\x1b[");
+        assert_eq!(events.len(), 0);
+        assert_eq!(parser.state, ParserState::CsiSequence);
+        
+        events = parser.feed(b"24;80");
+        assert_eq!(events.len(), 0);
+        assert_eq!(parser.state, ParserState::CsiSequence);
+        
+        events = parser.feed(b"R");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].key, Key::CPRResponse);
+        assert_eq!(parser.state, ParserState::Normal);
+    }
+
+    #[test]
+    fn test_sgr_mouse_parameter_detection() {
+        let parser = KeyParser::new();
+        
+        // Valid SGR mouse parameter bytes
+        assert!(parser.is_sgr_mouse_parameter_byte(b'0'));
+        assert!(parser.is_sgr_mouse_parameter_byte(b'9'));
+        assert!(parser.is_sgr_mouse_parameter_byte(b';'));
+        
+        // Invalid SGR mouse parameter bytes
+        assert!(!parser.is_sgr_mouse_parameter_byte(b'M'));
+        assert!(!parser.is_sgr_mouse_parameter_byte(b'm'));
+        assert!(!parser.is_sgr_mouse_parameter_byte(b'A'));
+        assert!(!parser.is_sgr_mouse_parameter_byte(b'<'));
+    }
+
+    #[test]
+    fn test_sgr_mouse_sequence_validation() {
+        let parser = KeyParser::new();
+        
+        // Valid SGR mouse sequences
+        assert!(parser.is_valid_sgr_mouse_sequence(b"\x1b[<0;1;1M"));
+        assert!(parser.is_valid_sgr_mouse_sequence(b"\x1b[<0;1;1m"));
+        assert!(parser.is_valid_sgr_mouse_sequence(b"\x1b[<32;100;50M"));
+        assert!(parser.is_valid_sgr_mouse_sequence(b"\x1b[<1;999;999m"));
+        
+        // Invalid SGR mouse sequences
+        assert!(!parser.is_valid_sgr_mouse_sequence(b"\x1b[<0;1M"));     // Missing parameter
+        assert!(!parser.is_valid_sgr_mouse_sequence(b"\x1b[<0;1;1;2M")); // Too many parameters
+        assert!(!parser.is_valid_sgr_mouse_sequence(b"\x1b[<;1;1M"));    // Empty first parameter
+        assert!(!parser.is_valid_sgr_mouse_sequence(b"\x1b[<0;;1M"));    // Empty middle parameter
+        assert!(!parser.is_valid_sgr_mouse_sequence(b"\x1b[<0;1;M"));    // Empty last parameter
+        assert!(!parser.is_valid_sgr_mouse_sequence(b"\x1b[<0;1;1X"));   // Invalid final byte
+        assert!(!parser.is_valid_sgr_mouse_sequence(b"\x1b[<0a1;1M"));   // Invalid character
+        assert!(!parser.is_valid_sgr_mouse_sequence(b"\x1b[0;1;1M"));    // Missing <
+    }
+
+    #[test]
+    fn test_x10_mouse_events() {
+        let mut parser = KeyParser::new();
+        
+        // Test X10 mouse event (ESC[M + 3 bytes)
+        let events = parser.feed(b"\x1b[M !!");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].key, Key::Vt100MouseEvent);
+        assert_eq!(events[0].raw_bytes, b"\x1b[M !!");
+        assert_eq!(parser.state, ParserState::Normal);
+        
+        // Test incremental X10 mouse event
+        let mut events = parser.feed(b"\x1b[M");
+        assert_eq!(events.len(), 0);
+        assert_eq!(parser.state, ParserState::MouseEvent);
+        
+        events = parser.feed(b" ");
+        assert_eq!(events.len(), 0);
+        assert_eq!(parser.state, ParserState::MouseEvent);
+        
+        events = parser.feed(b"!!");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].key, Key::Vt100MouseEvent);
+        assert_eq!(parser.state, ParserState::Normal);
+    }
+
+    #[test]
+    fn test_sgr_mouse_events() {
+        let mut parser = KeyParser::new();
+        
+        // Test SGR mouse press event
+        let events = parser.feed(b"\x1b[<0;10;20M");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].key, Key::Vt100MouseEvent);
+        assert_eq!(events[0].raw_bytes, b"\x1b[<0;10;20M");
+        assert_eq!(parser.state, ParserState::Normal);
+        
+        // Test SGR mouse release event
+        let events = parser.feed(b"\x1b[<0;10;20m");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].key, Key::Vt100MouseEvent);
+        assert_eq!(events[0].raw_bytes, b"\x1b[<0;10;20m");
+        assert_eq!(parser.state, ParserState::Normal);
+        
+        // Test incremental SGR mouse event
+        let mut events = parser.feed(b"\x1b[<");
+        assert_eq!(events.len(), 0);
+        assert_eq!(parser.state, ParserState::MouseEvent);
+        
+        events = parser.feed(b"32;100;50");
+        assert_eq!(events.len(), 0);
+        assert_eq!(parser.state, ParserState::MouseEvent);
+        
+        events = parser.feed(b"M");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].key, Key::Vt100MouseEvent);
+        assert_eq!(parser.state, ParserState::Normal);
+    }
+
+    #[test]
+    fn test_invalid_sgr_mouse_events() {
+        let mut parser = KeyParser::new();
+        
+        // Test invalid SGR mouse event (missing parameter)
+        let events = parser.feed(b"\x1b[<0;10M");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].key, Key::NotDefined);
+        assert_eq!(parser.state, ParserState::Normal);
+        
+        // Test invalid character in SGR sequence
+        parser.reset();
+        parser.feed(b"\x1b[<");
+        assert_eq!(parser.state, ParserState::MouseEvent);
+        
+        let events = parser.feed(b"0;10;20X"); // X is invalid
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].key, Key::NotDefined);
+        assert_eq!(parser.state, ParserState::Normal);
+    }
+
+    #[test]
+    fn test_bracketed_paste_comprehensive() {
+        let mut parser = KeyParser::new();
+        
+        // Test simple bracketed paste
+        parser.feed(b"\x1b[200~");
+        assert_eq!(parser.state, ParserState::BracketedPaste);
+        
+        parser.feed(b"Hello, World!");
+        assert_eq!(parser.state, ParserState::BracketedPaste);
+        
+        let events = parser.feed(b"\x1b[201~");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].key, Key::BracketedPaste);
+        assert_eq!(events[0].text.as_ref().unwrap(), "Hello, World!");
+        assert_eq!(parser.state, ParserState::Normal);
+    }
+
+    #[test]
+    fn test_bracketed_paste_with_escape_sequences() {
+        let mut parser = KeyParser::new();
+        
+        // Test bracketed paste containing escape sequences
+        parser.feed(b"\x1b[200~");
+        parser.feed(b"Text with \x1b[31mcolor\x1b[0m codes");
+        let events = parser.feed(b"\x1b[201~");
+        
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].key, Key::BracketedPaste);
+        assert_eq!(events[0].text.as_ref().unwrap(), "Text with \x1b[31mcolor\x1b[0m codes");
+    }
+
+    #[test]
+    fn test_bracketed_paste_partial_end_sequence() {
+        let mut parser = KeyParser::new();
+        
+        // Test bracketed paste with partial end sequence in content
+        parser.feed(b"\x1b[200~");
+        parser.feed(b"Content with \x1b[201 partial end");
+        let events = parser.feed(b"\x1b[201~");
+        
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].key, Key::BracketedPaste);
+        assert!(events[0].text.as_ref().unwrap().contains("Content with \x1b[201 partial end"));
+    }
+
+    #[test]
+    fn test_bracketed_paste_buffer_management() {
+        let mut parser = KeyParser::new();
+        
+        // Test that long content is properly managed between buffers
+        parser.feed(b"\x1b[200~");
+        
+        // Add content longer than the buffer management threshold
+        let long_content = "x".repeat(100);
+        parser.feed(long_content.as_bytes());
+        
+        // Verify we're still in paste mode
+        assert_eq!(parser.state, ParserState::BracketedPaste);
+        
+        let events = parser.feed(b"\x1b[201~");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].key, Key::BracketedPaste);
+        assert_eq!(events[0].text.as_ref().unwrap().len(), 100);
+    }
+
+    #[test]
+    fn test_bracketed_paste_invalid_utf8() {
+        let mut parser = KeyParser::new();
+        
+        // Test bracketed paste with invalid UTF-8
+        parser.feed(b"\x1b[200~");
+        parser.feed(&[0xff, 0xfe, 0xfd]); // Invalid UTF-8 bytes
+        let events = parser.feed(b"\x1b[201~");
+        
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].key, Key::BracketedPaste);
+        assert!(events[0].text.is_none()); // Should be None for invalid UTF-8
+        assert_eq!(events[0].raw_bytes, vec![0xff, 0xfe, 0xfd]);
+    }
+
+    #[test]
+    fn test_bracketed_paste_flush() {
+        let mut parser = KeyParser::new();
+        
+        // Test flushing incomplete bracketed paste
+        parser.feed(b"\x1b[200~");
+        parser.feed(b"Incomplete paste content");
+        
+        // Flush without end sequence
+        let events = parser.flush();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].key, Key::BracketedPaste);
+        assert_eq!(events[0].text.as_ref().unwrap(), "Incomplete paste content");
+        assert_eq!(parser.state, ParserState::Normal);
+    }
+
+    #[test]
+    fn test_special_csi_sequence_detection() {
+        let parser = KeyParser::new();
+        
+        // Test Device Status Report responses
+        assert!(parser.is_special_csi_sequence(b"\x1b[0n"));
+        assert!(parser.is_special_csi_sequence(b"\x1b[3n"));
+        assert!(parser.is_special_csi_sequence(b"\x1b[?1;2c"));
+        
+        // Test SGR mouse sequences
+        assert!(parser.is_special_csi_sequence(b"\x1b[<0;1;1M"));
+        assert!(parser.is_special_csi_sequence(b"\x1b[<32;100;50m"));
+        
+        // Test non-special sequences
+        assert!(!parser.is_special_csi_sequence(b"\x1b[A"));
+        assert!(!parser.is_special_csi_sequence(b"\x1b[1;2A"));
+        assert!(!parser.is_special_csi_sequence(b"\x1b[999z"));
+    }
+
+    #[test]
+    fn test_mouse_event_state_transitions() {
+        let mut parser = KeyParser::new();
+        
+        // Test transition to mouse event state
+        parser.feed(b"\x1b[M");
+        assert_eq!(parser.state, ParserState::MouseEvent);
+        
+        // Reset and test SGR mouse transition
+        parser.reset();
+        parser.feed(b"\x1b[<");
+        assert_eq!(parser.state, ParserState::MouseEvent);
+        
+        // Test return to normal state after complete sequence
+        parser.feed(b"0;1;1M");
+        assert_eq!(parser.state, ParserState::Normal);
+    }
+
+    #[test]
+    fn test_unknown_mouse_format_timeout() {
+        let mut parser = KeyParser::new();
+        
+        // Start with a valid mouse sequence first
+        parser.feed(b"\x1b[M"); // This will transition to MouseEvent state
+        assert_eq!(parser.state, ParserState::MouseEvent);
+        
+        // Add exactly 3 bytes (normal X10 format)
+        let events = parser.feed(b"abc");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].key, Key::Vt100MouseEvent);
+        assert_eq!(parser.state, ParserState::Normal);
+        
+        // Test SGR mouse format with invalid character
+        parser.feed(b"\x1b[<"); // This will transition to MouseEvent state
+        assert_eq!(parser.state, ParserState::MouseEvent);
+        
+        // Add valid digits and semicolons first
+        let events = parser.feed(b"0;10;20");
+        assert_eq!(events.len(), 0); // Should still be accumulating
+        assert_eq!(parser.state, ParserState::MouseEvent);
+        
+        // Add invalid character (not M or m)
+        let events = parser.feed(b"X"); // Invalid final character
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].key, Key::NotDefined);
+        assert_eq!(parser.state, ParserState::Normal);
+    }
+
+    #[test]
+    fn test_mixed_special_sequences() {
+        let mut parser = KeyParser::new();
+        
+        // Test mix of CPR, mouse events, and bracketed paste
+        let input = b"\x1b[24;80R\x1b[<0;10;20M\x1b[200~hello\x1b[201~";
+        let events = parser.feed(input);
+        
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[0].key, Key::CPRResponse);
+        assert_eq!(events[1].key, Key::Vt100MouseEvent);
+        assert_eq!(events[2].key, Key::BracketedPaste);
+        assert_eq!(events[2].text.as_ref().unwrap(), "hello");
+    }
+
+    #[test]
+    fn test_incremental_special_sequence_parsing() {
+        let mut parser = KeyParser::new();
+        
+        // Test incremental parsing of CPR response
+        let cpr_bytes = b"\x1b[24;80R";
+        for &byte in cpr_bytes {
+            let events = parser.feed(&[byte]);
+            if byte == b'R' {
+                assert_eq!(events.len(), 1);
+                assert_eq!(events[0].key, Key::CPRResponse);
+            } else {
+                assert_eq!(events.len(), 0);
+            }
+        }
+        
+        // Test incremental parsing of SGR mouse event
+        parser.reset();
+        let mouse_bytes = b"\x1b[<32;100;50M";
+        for &byte in mouse_bytes {
+            let events = parser.feed(&[byte]);
+            if byte == b'M' {
+                assert_eq!(events.len(), 1);
+                assert_eq!(events[0].key, Key::Vt100MouseEvent);
+            } else {
+                assert_eq!(events.len(), 0);
+            }
+        }
     }
 }

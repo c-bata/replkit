@@ -24,7 +24,7 @@
   - Add comprehensive unit tests for state machine transitions and edge cases
   - _Requirements: 1.1, 1.2, 1.3, 1.6_
 
-- [ ] 4. Handle special sequences (mouse events, CPR, bracketed paste)
+- [x] 4. Handle special sequences (mouse events, CPR, bracketed paste)
   - Extend state machine to handle MouseEvent and BracketedPaste states
   - Add regex-based detection for variable-length sequences (CPR responses, mouse events)
   - Implement proper parsing for bracketed paste mode content
@@ -32,7 +32,7 @@
   - _Requirements: 1.6_
 
 - [ ] 5. Create Rust example application with SIGIO-based input
-  - Build `examples/rust_key_demo.rs` that demonstrates raw terminal input parsing
+  - Build `examples/vt100_debug.rs` that demonstrates raw terminal input parsing
   - Set up raw terminal mode using termios and configure non-blocking stdin
   - Implement SIGIO signal handler to detect when stdin is ready for reading
   - Use non-blocking reads from file descriptor 0 with proper error handling
