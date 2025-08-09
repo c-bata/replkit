@@ -6,6 +6,7 @@
 
 use crate::key::Key;
 use crate::unicode;
+use crate::error::BufferResult;
 
 /// An immutable document representing text content with cursor position.
 ///
@@ -76,6 +77,91 @@ impl Document {
             cursor_position,
             last_key,
         }
+    }
+
+    /// Create a document with validation.
+    ///
+    /// This version validates the text and cursor position before creating the document.
+    ///
+    /// # Arguments
+    ///
+    /// * `text` - The text content
+    /// * `cursor_position` - The cursor position as a rune index
+    ///
+    /// # Returns
+    ///
+    /// `Ok(Document)` if validation succeeds, or a `BufferError` if validation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::document::Document;
+    ///
+    /// let doc = Document::with_text_validated("hello".to_string(), 3);
+    /// assert!(doc.is_ok());
+    /// 
+    /// let invalid_doc = Document::with_text_validated("hello".to_string(), 10);
+    /// assert!(invalid_doc.is_err());
+    /// ```
+    pub fn with_text_validated(text: String, cursor_position: usize) -> BufferResult<Self> {
+        use crate::error::validation;
+        
+        // Validate text encoding
+        validation::validate_text_encoding(&text)?;
+        
+        // Validate cursor position
+        validation::validate_cursor_position(cursor_position, &text)?;
+        
+        Ok(Document {
+            text,
+            cursor_position,
+            last_key: None,
+        })
+    }
+
+    /// Create a document with text, cursor position, and last key stroke with validation.
+    pub fn with_text_and_key_validated(text: String, cursor_position: usize, last_key: Option<Key>) -> BufferResult<Self> {
+        use crate::error::validation;
+        
+        // Validate text encoding
+        validation::validate_text_encoding(&text)?;
+        
+        // Validate cursor position
+        validation::validate_cursor_position(cursor_position, &text)?;
+        
+        Ok(Document {
+            text,
+            cursor_position,
+            last_key,
+        })
+    }
+
+    /// Validate the document state.
+    ///
+    /// This method checks that the document's internal state is consistent and valid.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if the document state is valid, or a `BufferError` describing the issue.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::document::Document;
+    ///
+    /// let doc = Document::with_text("hello".to_string(), 3);
+    /// assert!(doc.validate_state().is_ok());
+    /// ```
+    pub fn validate_state(&self) -> BufferResult<()> {
+        use crate::error::validation;
+        
+        // Validate text encoding
+        validation::validate_text_encoding(&self.text)?;
+        
+        // Validate cursor position
+        validation::validate_cursor_position(self.cursor_position, &self.text)?;
+        
+        Ok(())
     }
 
     /// Get the text content.
@@ -157,6 +243,59 @@ impl Document {
         };
         
         unicode::char_at_rune_index(&self.text, target_pos)
+    }
+
+    /// Get a character relative to the cursor position with validation.
+    ///
+    /// Returns a `BufferResult` with the character or an error if the position is invalid.
+    ///
+    /// # Arguments
+    ///
+    /// * `offset` - Relative offset from cursor (negative for before, positive for after)
+    ///
+    /// # Returns
+    ///
+    /// `Ok(Some(char))` if a character exists at the position,
+    /// `Ok(None)` if the position is at the end of text,
+    /// or a `BufferError` if the offset would result in an invalid position.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::document::Document;
+    ///
+    /// let doc = Document::with_text("hello".to_string(), 2);
+    /// assert_eq!(doc.get_char_relative_to_cursor_validated(-1).unwrap(), Some('e'));
+    /// assert!(doc.get_char_relative_to_cursor_validated(-10).is_err());
+    /// ```
+    pub fn get_char_relative_to_cursor_validated(&self, offset: i32) -> BufferResult<Option<char>> {
+        use crate::error::BufferError;
+        
+        let target_pos = if offset < 0 {
+            let abs_offset = (-offset) as usize;
+            if abs_offset > self.cursor_position {
+                return Err(BufferError::bounds_check_failed(
+                    "get_char_relative_to_cursor",
+                    self.cursor_position.saturating_sub(abs_offset),
+                    (0, unicode::rune_count(&self.text)),
+                ));
+            }
+            self.cursor_position - abs_offset
+        } else {
+            let pos_offset = offset as usize;
+            let target = self.cursor_position + pos_offset;
+            let text_len = unicode::rune_count(&self.text);
+            if target > text_len {
+                return Err(BufferError::bounds_check_failed(
+                    "get_char_relative_to_cursor",
+                    target,
+                    (0, text_len),
+                ));
+            }
+            target
+        };
+        
+        Ok(unicode::char_at_rune_index(&self.text, target_pos))
     }
 
     /// Get the word before the cursor.
@@ -1198,7 +1337,7 @@ impl Document {
     /// assert_eq!(doc2.get_end_of_line_position(), 5); // End of "line1"
     /// ```
     pub fn get_end_of_line_position(&self) -> usize {
-        let (line_start, row) = self.find_line_start_index(self.cursor_position);
+        let (_line_start, row) = self.find_line_start_index(self.cursor_position);
         let line_starts = self.line_start_indexes();
         
         if row + 1 < line_starts.len() {
@@ -2234,4 +2373,122 @@ mod tests {
         let doc3 = Document::with_text("single".to_string(), 0);
         assert_eq!(doc3.find_line_start_index(3), (0, 0));
     }
-}
+} 
+   #[test]
+    fn test_document_error_handling() {
+        // Test valid document creation
+        let doc = Document::with_text_validated("hello world".to_string(), 5);
+        assert!(doc.is_ok());
+        let doc = doc.unwrap();
+        assert_eq!(doc.text(), "hello world");
+        assert_eq!(doc.cursor_position(), 5);
+        
+        // Test invalid cursor position
+        let result = Document::with_text_validated("hello".to_string(), 10);
+        assert!(result.is_err());
+        if let Err(BufferError::InvalidCursorPosition { position, max }) = result {
+            assert_eq!(position, 10);
+            assert_eq!(max, 5);
+        } else {
+            panic!("Expected InvalidCursorPosition error");
+        }
+        
+        // Test text with null characters
+        let result = Document::with_text_validated("hello\0world".to_string(), 5);
+        assert!(result.is_err());
+        if let Err(BufferError::TextEncodingError(_)) = result {
+            // Expected
+        } else {
+            panic!("Expected TextEncodingError");
+        }
+    }
+
+    #[test]
+    fn test_document_state_validation() {
+        let doc = Document::with_text("hello world".to_string(), 5);
+        
+        // Valid state
+        assert!(doc.validate_state().is_ok());
+        
+        // Test with Unicode text
+        let unicode_doc = Document::with_text("こんにちは".to_string(), 3);
+        assert!(unicode_doc.validate_state().is_ok());
+    }
+
+    #[test]
+    fn test_get_char_relative_validation() {
+        let doc = Document::with_text("hello".to_string(), 2);
+        
+        // Valid relative positions
+        assert_eq!(doc.get_char_relative_to_cursor_validated(-1).unwrap(), Some('e'));
+        assert_eq!(doc.get_char_relative_to_cursor_validated(0).unwrap(), Some('l'));
+        assert_eq!(doc.get_char_relative_to_cursor_validated(1).unwrap(), Some('l'));
+        
+        // Invalid relative positions
+        let result = doc.get_char_relative_to_cursor_validated(-10);
+        assert!(result.is_err());
+        if let Err(BufferError::BoundsCheckFailed { operation, position: _, bounds }) = result {
+            assert_eq!(operation, "get_char_relative_to_cursor");
+            assert_eq!(bounds, (0, 5));
+        } else {
+            panic!("Expected BoundsCheckFailed error");
+        }
+        
+        let result = doc.get_char_relative_to_cursor_validated(10);
+        assert!(result.is_err());
+        if let Err(BufferError::BoundsCheckFailed { operation, position, bounds }) = result {
+            assert_eq!(operation, "get_char_relative_to_cursor");
+            assert_eq!(position, 12);
+            assert_eq!(bounds, (0, 5));
+        } else {
+            panic!("Expected BoundsCheckFailed error");
+        }
+    }
+
+    #[test]
+    fn test_document_with_key_validation() {
+        use crate::key::Key;
+        
+        // Valid document with key
+        let doc = Document::with_text_and_key_validated(
+            "hello".to_string(), 
+            3, 
+            Some(Key::ControlA)
+        );
+        assert!(doc.is_ok());
+        let doc = doc.unwrap();
+        assert_eq!(doc.cursor_position(), 3);
+        assert_eq!(doc.last_key_stroke(), Some(Key::ControlA));
+        
+        // Invalid cursor position with key
+        let result = Document::with_text_and_key_validated(
+            "hello".to_string(), 
+            10, 
+            Some(Key::ControlA)
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_unicode_document_validation() {
+        // Test with various Unicode characters
+        let emoji_text = "Hello 👋 World 🌍";
+        let emoji_doc = Document::with_text_validated(emoji_text.to_string(), 7);
+        assert!(emoji_doc.is_ok());
+        let doc = emoji_doc.unwrap();
+        assert!(doc.validate_state().is_ok());
+        
+        // Test character access with Unicode - let's check what's actually at position 7
+        // "Hello 👋 World 🌍" has characters at positions:
+        // 0:H 1:e 2:l 3:l 4:o 5:  6:👋 7:  8:W 9:o 10:r 11:l 12:d 13:  14:🌍
+        assert_eq!(doc.get_char_relative_to_cursor_validated(-1).unwrap(), Some('👋'));
+        assert_eq!(doc.get_char_relative_to_cursor_validated(0).unwrap(), Some(' '));
+        assert_eq!(doc.get_char_relative_to_cursor_validated(1).unwrap(), Some('W'));
+        
+        // Test CJK characters
+        let cjk_doc = Document::with_text_validated("你好世界".to_string(), 2);
+        assert!(cjk_doc.is_ok());
+        let doc = cjk_doc.unwrap();
+        assert!(doc.validate_state().is_ok());
+        assert_eq!(doc.get_char_relative_to_cursor_validated(0).unwrap(), Some('世'));
+    }

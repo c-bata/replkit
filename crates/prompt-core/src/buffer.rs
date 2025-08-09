@@ -99,6 +99,39 @@ impl Buffer {
         self.invalidate_cache();
     }
 
+    /// Set the text content with validation.
+    ///
+    /// This version performs validation on the text before setting it.
+    ///
+    /// # Arguments
+    ///
+    /// * `text` - The new text content
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if successful, or a `BufferError` if validation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::buffer::Buffer;
+    ///
+    /// let mut buffer = Buffer::new();
+    /// assert!(buffer.set_text_validated("hello world".to_string()).is_ok());
+    /// assert_eq!(buffer.text(), "hello world");
+    /// ```
+    pub fn set_text_validated(&mut self, text: String) -> BufferResult<()> {
+        use crate::error::validation;
+        
+        // Validate text encoding
+        validation::validate_text_encoding(&text)?;
+        
+        // Set the text
+        self.set_text(text);
+        
+        Ok(())
+    }
+
 
 
     /// Set the last key stroke for context-aware operations.
@@ -306,6 +339,48 @@ impl Buffer {
         self.invalidate_cache();
     }
 
+    /// Insert text at the current cursor position with validation.
+    ///
+    /// This version performs validation and returns errors instead of silently
+    /// clamping values.
+    ///
+    /// # Arguments
+    ///
+    /// * `text` - The text to insert
+    /// * `overwrite` - If true, overwrite existing text; if false, insert text
+    /// * `move_cursor` - If true, move cursor after the inserted text
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if the operation succeeds, or a `BufferError` if validation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::buffer::Buffer;
+    ///
+    /// let mut buffer = Buffer::new();
+    /// buffer.set_text("hello".to_string());
+    /// buffer.set_cursor_position(5);
+    /// 
+    /// assert!(buffer.insert_text_validated(" world", false, true).is_ok());
+    /// assert_eq!(buffer.text(), "hello world");
+    /// ```
+    pub fn insert_text_validated(&mut self, text: &str, overwrite: bool, move_cursor: bool) -> BufferResult<()> {
+        use crate::error::validation;
+        
+        // Validate text encoding
+        validation::validate_text_encoding(text)?;
+        
+        // Validate cursor position
+        validation::validate_cursor_position(self.cursor_position, self.text())?;
+        
+        // Perform the insertion
+        self.insert_text(text, overwrite, move_cursor);
+        
+        Ok(())
+    }
+
     /// Delete text before the cursor.
     ///
     /// # Arguments
@@ -364,6 +439,49 @@ impl Buffer {
         self.invalidate_cache();
         
         deleted_text
+    }
+
+    /// Delete text before the cursor with validation.
+    ///
+    /// This version performs validation and returns errors for invalid operations.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - Number of characters to delete
+    ///
+    /// # Returns
+    ///
+    /// `Ok(deleted_text)` if successful, or a `BufferError` if validation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::buffer::Buffer;
+    ///
+    /// let mut buffer = Buffer::new();
+    /// buffer.set_text("hello".to_string());
+    /// buffer.set_cursor_position(3);
+    /// 
+    /// let result = buffer.delete_before_cursor_validated(2);
+    /// assert!(result.is_ok());
+    /// assert_eq!(result.unwrap(), "el");
+    /// ```
+    pub fn delete_before_cursor_validated(&mut self, count: usize) -> BufferResult<String> {
+        use crate::error::validation;
+        
+        if count == 0 {
+            return Ok(String::new());
+        }
+        
+        // Validate cursor position
+        validation::validate_cursor_position(self.cursor_position, self.text())?;
+        
+        // Validate character count
+        let available = self.cursor_position;
+        validation::validate_character_count(count, available, "delete_before_cursor")?;
+        
+        // Perform the deletion
+        Ok(self.delete_before_cursor(count))
     }
 
     /// Delete text after the cursor.
@@ -426,6 +544,50 @@ impl Buffer {
         self.invalidate_cache();
         
         deleted_text
+    }
+
+    /// Delete text after the cursor with validation.
+    ///
+    /// This version performs validation and returns errors for invalid operations.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - Number of characters to delete
+    ///
+    /// # Returns
+    ///
+    /// `Ok(deleted_text)` if successful, or a `BufferError` if validation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::buffer::Buffer;
+    ///
+    /// let mut buffer = Buffer::new();
+    /// buffer.set_text("hello".to_string());
+    /// buffer.set_cursor_position(2);
+    /// 
+    /// let result = buffer.delete_validated(2);
+    /// assert!(result.is_ok());
+    /// assert_eq!(result.unwrap(), "ll");
+    /// ```
+    pub fn delete_validated(&mut self, count: usize) -> BufferResult<String> {
+        use crate::error::validation;
+        
+        if count == 0 {
+            return Ok(String::new());
+        }
+        
+        // Validate cursor position
+        validation::validate_cursor_position(self.cursor_position, self.text())?;
+        
+        // Validate character count
+        let text_len = unicode::rune_count(self.text());
+        let available = text_len - self.cursor_position;
+        validation::validate_character_count(count, available, "delete")?;
+        
+        // Perform the deletion
+        Ok(self.delete(count))
     }
 
     /// Set the working index to switch between working lines.
@@ -679,8 +841,10 @@ impl Buffer {
     /// assert_eq!(buffer.cursor_position(), 11);
     /// ```
     pub fn set_cursor_position(&mut self, position: usize) {
-        let text_len = unicode::rune_count(self.text());
-        let new_position = position.min(text_len);
+        use crate::error::validation;
+        
+        let _text_len = unicode::rune_count(self.text());
+        let new_position = validation::clamp_cursor_position(position, self.text());
         
         if self.cursor_position != new_position {
             self.cursor_position = new_position;
@@ -689,16 +853,97 @@ impl Buffer {
         }
     }
 
+    /// Set the cursor position with strict validation (returns error if out of bounds).
+    ///
+    /// Unlike `set_cursor_position`, this method returns an error if the position
+    /// is out of bounds instead of clamping it.
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - The new cursor position as a rune index
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if the position is valid, or a `BufferError` if out of bounds.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::buffer::Buffer;
+    ///
+    /// let mut buffer = Buffer::new();
+    /// buffer.set_text("hello".to_string());
+    /// 
+    /// assert!(buffer.set_cursor_position_strict(3).is_ok());
+    /// assert!(buffer.set_cursor_position_strict(10).is_err());
+    /// ```
+    pub fn set_cursor_position_strict(&mut self, position: usize) -> BufferResult<()> {
+        use crate::error::validation;
+        
+        validation::validate_cursor_position(position, self.text())?;
+        
+        if self.cursor_position != position {
+            self.cursor_position = position;
+            self.preferred_column = None;
+            self.invalidate_cache();
+        }
+        
+        Ok(())
+    }
+
     /// Ensure cursor position is within valid bounds.
     ///
     /// This is an internal helper method that clamps the cursor position
     /// to valid bounds within the current text.
     fn ensure_cursor_bounds(&mut self) {
+        use crate::error::validation;
+        
         let text_len = unicode::rune_count(self.text());
         if self.cursor_position > text_len {
-            self.cursor_position = text_len;
+            self.cursor_position = validation::clamp_cursor_position(self.cursor_position, self.text());
             self.preferred_column = None; // Reset preferred column when bounds are corrected
         }
+    }
+
+    /// Validate the current buffer state.
+    ///
+    /// This method checks that all internal state is consistent and valid.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if the buffer state is valid, or a `BufferError` describing the issue.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::buffer::Buffer;
+    ///
+    /// let mut buffer = Buffer::new();
+    /// buffer.set_text("hello".to_string());
+    /// assert!(buffer.validate_state().is_ok());
+    /// ```
+    pub fn validate_state(&self) -> BufferResult<()> {
+        use crate::error::validation;
+        
+        // Validate working index
+        validation::validate_working_index(self.working_index, self.working_lines.len())?;
+        
+        // Validate cursor position
+        validation::validate_cursor_position(self.cursor_position, self.text())?;
+        
+        // Validate text encoding for current line
+        validation::validate_text_encoding(self.text())?;
+        
+        // Validate all working lines
+        for (i, line) in self.working_lines.iter().enumerate() {
+            validation::validate_text_encoding(line)
+                .map_err(|_| BufferError::invalid_text_operation(
+                    "validate_working_line",
+                    &format!("Invalid text encoding in working line {}", i)
+                ))?;
+        }
+        
+        Ok(())
     }
 }
 
@@ -835,6 +1080,196 @@ mod tests {
         } else {
             panic!("Expected InvalidWorkingIndex error");
         }
+    }
+
+    #[test]
+    fn test_error_handling_cursor_position() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("hello".to_string());
+        
+        // Valid cursor position
+        assert!(buffer.set_cursor_position_strict(3).is_ok());
+        assert_eq!(buffer.cursor_position(), 3);
+        
+        // Invalid cursor position
+        let result = buffer.set_cursor_position_strict(10);
+        assert!(result.is_err());
+        if let Err(BufferError::InvalidCursorPosition { position, max }) = result {
+            assert_eq!(position, 10);
+            assert_eq!(max, 5);
+        } else {
+            panic!("Expected InvalidCursorPosition error");
+        }
+        
+        // Cursor position should remain unchanged after error
+        assert_eq!(buffer.cursor_position(), 3);
+    }
+
+    #[test]
+    fn test_error_handling_text_validation() {
+        let mut buffer = Buffer::new();
+        
+        // Valid text
+        assert!(buffer.set_text_validated("hello world".to_string()).is_ok());
+        assert_eq!(buffer.text(), "hello world");
+        
+        // Text with null characters should be rejected
+        let result = buffer.set_text_validated("hello\0world".to_string());
+        assert!(result.is_err());
+        if let Err(BufferError::TextEncodingError(_)) = result {
+            // Expected
+        } else {
+            panic!("Expected TextEncodingError");
+        }
+        
+        // Buffer text should remain unchanged after error
+        assert_eq!(buffer.text(), "hello world");
+    }
+
+    #[test]
+    fn test_error_handling_insert_text() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("hello".to_string());
+        buffer.set_cursor_position(3);
+        
+        // Valid insertion
+        assert!(buffer.insert_text_validated(" world", false, true).is_ok());
+        assert_eq!(buffer.text(), "hel worldlo");
+        
+        // Reset for next test
+        buffer.set_text("hello".to_string());
+        
+        // Test with invalid text (null character)
+        let result = buffer.insert_text_validated("hello\0world", false, true);
+        assert!(result.is_err());
+        if let Err(BufferError::TextEncodingError(_)) = result {
+            // Expected
+        } else {
+            panic!("Expected TextEncodingError");
+        }
+        
+        // Test with cursor position that's invalid - should fail validation
+        buffer.cursor_position = 10; // Manually set invalid position
+        let result = buffer.insert_text_validated(" world", false, true);
+        assert!(result.is_err()); // Should fail because cursor position is invalid
+    }
+
+    #[test]
+    fn test_error_handling_delete_operations() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("hello world".to_string());
+        buffer.set_cursor_position(5);
+        
+        // Valid deletion before cursor
+        let result = buffer.delete_before_cursor_validated(2);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "lo");
+        
+        // Reset
+        buffer.set_text("hello world".to_string());
+        buffer.set_cursor_position(5);
+        
+        // Valid deletion after cursor
+        let result = buffer.delete_validated(2);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), " w");
+        
+        // Reset
+        buffer.set_text("hello".to_string());
+        buffer.set_cursor_position(2);
+        
+        // Try to delete more characters than available before cursor
+        let result = buffer.delete_before_cursor_validated(5);
+        assert!(result.is_err());
+        if let Err(BufferError::InvalidCharacterCount { count, available }) = result {
+            assert_eq!(count, 5);
+            assert_eq!(available, 2);
+        } else {
+            panic!("Expected InvalidCharacterCount error");
+        }
+        
+        // Try to delete more characters than available after cursor
+        let result = buffer.delete_validated(10);
+        assert!(result.is_err());
+        if let Err(BufferError::InvalidCharacterCount { count, available }) = result {
+            assert_eq!(count, 10);
+            assert_eq!(available, 3);
+        } else {
+            panic!("Expected InvalidCharacterCount error");
+        }
+    }
+
+    #[test]
+    fn test_buffer_state_validation() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("hello world".to_string());
+        buffer.set_cursor_position(5);
+        
+        // Valid state
+        assert!(buffer.validate_state().is_ok());
+        
+        // Manually corrupt the state for testing
+        buffer.cursor_position = 100; // Invalid cursor position
+        let result = buffer.validate_state();
+        assert!(result.is_err());
+        
+        // Fix the state
+        buffer.ensure_cursor_bounds();
+        assert!(buffer.validate_state().is_ok());
+    }
+
+    #[test]
+    fn test_unicode_error_handling() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("こんにちは".to_string()); // Japanese text
+        
+        // Valid operations with Unicode
+        buffer.set_cursor_position(3);
+        assert!(buffer.validate_state().is_ok());
+        
+        let result = buffer.delete_before_cursor_validated(1);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "に");
+        
+        // Insert Unicode text
+        assert!(buffer.insert_text_validated("さ", false, true).is_ok());
+        assert_eq!(buffer.text(), "こんさちは");
+    }
+
+    #[test]
+    fn test_bounds_checking() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("test".to_string());
+        
+        // Test cursor movement with bounds checking
+        buffer.set_cursor_position(2);
+        
+        // Move cursor beyond bounds should be handled gracefully
+        buffer.cursor_right(10);
+        assert_eq!(buffer.cursor_position(), 4); // Should be clamped to text end
+        
+        buffer.cursor_left(10);
+        assert_eq!(buffer.cursor_position(), 0); // Should be clamped to text start
+    }
+
+    #[test]
+    fn test_error_recovery_scenarios() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("hello world".to_string());
+        
+        // Test that buffer remains in valid state after errors
+        buffer.set_cursor_position(5);
+        
+        // Attempt invalid operation
+        let _ = buffer.set_cursor_position_strict(100);
+        
+        // Buffer should still be in valid state
+        assert!(buffer.validate_state().is_ok());
+        assert_eq!(buffer.cursor_position(), 5); // Should be unchanged
+        
+        // Should be able to perform valid operations after error
+        buffer.insert_text(" beautiful", false, true);
+        assert_eq!(buffer.text(), "hello beautiful world");
     }
 
     #[test]
