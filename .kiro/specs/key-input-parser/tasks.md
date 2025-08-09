@@ -41,18 +41,19 @@
   - Test with various key combinations and verify output
   - _Requirements: 4.1, 4.4, 4.5_
 
-- [ ] 6. Set up Go binding infrastructure
+- [ ] 6. Set up Go binding infrastructure with WASM
   - Create `bindings/go/` directory structure with proper Go module setup
-  - Write C header file `bindings/go/key_parser.h` for CGO interface
-  - Implement Rust FFI functions in `crates/prompt-core/src/ffi.rs`
-  - Set up proper build configuration and linking for shared library
+  - Configure Rust crate to compile to WASM target (wasm32-unknown-unknown)
+  - Set up wazero runtime integration in Go for WASM module loading
+  - Create WASM-compatible interface functions in `crates/prompt-core/src/wasm.rs`
   - _Requirements: 2.1, 2.4_
 
-- [ ] 7. Implement Go binding API
+- [ ] 7. Implement Go binding API with WASM
   - Create `bindings/go/key_parser.go` with Go-idiomatic Key enum and KeyEvent struct
-  - Implement KeyParser struct wrapping C interface with proper resource management
-  - Add Feed(), Flush(), Reset(), and Close() methods with error handling
-  - Implement proper memory management and cleanup with finalizers
+  - Implement KeyParser struct wrapping WASM module with wazero runtime
+  - Add Feed(), Flush(), Reset(), and Close() methods with WASM function calls
+  - Implement proper WASM memory management and data marshaling between Go and WASM
+  - Handle WASM module lifecycle and error propagation from WASM to Go
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
 - [ ] 8. Create Go example application
