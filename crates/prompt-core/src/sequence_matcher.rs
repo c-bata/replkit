@@ -137,10 +137,10 @@ impl SequenceMatcher {
         self.insert(&[0x07], Key::ControlG);
         self.insert(&[0x08], Key::ControlH);
         self.insert(&[0x09], Key::Tab);
-        self.insert(&[0x0a], Key::Enter);
+        self.insert(&[0x0a], Key::ControlJ);
         self.insert(&[0x0b], Key::ControlK);
         self.insert(&[0x0c], Key::ControlL);
-        self.insert(&[0x0d], Key::ControlM);
+        self.insert(&[0x0d], Key::Enter);
         self.insert(&[0x0e], Key::ControlN);
         self.insert(&[0x0f], Key::ControlO);
         self.insert(&[0x10], Key::ControlP);
@@ -458,10 +458,10 @@ mod tests {
             (0x07, Key::ControlG),
             (0x08, Key::ControlH),
             (0x09, Key::Tab),
-            (0x0a, Key::Enter),
+            (0x0a, Key::ControlJ),
             (0x0b, Key::ControlK),
             (0x0c, Key::ControlL),
-            (0x0d, Key::ControlM),
+            (0x0d, Key::Enter),
             (0x0e, Key::ControlN),
             (0x0f, Key::ControlO),
             (0x10, Key::ControlP),
@@ -522,6 +522,7 @@ mod tests {
         // Test that single-byte sequences work correctly
         assert_eq!(matcher.match_sequence(&[0x1b]), MatchResult::Exact(Key::Escape));
         assert_eq!(matcher.match_sequence(&[0x09]), MatchResult::Exact(Key::Tab));
-        assert_eq!(matcher.match_sequence(&[0x0a]), MatchResult::Exact(Key::Enter));
+        assert_eq!(matcher.match_sequence(&[0x0a]), MatchResult::Exact(Key::ControlJ));
+        assert_eq!(matcher.match_sequence(&[0x0d]), MatchResult::Exact(Key::Enter));
     }
 }

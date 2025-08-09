@@ -76,8 +76,6 @@ pub enum Key {
     // Aliases for common keys
     Tab,
     Enter,
-    // Note: Enter equals ControlM, not ControlJ, but following go-prompt convention
-    // where ControlJ is used for Enter key handling for compatibility
 
     // Function keys F1-F24
     F1,
