@@ -418,3 +418,57 @@ func (p *KeyParser) Close() error {
 
 	return err
 }
+
+// Helper function to allocate memory in WASM and write string data
+func (p *KeyParser) allocateString(s string) (uint32, error) {
+	if len(s) == 0 {
+		return 0, nil
+	}
+
+	malloc := p.module.ExportedFunction("malloc")
+	if malloc == nil {
+		return 0, fmt.Errorf("WASM module does not export 'malloc' function")
+	}
+
+	results, err := malloc.Call(p.ctx, uint64(len(s)))
+	if err != nil {
+		return 0, fmt.Errorf("failed to allocate WASM memory: %w", err)
+	}
+
+	ptr := uint32(results[0])
+	if !p.module.Memory().Write(ptr, []byte(s)) {
+		return 0, fmt.Errorf("failed to write string to WASM memory")
+	}
+
+	return ptr, nil
+}
+
+// Helper function to free WASM memory
+func (p *KeyParser) freeMemory(ptr uint32) {
+	if ptr == 0 {
+		return
+	}
+	free := p.module.ExportedFunction("free")
+	if free != nil {
+		free.Call(p.ctx, uint64(ptr))
+	}
+}
+
+// Helper function to read JSON result from WASM
+func (p *KeyParser) readJSONResult(packed uint64, target interface{}) error {
+	resultPtr := uint32(packed >> 32)
+	resultLen := uint32(packed & 0xFFFFFFFF)
+
+	if resultLen == 0 {
+		return fmt.Errorf("empty result from WASM")
+	}
+
+	jsonBytes, ok := p.module.Memory().Read(resultPtr, resultLen)
+	if !ok {
+		return fmt.Errorf("failed to read result from WASM memory")
+	}
+
+	defer p.freeMemory(resultPtr)
+
+	return json.Unmarshal(jsonBytes, target)
+}

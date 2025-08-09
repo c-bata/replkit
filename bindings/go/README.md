@@ -1,9 +1,13 @@
-# Go Key Parser Binding
+# Go Prompt Bindings
 
-This package provides Go bindings for the Rust-based key input parser using WebAssembly (WASM).
+This package provides Go bindings for the Rust-based prompt system, including key parsing and text buffer management using WebAssembly (WASM).
 
 ## Features
 
+- **Key Parsing**: Efficient parsing of terminal input sequences and key events
+- **Text Buffer Management**: Mutable text buffer with editing operations
+- **Document Analysis**: Immutable document structure for text analysis
+- **Unicode Support**: Proper handling of multi-byte characters, CJK text, and emojis
 - **Cross-platform**: Works on any platform supported by Go and WASM
 - **Zero dependencies**: Uses wazero for WASM runtime (pure Go implementation)
 - **Embedded WASM**: WASM binary is embedded using `go:embed`, no external files needed
