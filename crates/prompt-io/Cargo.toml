@@ -1,0 +1,9 @@
+[package]
+name = "prompt-io"
+version = "0.1.0"
+edition = "2021"
+description = "Cross-platform terminal backend abstraction for prompt"
+
+[dependencies]
+libc = { workspace = true }
+prompt-core = { path = "../prompt-core" }

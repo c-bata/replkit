@@ -3,6 +3,7 @@ members = [
     "crates/prompt-core",
     "crates/prompt-wasm",
     "crates/prompt-pyo3",
+    "crates/prompt-io",
 ]
 resolver = "2"
 
@@ -30,6 +31,7 @@ license.workspace = true
 [dependencies]
 prompt-core = { path = "crates/prompt-core" }
 libc = { workspace = true }
+prompt-io = { path = "crates/prompt-io" }
 
 [[example]]
 name = "vt100_debug"
