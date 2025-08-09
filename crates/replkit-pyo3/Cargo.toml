@@ -1,0 +1,19 @@
+[package]
+name = "replkit-pyo3"
+version.workspace = true
+edition.workspace = true
+description = "Python bindings for REPLKIT"
+repository.workspace = true
+keywords.workspace = true
+license.workspace = true
+
+[lib]
+name = "replkit"
+crate-type = ["cdylib"]
+
+[dependencies]
+replkit-core = { path = "../replkit-core" }
+pyo3 = { version = "0.20", features = ["extension-module"] }
+
+[build-dependencies]
+pyo3-build-config = "0.20"

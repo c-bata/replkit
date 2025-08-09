@@ -12,7 +12,6 @@
   - Build static sequence mapping table covering control chars, arrows, function keys
   - Implement match_sequence() and find_longest_match() methods with single-pass efficiency
   - Add comprehensive unit tests for sequence matching and prefix detection
-  - Please refer to `references/snippets/prompt_toolkit_vt100_debug.py`.
   - _Requirements: 1.1, 1.3, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6_
 
 - [x] 3. Create state machine parser engine

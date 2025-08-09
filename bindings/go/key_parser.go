@@ -11,7 +11,7 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
 
-//go:embed wasm/prompt_wasm.wasm
+//go:embed wasm/replkit_wasm.wasm
 var embeddedWasm []byte
 
 // Key represents the different types of keys that can be parsed.

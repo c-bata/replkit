@@ -1,9 +1,9 @@
 [workspace]
 members = [
-    "crates/prompt-core",
-    "crates/prompt-wasm",
-    "crates/prompt-pyo3",
-    "crates/prompt-io",
+    "crates/replkit-core",
+    "crates/replkit-wasm",
+    "crates/replkit-pyo3",
+    "crates/replkit-io",
 ]
 resolver = "2"
 
@@ -11,28 +11,9 @@ resolver = "2"
 version = "0.1.0"
 edition = "2021"
 description = "Library for building powerful interactive prompts"
-repository = "https://github.com/c-bata/prompt"
+repository = "https://github.com/c-bata/replkit"
 keywords = ["terminal"]
 license = "MIT"
 
 [workspace.dependencies]
 libc = "0.2"
-
-# Main package for examples
-[package]
-name = "prompt"
-version.workspace = true
-edition.workspace = true
-description.workspace = true
-repository.workspace = true
-keywords.workspace = true
-license.workspace = true
-
-[dependencies]
-prompt-core = { path = "crates/prompt-core" }
-libc = { workspace = true }
-prompt-io = { path = "crates/prompt-io" }
-
-[[example]]
-name = "debug_key_input"
-path = "examples/debug_key_input.rs"

@@ -17,38 +17,44 @@
 
 ## Common Commands
 
-### Development
-```bash
-# Install dependencies
-npm install / yarn install / pip install -r requirements.txt
+### `crates/replkit_pyo3`
 
-# Start development server
-npm run dev / yarn dev / python manage.py runserver
+`replkit_pyo3` is built using [maturin](https://github.com/PyO3/maturin) and [PyO3](https://github.com/PyO3/pyo3), with `uv` for dependency management.
+
+**Setup Development Environment**
+
+```bash
+# Create virtual environment and install dependencies
+uv sync --group dev
+
+# Build the extension module for development
+uv run maturin develop
 
 # Run tests
-npm test / yarn test / pytest / go test
+uv run pytest tests
+
+# Run type checking
+uv run mypy replkit/
+
+# Run linting
+uv run ruff check replkit/ tests/ python-examples/
 ```
 
-### Build & Deploy
+**Building Wheels**
+
 ```bash
-# Build for production
-npm run build / yarn build / make build
+# Build wheels for all supported Python versions
+uv run maturin build --find-interpreter
 
-# Run production build
-npm start / yarn start / ./dist/app
-
-# Deploy
-npm run deploy / make deploy
+# Build wheel for current Python version only
+uv run maturin build
 ```
 
-### Code Quality
+
+### `bindings/go`
+
+Run the test suite:
+
 ```bash
-# Format code
-npm run format / black . / go fmt
-
-# Lint code
-npm run lint / flake8 / golangci-lint run
-
-# Type checking
-npm run type-check / mypy .
+go test -v
 ```

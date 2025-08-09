@@ -9,7 +9,7 @@ import (
 
 func TestWASMIntegration(t *testing.T) {
 	// Load the WASM binary
-	wasmPath := filepath.Join("wasm", "prompt_wasm.wasm")
+	wasmPath := filepath.Join("wasm", "replkit_wasm.wasm")
 	wasmBytes, err := ioutil.ReadFile(wasmPath)
 	if err != nil {
 		t.Skipf("WASM binary not found at %s, skipping integration test: %v", wasmPath, err)

@@ -1,0 +1,21 @@
+[package]
+name = "replkit-core"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+repository.workspace = true
+keywords.workspace = true
+license.workspace = true
+
+[dependencies]
+libc = { workspace = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
+unicode-width = "0.1"
+
+[dev-dependencies]
+serde_json = "1.0"
+
+[features]
+default = []
+wasm = ["serde", "serde_json"]

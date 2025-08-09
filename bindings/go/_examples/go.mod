@@ -1,9 +1,9 @@
-module github.com/c-bata/prompt/examples
+module github.com/c-bata/replkit/examples
 
 go 1.21
 
 require (
-	github.com/c-bata/prompt/bindings/go v0.0.0
+	github.com/c-bata/replkit/bindings/go v0.0.0
 	golang.org/x/term v0.15.0
 )
 
@@ -13,4 +13,4 @@ require (
 )
 
 // Use local bindings
-replace github.com/c-bata/prompt/bindings/go => ../
+replace github.com/c-bata/replkit/bindings/go => ../

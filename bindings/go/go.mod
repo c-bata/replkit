@@ -1,4 +1,4 @@
-module github.com/c-bata/prompt/bindings/go
+module github.com/c-bata/replkit/bindings/go
 
 go 1.21
 

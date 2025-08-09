@@ -11,17 +11,14 @@
 ```
 /
 ├── crates/                     # Workspace crates
-│   ├── prompt-core/            # Core REPL engine logic (editor, history, prompt loop)
-│   ├── prompt-render/          # Terminal rendering (styling, ANSI control)
-│   ├── prompt-io/              # Implementation of ConsoleInput and ConsoleOuptut traits
-│   ├── prompt-keybind/         # Key bindings (emacs)
-│   ├── prompt-wasm/            # WASM interface for Go bindings
-│   └── prompt-pyo3/            # PyO3-based Python binding (build with maturin)
-│       ├── examples/           # Examples of Python bindings
-│       ├── prompt/             # Python source codes
+│   ├── replkit-core/           # Core REPL engine logic (editor, history, prompt loop)
+│   ├── replkit-io/             # Implementation of ConsoleInput and ConsoleOuptut traits
+│   ├── replkit-wasm/           # WASM interface for Go bindings
+│   └── replkit-pyo3/           # PyO3-based Python binding (build with maturin)
+│       ├── python-examples/    # Examples of Python bindings
+│       ├── replkit/            # Python source codes
 │       ├── src/                # Rust source codes
-│       ├── python_tests/       # Tests for Python bindings (pytest)
-│       └── tests/              # Tests for the Rust source codes
+│       └── tests/              # Tests for Python bindings (pytest)
 ├── bindings/                   # Language-specific bindings
 │   └── go/                     # Go binding via Wasm and wazero runtime
 │       ├── _examples/          # Examples of Go bindings
@@ -35,7 +32,7 @@
 ```
 
 ## File Naming Conventions
-- Use kebab-case for crate and directory names: `prompt-core/`
+- Use kebab-case for crate and directory names: `replkit-core/`
 - Use snake_case for Rust source files: `line_editor.rs`, `key_map.rs`
 - Use PascalCase for Rust struct and enum names: `PromptLoop`, `LineBuffer`
 - Use snake_case for Python files: `bindings.rs`, `prompt_module.py`
@@ -43,12 +40,7 @@
 - Use descriptive names that convey function (e.g., `renderer.rs`, `completion.rs`)
 
 ## Code Organization
-- `prompt-core` owns the REPL engine: buffer, cursor, key handling, completion logic
-- `prompt-render` abstracts ANSI rendering, themes, cursor positioning, etc.
-- `prompt-bindings` exposes safe interfaces for multi-language FFI
-- Language bindings wrap `prompt-bindings` and expose idiomatic APIs
-- `examples/` contains end-to-end usage in Rust, Python, and Go
+- `replkit-core` owns the REPL engine: buffer, cursor, key handling, completion logic
 - Keep logic modular: editor, renderer, history, completer should be swappable/testable
-- Add integration tests to validate bindings match expected behavior
 - Group tests close to the logic they validate; avoid monolithic test suites
 - Use feature flags (`[features]`) to toggle optional components like macros or WASM
