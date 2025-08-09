@@ -31,7 +31,7 @@
   - Add unit tests for special sequence handling
   - _Requirements: 1.6_
 
-- [ ] 5. Create Rust example application with SIGIO-based input
+- [x] 5. Create Rust example application with SIGIO-based input
   - Build `examples/vt100_debug.rs` that demonstrates raw terminal input parsing
   - Set up raw terminal mode using termios and configure non-blocking stdin
   - Implement SIGIO signal handler to detect when stdin is ready for reading

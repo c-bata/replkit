@@ -13,4 +13,22 @@ keywords = ["terminal"]
 license = "MIT"
 
 [workspace.dependencies]
+libc = "0.2"
 
+# Main package for examples
+[package]
+name = "prompt"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+repository.workspace = true
+keywords.workspace = true
+license.workspace = true
+
+[dependencies]
+prompt-core = { path = "crates/prompt-core" }
+libc = { workspace = true }
+
+[[example]]
+name = "vt100_debug"
+path = "examples/vt100_debug.rs"

@@ -8,3 +8,4 @@ keywords.workspace = true
 license.workspace = true
 
 [dependencies]
+libc = { workspace = true }
