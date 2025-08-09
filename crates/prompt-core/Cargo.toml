@@ -10,6 +10,7 @@ license.workspace = true
 [dependencies]
 libc = { workspace = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
+unicode-width = "0.1"
 
 [features]
 default = []

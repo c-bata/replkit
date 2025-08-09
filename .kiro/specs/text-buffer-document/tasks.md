@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. Set up crate structure and dependencies
+- [x] 1. Set up crate structure and dependencies
   - Create `crates/prompt-core/src/buffer.rs` and `crates/prompt-core/src/document.rs` modules
   - Add Unicode dependencies (unicode-width) and serde to Cargo.toml
   - Create `crates/prompt-core/src/unicode.rs` utility module
