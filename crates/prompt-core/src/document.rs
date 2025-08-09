@@ -964,12 +964,17 @@ impl Document {
         
         let line_start = line_starts[row];
         let line_end = if row + 1 < line_starts.len() {
-            line_starts[row + 1] - 1 // Subtract 1 to exclude the newline
+            line_starts[row + 1] - 1 // Position of the newline, so line content ends at position - 1
         } else {
-            unicode::rune_count(&self.text)
+            unicode::rune_count(&self.text) // End of document
         };
         
-        let max_col = line_end - line_start;
+        // The maximum column is the number of characters in the line
+        // For "ab" at positions 7-8, line_end=9, so max_col = 9-7 = 2, but we want columns 0,1
+        // So the actual line content length is line_end - line_start
+        // But we want to allow positioning at the end, so max_col should be the line length
+        let line_content_length = line_end - line_start;
+        let max_col = line_content_length;
         let clamped_col = col.min(max_col);
         
         line_start + clamped_col
@@ -999,6 +1004,262 @@ impl Document {
         }
         
         (line_starts[row], row)
+    }
+
+    // Cursor movement calculations
+
+    /// Calculate the cursor position after moving left by the specified count.
+    ///
+    /// Returns the relative offset from the current cursor position.
+    /// Respects line boundaries - will not move past the beginning of the current line.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - Number of characters to move left
+    ///
+    /// # Returns
+    ///
+    /// Negative offset representing how many characters to move left.
+    /// The absolute value will be <= count and <= cursor position within current line.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::document::Document;
+    ///
+    /// let doc = Document::with_text("line1\nline2".to_string(), 8); // "li|ne2"
+    /// assert_eq!(doc.get_cursor_left_position(1), -1); // Move 1 left
+    /// assert_eq!(doc.get_cursor_left_position(5), -2); // Can only move 2 left to start of line
+    /// ```
+    pub fn get_cursor_left_position(&self, count: usize) -> i32 {
+        let current_line_before = self.current_line_before_cursor();
+        let available_chars = unicode::rune_count(current_line_before);
+        let actual_move = count.min(available_chars);
+        -(actual_move as i32)
+    }
+
+    /// Calculate the cursor position after moving right by the specified count.
+    ///
+    /// Returns the relative offset from the current cursor position.
+    /// Respects line boundaries - will not move past the end of the current line.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - Number of characters to move right
+    ///
+    /// # Returns
+    ///
+    /// Positive offset representing how many characters to move right.
+    /// The value will be <= count and <= remaining characters in current line.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::document::Document;
+    ///
+    /// let doc = Document::with_text("line1\nline2".to_string(), 6); // "|line2"
+    /// assert_eq!(doc.get_cursor_right_position(1), 1); // Move 1 right
+    /// assert_eq!(doc.get_cursor_right_position(10), 5); // Can only move 5 right to end of line
+    /// ```
+    pub fn get_cursor_right_position(&self, count: usize) -> i32 {
+        let current_line_after = self.current_line_after_cursor();
+        let available_chars = unicode::rune_count(current_line_after);
+        let actual_move = count.min(available_chars);
+        actual_move as i32
+    }
+
+    /// Calculate the cursor position after moving up by the specified count.
+    ///
+    /// Returns the relative offset from the current cursor position.
+    /// Uses preferred column to maintain consistent horizontal position when possible.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - Number of lines to move up
+    /// * `preferred_column` - Optional preferred column position for consistent vertical movement
+    ///
+    /// # Returns
+    ///
+    /// Negative offset representing how many characters to move up.
+    /// Returns 0 if already on the first line or if count is 0.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::document::Document;
+    ///
+    /// let doc = Document::with_text("line1\nline2\nline3".to_string(), 8); // "li|ne2"
+    /// assert_eq!(doc.get_cursor_up_position(1, None), -2); // Move to same column in line1
+    /// assert_eq!(doc.get_cursor_up_position(1, Some(10)), -3); // Preferred column beyond line length
+    /// ```
+    pub fn get_cursor_up_position(&self, count: usize, preferred_column: Option<usize>) -> i32 {
+        if count == 0 {
+            return 0;
+        }
+
+        let current_row = self.cursor_position_row();
+        if current_row == 0 {
+            return 0; // Already on first line
+        }
+
+        let target_row = current_row.saturating_sub(count);
+        let current_col = self.cursor_position_col();
+        let target_col = preferred_column.unwrap_or(current_col);
+
+        let target_index = self.translate_row_col_to_index(target_row, target_col);
+        (target_index as i32) - (self.cursor_position as i32)
+    }
+
+    /// Calculate the cursor position after moving down by the specified count.
+    ///
+    /// Returns the relative offset from the current cursor position.
+    /// Uses preferred column to maintain consistent horizontal position when possible.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - Number of lines to move down
+    /// * `preferred_column` - Optional preferred column position for consistent vertical movement
+    ///
+    /// # Returns
+    ///
+    /// Positive offset representing how many characters to move down.
+    /// Returns 0 if already on the last line or if count is 0.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::document::Document;
+    ///
+    /// let doc = Document::with_text("line1\nline2\nline3".to_string(), 2); // "li|ne1"
+    /// assert_eq!(doc.get_cursor_down_position(1, None), 4); // Move to same column in line2
+    /// assert_eq!(doc.get_cursor_down_position(2, Some(1)), 10); // Move to column 1 in line3
+    /// ```
+    pub fn get_cursor_down_position(&self, count: usize, preferred_column: Option<usize>) -> i32 {
+        if count == 0 {
+            return 0;
+        }
+
+        let current_row = self.cursor_position_row();
+        let total_lines = self.line_count();
+        
+        if current_row >= total_lines - 1 {
+            return 0; // Already on last line
+        }
+
+        let target_row = (current_row + count).min(total_lines - 1);
+        let current_col = self.cursor_position_col();
+        let target_col = preferred_column.unwrap_or(current_col);
+
+        let target_index = self.translate_row_col_to_index(target_row, target_col);
+        (target_index as i32) - (self.cursor_position as i32)
+    }
+
+    /// Check if the cursor is on the last line of the document.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the cursor is on the last line, `false` otherwise.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::document::Document;
+    ///
+    /// let doc = Document::with_text("line1\nline2\nline3".to_string(), 8); // line2
+    /// assert_eq!(doc.on_last_line(), false);
+    ///
+    /// let doc2 = Document::with_text("line1\nline2\nline3".to_string(), 15); // line3
+    /// assert_eq!(doc2.on_last_line(), true);
+    /// ```
+    pub fn on_last_line(&self) -> bool {
+        let current_row = self.cursor_position_row();
+        let total_lines = self.line_count();
+        current_row >= total_lines - 1
+    }
+
+    /// Get the position of the end of the current line.
+    ///
+    /// Returns the rune index of the last character in the current line.
+    /// For lines ending with a newline, this is the position just before the newline.
+    ///
+    /// # Returns
+    ///
+    /// The rune index of the end of the current line.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::document::Document;
+    ///
+    /// let doc = Document::with_text("line1\nline2\nline3".to_string(), 8); // "li|ne2"
+    /// assert_eq!(doc.get_end_of_line_position(), 11); // End of "line2"
+    ///
+    /// let doc2 = Document::with_text("line1\nline2\nline3".to_string(), 2); // "li|ne1"
+    /// assert_eq!(doc2.get_end_of_line_position(), 5); // End of "line1"
+    /// ```
+    pub fn get_end_of_line_position(&self) -> usize {
+        let (line_start, row) = self.find_line_start_index(self.cursor_position);
+        let line_starts = self.line_start_indexes();
+        
+        if row + 1 < line_starts.len() {
+            // Not the last line, end is just before the newline
+            line_starts[row + 1] - 1
+        } else {
+            // Last line, end is the end of the document
+            unicode::rune_count(&self.text)
+        }
+    }
+
+    /// Get the leading whitespace of the current line.
+    ///
+    /// Returns the whitespace characters (spaces and tabs) at the beginning of the current line.
+    /// This is useful for implementing indentation-aware operations.
+    ///
+    /// # Returns
+    ///
+    /// A string slice containing the leading whitespace of the current line.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::document::Document;
+    ///
+    /// let doc = Document::with_text("line1\n    indented\nline3".to_string(), 10); // "    |indented"
+    /// assert_eq!(doc.leading_whitespace_in_current_line(), "    ");
+    ///
+    /// let doc2 = Document::with_text("line1\nno_indent\nline3".to_string(), 8); // "no|_indent"
+    /// assert_eq!(doc2.leading_whitespace_in_current_line(), "");
+    /// ```
+    pub fn leading_whitespace_in_current_line(&self) -> &str {
+        let (line_start, _) = self.find_line_start_index(self.cursor_position);
+        let text_len = unicode::rune_count(&self.text);
+        let mut end_pos = line_start;
+        
+        // Find the end of the current line
+        let mut line_end = line_start;
+        while line_end < text_len {
+            if let Some(ch) = unicode::char_at_rune_index(&self.text, line_end) {
+                if ch == '\n' {
+                    break;
+                }
+            }
+            line_end += 1;
+        }
+        
+        // Find the end of leading whitespace
+        while end_pos < line_end {
+            if let Some(ch) = unicode::char_at_rune_index(&self.text, end_pos) {
+                if ch == ' ' || ch == '\t' {
+                    end_pos += 1;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        
+        unicode::rune_slice(&self.text, line_start, end_pos)
     }
 }
 
@@ -1587,6 +1848,332 @@ mod tests {
         assert_eq!(doc.lines(), vec!["こんにちは", "世界", "テスト"]);
         assert_eq!(doc.line_count(), 3);
         assert_eq!(doc.line_start_indexes(), vec![0, 6, 9]);
+    }
+
+    // Cursor movement calculation tests
+
+    #[test]
+    fn test_get_cursor_left_position() {
+        // Basic left movement within line
+        let doc = Document::with_text("hello world".to_string(), 5); // "hello| world"
+        assert_eq!(doc.get_cursor_left_position(1), -1);
+        assert_eq!(doc.get_cursor_left_position(3), -3);
+        assert_eq!(doc.get_cursor_left_position(5), -5); // To start of line
+
+        // Cannot move past start of line
+        assert_eq!(doc.get_cursor_left_position(10), -5); // Clamped to start of line
+
+        // Multi-line text - respects line boundaries
+        let doc2 = Document::with_text("line1\nline2\nline3".to_string(), 8); // "li|ne2"
+        assert_eq!(doc2.get_cursor_left_position(1), -1);
+        assert_eq!(doc2.get_cursor_left_position(2), -2); // To start of current line
+        assert_eq!(doc2.get_cursor_left_position(5), -2); // Cannot cross line boundary
+
+        // At start of line
+        let doc3 = Document::with_text("line1\nline2".to_string(), 6); // "|line2"
+        assert_eq!(doc3.get_cursor_left_position(1), 0); // Cannot move left
+
+        // Single character line
+        let doc4 = Document::with_text("a\nb\nc".to_string(), 2); // "|b"
+        assert_eq!(doc4.get_cursor_left_position(1), 0);
+
+        // Empty line
+        let doc5 = Document::with_text("line1\n\nline3".to_string(), 6); // Empty line
+        assert_eq!(doc5.get_cursor_left_position(1), 0);
+
+        // Unicode text
+        let doc6 = Document::with_text("こんにちは\n世界".to_string(), 7); // "世|界"
+        assert_eq!(doc6.get_cursor_left_position(1), -1);
+        assert_eq!(doc6.get_cursor_left_position(2), -1); // Only 1 char before cursor in line
+    }
+
+    #[test]
+    fn test_get_cursor_right_position() {
+        // Basic right movement within line
+        let doc = Document::with_text("hello world".to_string(), 5); // "hello| world"
+        assert_eq!(doc.get_cursor_right_position(1), 1);
+        assert_eq!(doc.get_cursor_right_position(3), 3);
+        assert_eq!(doc.get_cursor_right_position(6), 6); // To end of line
+
+        // Cannot move past end of line
+        assert_eq!(doc.get_cursor_right_position(10), 6); // Clamped to end of line
+
+        // Multi-line text - respects line boundaries
+        let doc2 = Document::with_text("line1\nline2\nline3".to_string(), 6); // "|line2"
+        assert_eq!(doc2.get_cursor_right_position(1), 1);
+        assert_eq!(doc2.get_cursor_right_position(5), 5); // To end of current line
+        assert_eq!(doc2.get_cursor_right_position(10), 5); // Cannot cross line boundary
+
+        // At end of line
+        let doc3 = Document::with_text("line1\nline2".to_string(), 11); // "line2|"
+        assert_eq!(doc3.get_cursor_right_position(1), 0); // Cannot move right
+
+        // Single character line
+        let doc4 = Document::with_text("a\nb\nc".to_string(), 2); // "|b"
+        assert_eq!(doc4.get_cursor_right_position(1), 1);
+        assert_eq!(doc4.get_cursor_right_position(2), 1); // Only 1 char after cursor
+
+        // Empty line
+        let doc5 = Document::with_text("line1\n\nline3".to_string(), 6); // Empty line
+        assert_eq!(doc5.get_cursor_right_position(1), 0);
+
+        // Unicode text
+        let doc6 = Document::with_text("こんにちは\n世界".to_string(), 6); // "|世界"
+        assert_eq!(doc6.get_cursor_right_position(1), 1);
+        assert_eq!(doc6.get_cursor_right_position(3), 2); // Only 2 chars in line
+    }
+
+    #[test]
+    fn test_get_cursor_up_position() {
+        // Basic up movement
+        // "line1\nline2\nline3" - positions: line1(0-4), \n(5), line2(6-10), \n(11), line3(12-16)
+        let doc = Document::with_text("line1\nline2\nline3".to_string(), 8); // "li|ne2" (line 1, col 2)
+        assert_eq!(doc.get_cursor_up_position(1, None), -6); // Move to "li|ne1" (line 0, col 2) = pos 2
+
+        // Up from first line
+        let doc2 = Document::with_text("line1\nline2".to_string(), 2); // "li|ne1"
+        assert_eq!(doc2.get_cursor_up_position(1, None), 0); // Cannot move up
+
+        // Up multiple lines
+        let doc3 = Document::with_text("line1\nline2\nline3".to_string(), 14); // "li|ne3" (line 2, col 2)
+        assert_eq!(doc3.get_cursor_up_position(2, None), -12); // Move to "li|ne1" (line 0, col 2) = pos 2
+
+        // Up with preferred column
+        // "short\nlonger line\nshort" - positions: short(0-4), \n(5), longer line(6-17), \n(18), short(19-23)
+        let doc4 = Document::with_text("short\nlonger line\nshort".to_string(), 9); // "lon|ger line" (line 1, col 3)
+        assert_eq!(doc4.get_cursor_up_position(1, Some(3)), -6); // Move to column 3 in "short" = pos 3
+
+        // Preferred column beyond line length
+        // "ab\nlonger\ncd" - positions: ab(0-1), \n(2), longer(3-8), \n(9), cd(10-11)
+        let doc5 = Document::with_text("ab\nlonger\ncd".to_string(), 8); // "longe|r" (line 1, col 5)
+        assert_eq!(doc5.get_cursor_up_position(1, Some(10)), -6); // Move to end of "ab" = pos 2
+
+        // Up from single line
+        let doc6 = Document::with_text("single line".to_string(), 5);
+        assert_eq!(doc6.get_cursor_up_position(1, None), 0);
+
+        // Zero count
+        let doc7 = Document::with_text("line1\nline2".to_string(), 8);
+        assert_eq!(doc7.get_cursor_up_position(0, None), 0);
+
+        // Unicode text
+        // "こんにちは\n世界テスト\nあいう" - positions: こんにちは(0-4), \n(5), 世界テスト(6-9), \n(10), あいう(11-13)
+        let doc8 = Document::with_text("こんにちは\n世界テスト\nあいう".to_string(), 7); // "世|界テスト" (line 1, col 1)
+        assert_eq!(doc8.get_cursor_up_position(1, None), -6); // Move to "こ|んにちは" (line 0, col 1) = pos 1
+    }
+
+    #[test]
+    fn test_get_cursor_down_position() {
+        // Basic down movement
+        // "line1\nline2\nline3" - positions: line1(0-4), \n(5), line2(6-10), \n(11), line3(12-16)
+        let doc = Document::with_text("line1\nline2\nline3".to_string(), 2); // "li|ne1" (line 0, col 2)
+        assert_eq!(doc.get_cursor_down_position(1, None), 6); // Move to "li|ne2" (line 1, col 2) = pos 8
+
+        // Down from last line
+        let doc2 = Document::with_text("line1\nline2".to_string(), 8); // "li|ne2"
+        assert_eq!(doc2.get_cursor_down_position(1, None), 0); // Cannot move down
+
+        // Down multiple lines
+        let doc3 = Document::with_text("line1\nline2\nline3".to_string(), 2); // "li|ne1" (line 0, col 2)
+        assert_eq!(doc3.get_cursor_down_position(2, None), 12); // Move to "li|ne3" (line 2, col 2) = pos 14
+
+        // Down with preferred column
+        // "longer line\nshort\nlonger again" - positions: longer line(0-10), \n(11), short(12-16), \n(17), longer again(18-29)
+        let doc4 = Document::with_text("longer line\nshort\nlonger again".to_string(), 3); // "lon|ger line" (line 0, col 3)
+        assert_eq!(doc4.get_cursor_down_position(1, Some(3)), 12); // Move to column 3 in "short" = pos 15
+
+        // Preferred column beyond line length
+        // "longer\nab\nshort" - positions: longer(0-5), \n(6), ab(7-8), \n(9), short(10-14)
+        let doc5 = Document::with_text("longer\nab\nshort".to_string(), 3); // "lon|ger" (line 0, col 3)
+        // When moving down with preferred column 10, it should clamp to end of "ab" line
+        // The "ab" line allows columns 0,1,2 where column 2 is after the 'b', so position 9
+        // But position 9 is the newline, so we should clamp to position 8 (end of line content)
+        // Actually, let's check what translate_row_col_to_index(1, 10) returns - it should be the newline position
+        // The offset should be 9 - 3 = 6
+        assert_eq!(doc5.get_cursor_down_position(1, Some(10)), 6); // Move to position 9 (newline after "ab")
+
+        // Down from single line
+        let doc6 = Document::with_text("single line".to_string(), 5);
+        assert_eq!(doc6.get_cursor_down_position(1, None), 0);
+
+        // Zero count
+        let doc7 = Document::with_text("line1\nline2".to_string(), 2);
+        assert_eq!(doc7.get_cursor_down_position(0, None), 0);
+
+        // Unicode text
+        // "こんにちは\n世界テスト\nあいう" - positions: こんにちは(0-4), \n(5), 世界テスト(6-9), \n(10), あいう(11-13)
+        let doc8 = Document::with_text("こんにちは\n世界テスト\nあいう".to_string(), 1); // "こ|んにちは" (line 0, col 1)
+        assert_eq!(doc8.get_cursor_down_position(1, None), 6); // Move to "世|界テスト" (line 1, col 1) = pos 7
+    }
+
+    #[test]
+    fn test_on_last_line() {
+        // Multi-line document
+        let doc = Document::with_text("line1\nline2\nline3".to_string(), 2); // First line
+        assert_eq!(doc.on_last_line(), false);
+
+        let doc2 = Document::with_text("line1\nline2\nline3".to_string(), 8); // Second line
+        assert_eq!(doc2.on_last_line(), false);
+
+        let doc3 = Document::with_text("line1\nline2\nline3".to_string(), 14); // Third line
+        assert_eq!(doc3.on_last_line(), true);
+
+        // Single line document
+        let doc4 = Document::with_text("single line".to_string(), 5);
+        assert_eq!(doc4.on_last_line(), true);
+
+        // Empty document
+        let doc5 = Document::with_text("".to_string(), 0);
+        assert_eq!(doc5.on_last_line(), true);
+
+        // Document with trailing newline
+        let doc6 = Document::with_text("line1\nline2\n".to_string(), 6); // Second line
+        assert_eq!(doc6.on_last_line(), false);
+
+        let doc7 = Document::with_text("line1\nline2\n".to_string(), 12); // Empty third line
+        assert_eq!(doc7.on_last_line(), true);
+
+        // Unicode text
+        let doc8 = Document::with_text("こんにちは\n世界".to_string(), 2); // First line
+        assert_eq!(doc8.on_last_line(), false);
+
+        let doc9 = Document::with_text("こんにちは\n世界".to_string(), 7); // Second line
+        assert_eq!(doc9.on_last_line(), true);
+    }
+
+    #[test]
+    fn test_get_end_of_line_position() {
+        // Multi-line document
+        let doc = Document::with_text("line1\nline2\nline3".to_string(), 2); // "li|ne1"
+        assert_eq!(doc.get_end_of_line_position(), 5); // End of "line1"
+
+        let doc2 = Document::with_text("line1\nline2\nline3".to_string(), 8); // "li|ne2"
+        assert_eq!(doc2.get_end_of_line_position(), 11); // End of "line2"
+
+        let doc3 = Document::with_text("line1\nline2\nline3".to_string(), 14); // "li|ne3"
+        assert_eq!(doc3.get_end_of_line_position(), 17); // End of "line3" (end of document)
+
+        // Single line document
+        let doc4 = Document::with_text("single line".to_string(), 5);
+        assert_eq!(doc4.get_end_of_line_position(), 11); // End of document
+
+        // Empty document
+        let doc5 = Document::with_text("".to_string(), 0);
+        assert_eq!(doc5.get_end_of_line_position(), 0);
+
+        // Empty line in middle
+        let doc6 = Document::with_text("line1\n\nline3".to_string(), 6); // Empty line
+        assert_eq!(doc6.get_end_of_line_position(), 6); // End of empty line
+
+        // Line with different lengths
+        let doc7 = Document::with_text("a\nbb\nccc".to_string(), 2); // "b|b"
+        assert_eq!(doc7.get_end_of_line_position(), 4); // End of "bb"
+
+        // Document with trailing newline
+        let doc8 = Document::with_text("line1\nline2\n".to_string(), 8); // "li|ne2"
+        assert_eq!(doc8.get_end_of_line_position(), 11); // End of "line2"
+
+        let doc9 = Document::with_text("line1\nline2\n".to_string(), 12); // Empty third line
+        assert_eq!(doc9.get_end_of_line_position(), 12); // End of empty line (end of document)
+
+        // Unicode text
+        let doc10 = Document::with_text("こんにちは\n世界\nテスト".to_string(), 2); // "こ|んにちは"
+        assert_eq!(doc10.get_end_of_line_position(), 5); // End of "こんにちは"
+
+        let doc11 = Document::with_text("こんにちは\n世界\nテスト".to_string(), 7); // "世|界"
+        assert_eq!(doc11.get_end_of_line_position(), 8); // End of "世界"
+    }
+
+    #[test]
+    fn test_leading_whitespace_in_current_line() {
+        // Line with spaces
+        let doc = Document::with_text("    indented line".to_string(), 8); // "    inde|nted line"
+        assert_eq!(doc.leading_whitespace_in_current_line(), "    ");
+
+        // Line with tabs
+        let doc2 = Document::with_text("\t\ttab indented".to_string(), 5); // "\t\ttab |indented"
+        assert_eq!(doc2.leading_whitespace_in_current_line(), "\t\t");
+
+        // Line with mixed whitespace
+        let doc3 = Document::with_text("  \t  mixed".to_string(), 8); // "  \t  mix|ed"
+        assert_eq!(doc3.leading_whitespace_in_current_line(), "  \t  ");
+
+        // Line with no indentation
+        let doc4 = Document::with_text("no indent".to_string(), 3); // "no |indent"
+        assert_eq!(doc4.leading_whitespace_in_current_line(), "");
+
+        // Empty line
+        let doc5 = Document::with_text("".to_string(), 0);
+        assert_eq!(doc5.leading_whitespace_in_current_line(), "");
+
+        // Line with only whitespace
+        let doc6 = Document::with_text("   ".to_string(), 2); // "  | "
+        assert_eq!(doc6.leading_whitespace_in_current_line(), "   ");
+
+        // Multi-line with different indentations
+        let doc7 = Document::with_text("line1\n    indented\nno_indent".to_string(), 10); // "    |indented"
+        assert_eq!(doc7.leading_whitespace_in_current_line(), "    ");
+
+        let doc8 = Document::with_text("line1\n    indented\nno_indent".to_string(), 20); // "no_|indent"
+        assert_eq!(doc8.leading_whitespace_in_current_line(), "");
+
+        // Line starting with non-whitespace after whitespace
+        let doc9 = Document::with_text("  text  more".to_string(), 8); // "  text  |more"
+        assert_eq!(doc9.leading_whitespace_in_current_line(), "  ");
+
+        // Unicode text with indentation
+        let doc10 = Document::with_text("    こんにちは".to_string(), 6); // "    こ|んにちは"
+        assert_eq!(doc10.leading_whitespace_in_current_line(), "    ");
+
+        // Multi-line Unicode
+        let doc11 = Document::with_text("こんにちは\n  世界\nテスト".to_string(), 8); // "  世|界"
+        assert_eq!(doc11.leading_whitespace_in_current_line(), "  ");
+    }
+
+    #[test]
+    fn test_cursor_movement_edge_cases() {
+        // Empty document
+        let doc = Document::with_text("".to_string(), 0);
+        assert_eq!(doc.get_cursor_left_position(1), 0);
+        assert_eq!(doc.get_cursor_right_position(1), 0);
+        assert_eq!(doc.get_cursor_up_position(1, None), 0);
+        assert_eq!(doc.get_cursor_down_position(1, None), 0);
+        assert_eq!(doc.on_last_line(), true);
+        assert_eq!(doc.get_end_of_line_position(), 0);
+        assert_eq!(doc.leading_whitespace_in_current_line(), "");
+
+        // Single character document
+        let doc2 = Document::with_text("a".to_string(), 0);
+        assert_eq!(doc2.get_cursor_right_position(1), 1);
+        assert_eq!(doc2.get_cursor_right_position(2), 1); // Clamped
+
+        let doc3 = Document::with_text("a".to_string(), 1);
+        assert_eq!(doc3.get_cursor_left_position(1), -1);
+        assert_eq!(doc3.get_cursor_left_position(2), -1); // Clamped
+
+        // Document with only newlines
+        let doc4 = Document::with_text("\n\n".to_string(), 1); // Second line (empty)
+        assert_eq!(doc4.get_cursor_left_position(1), 0); // Empty line
+        assert_eq!(doc4.get_cursor_right_position(1), 0); // Empty line
+        assert_eq!(doc4.get_cursor_up_position(1, None), -1); // Move to first empty line
+        assert_eq!(doc4.get_cursor_down_position(1, None), 1); // Move to third empty line
+        assert_eq!(doc4.on_last_line(), false);
+        assert_eq!(doc4.get_end_of_line_position(), 1); // End of empty line
+
+        // Very long line
+        let long_line = "a".repeat(1000);
+        let doc5 = Document::with_text(long_line, 500);
+        assert_eq!(doc5.get_cursor_left_position(100), -100);
+        assert_eq!(doc5.get_cursor_right_position(100), 100);
+        assert_eq!(doc5.get_cursor_left_position(600), -500); // Clamped to start
+        assert_eq!(doc5.get_cursor_right_position(600), 500); // Clamped to end
+
+        // Complex Unicode with cursor movement
+        // "🦀🚀🎉\n🌟⭐✨" - positions: 🦀🚀🎉(0-2), \n(3), 🌟⭐✨(4-6)
+        let doc6 = Document::with_text("🦀🚀🎉\n🌟⭐✨".to_string(), 2); // "🦀🚀|🎉" (line 0, col 2)
+        assert_eq!(doc6.get_cursor_left_position(1), -1);
+        assert_eq!(doc6.get_cursor_right_position(1), 1);
+        assert_eq!(doc6.get_cursor_down_position(1, None), 4); // Move to "🌟⭐|✨" (line 1, col 2) = pos 6
     }
 
     #[test]

@@ -44,7 +44,7 @@
   - Write tests for multi-line text operations and edge cases
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
 
-- [ ] 6. Implement Document cursor movement calculations
+- [x] 6. Implement Document cursor movement calculations
   - Add get_cursor_left_position() and get_cursor_right_position() with line boundary respect
   - Implement get_cursor_up_position() and get_cursor_down_position() with preferred column support
   - Add on_last_line() and get_end_of_line_position() helper methods
