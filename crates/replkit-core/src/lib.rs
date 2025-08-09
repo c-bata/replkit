@@ -22,8 +22,8 @@ pub mod console;
 // Re-export commonly used types for convenience
 pub use key::{Key, KeyEvent};
 pub use key_parser::{KeyParser, ParserState};
-pub use sequence_matcher::{SequenceMatcher, MatchResult, LongestMatchResult};
-pub use wasm::{WasmKeyEvent, WasmKeyParser, key_to_u32, u32_to_key};
+pub use sequence_matcher::{LongestMatchResult, MatchResult, SequenceMatcher};
+pub use wasm::{key_to_u32, u32_to_key, WasmKeyEvent, WasmKeyParser};
 
 // Re-export WASM serialization types when wasm feature is enabled
 #[cfg(feature = "wasm")]
@@ -33,11 +33,13 @@ pub use wasm::{WasmBufferState, WasmDocumentState};
 pub use buffer::Buffer;
 pub use document::Document;
 pub use error::{BufferError, BufferResult};
-pub use unicode::{rune_count, display_width, rune_slice, char_at_rune_index, byte_index_from_rune_index};
+pub use unicode::{
+    byte_index_from_rune_index, char_at_rune_index, display_width, rune_count, rune_slice,
+};
 
 // Re-export console types
 pub use console::{
-    ConsoleInput, ConsoleOutput, ConsoleError, ConsoleResult, EventLoopError,
-    RawModeGuard, ConsoleCapabilities, OutputCapabilities, BackendType,
-    TextStyle, Color, ClearType, SanitizationPolicy, SafeTextFilter, AsAny
+    AsAny, BackendType, ClearType, Color, ConsoleCapabilities, ConsoleError, ConsoleInput,
+    ConsoleOutput, ConsoleResult, EventLoopError, OutputCapabilities, RawModeGuard, SafeTextFilter,
+    SanitizationPolicy, TextStyle,
 };

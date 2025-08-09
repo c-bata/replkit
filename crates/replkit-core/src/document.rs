@@ -4,11 +4,11 @@
 //! and provides comprehensive text analysis methods. It's designed to be cached
 //! and shared safely across operations.
 
-use crate::key::Key;
-use crate::unicode;
-use crate::error::BufferResult;
 #[cfg(test)]
 use crate::error::BufferError;
+use crate::error::BufferResult;
+use crate::key::Key;
+use crate::unicode;
 
 /// An immutable document representing text content with cursor position.
 ///
@@ -61,7 +61,7 @@ impl Document {
     pub fn with_text(text: String, cursor_position: usize) -> Self {
         let text_len = unicode::rune_count(&text);
         let cursor_position = cursor_position.min(text_len);
-        
+
         Document {
             text,
             cursor_position,
@@ -73,7 +73,7 @@ impl Document {
     pub fn with_text_and_key(text: String, cursor_position: usize, last_key: Option<Key>) -> Self {
         let text_len = unicode::rune_count(&text);
         let cursor_position = cursor_position.min(text_len);
-        
+
         Document {
             text,
             cursor_position,
@@ -101,19 +101,19 @@ impl Document {
     ///
     /// let doc = Document::with_text_validated("hello".to_string(), 3);
     /// assert!(doc.is_ok());
-    /// 
+    ///
     /// let invalid_doc = Document::with_text_validated("hello".to_string(), 10);
     /// assert!(invalid_doc.is_err());
     /// ```
     pub fn with_text_validated(text: String, cursor_position: usize) -> BufferResult<Self> {
         use crate::error::validation;
-        
+
         // Validate text encoding
         validation::validate_text_encoding(&text)?;
-        
+
         // Validate cursor position
         validation::validate_cursor_position(cursor_position, &text)?;
-        
+
         Ok(Document {
             text,
             cursor_position,
@@ -122,15 +122,19 @@ impl Document {
     }
 
     /// Create a document with text, cursor position, and last key stroke with validation.
-    pub fn with_text_and_key_validated(text: String, cursor_position: usize, last_key: Option<Key>) -> BufferResult<Self> {
+    pub fn with_text_and_key_validated(
+        text: String,
+        cursor_position: usize,
+        last_key: Option<Key>,
+    ) -> BufferResult<Self> {
         use crate::error::validation;
-        
+
         // Validate text encoding
         validation::validate_text_encoding(&text)?;
-        
+
         // Validate cursor position
         validation::validate_cursor_position(cursor_position, &text)?;
-        
+
         Ok(Document {
             text,
             cursor_position,
@@ -156,13 +160,13 @@ impl Document {
     /// ```
     pub fn validate_state(&self) -> BufferResult<()> {
         use crate::error::validation;
-        
+
         // Validate text encoding
         validation::validate_text_encoding(&self.text)?;
-        
+
         // Validate cursor position
         validation::validate_cursor_position(self.cursor_position, &self.text)?;
-        
+
         Ok(())
     }
 
@@ -243,7 +247,7 @@ impl Document {
         } else {
             self.cursor_position + offset as usize
         };
-        
+
         unicode::char_at_rune_index(&self.text, target_pos)
     }
 
@@ -272,7 +276,7 @@ impl Document {
     /// ```
     pub fn get_char_relative_to_cursor_validated(&self, offset: i32) -> BufferResult<Option<char>> {
         use crate::error::BufferError;
-        
+
         let target_pos = if offset < 0 {
             let abs_offset = (-offset) as usize;
             if abs_offset > self.cursor_position {
@@ -296,7 +300,7 @@ impl Document {
             }
             target
         };
-        
+
         Ok(unicode::char_at_rune_index(&self.text, target_pos))
     }
 
@@ -566,7 +570,10 @@ impl Document {
     /// let doc = Document::with_text("hello..world".to_string(), 12);
     /// assert_eq!(doc.find_start_of_previous_word_until_separator_with_space("./"), 7); // Include separators
     /// ```
-    pub fn find_start_of_previous_word_until_separator_with_space(&self, separators: &str) -> usize {
+    pub fn find_start_of_previous_word_until_separator_with_space(
+        &self,
+        separators: &str,
+    ) -> usize {
         self.find_word_boundary_before(true, Some(separators))
     }
 
@@ -593,7 +600,11 @@ impl Document {
     /// Extract the current word before the cursor position.
     /// This handles the case where the cursor is in the middle of a word.
     /// If the cursor is in the middle of a word, it includes the character at the cursor position.
-    fn extract_current_word_before_cursor(&self, include_space: bool, separators: Option<&str>) -> &str {
+    fn extract_current_word_before_cursor(
+        &self,
+        include_space: bool,
+        separators: Option<&str>,
+    ) -> &str {
         if self.text.is_empty() || self.cursor_position == 0 {
             return "";
         }
@@ -617,12 +628,12 @@ impl Document {
             while temp_pos > 0 && is_separator(chars[temp_pos - 1]) {
                 temp_pos -= 1;
             }
-            
+
             // Now find the start of the word before those separators
             while temp_pos > 0 && !is_separator(chars[temp_pos - 1]) {
                 temp_pos -= 1;
             }
-            
+
             start = temp_pos;
             // End is at cursor position to include the trailing separators
             end = self.cursor_position;
@@ -632,7 +643,7 @@ impl Document {
                 // Cursor is at the start of a word (after a separator), return empty
                 return "";
             }
-            
+
             // Find the start of the current word
             start = {
                 let mut pos = self.cursor_position;
@@ -650,9 +661,11 @@ impl Document {
                 }
             }
 
-            // If we're in the middle of a word (cursor is not at a separator), 
+            // If we're in the middle of a word (cursor is not at a separator),
             // include the character at cursor position
-            end = if self.cursor_position < chars.len() && !is_separator(chars[self.cursor_position]) {
+            end = if self.cursor_position < chars.len()
+                && !is_separator(chars[self.cursor_position])
+            {
                 self.cursor_position + 1
             } else {
                 self.cursor_position
@@ -669,7 +682,11 @@ impl Document {
     /// Extract the current word after the cursor position.
     /// This handles the case where the cursor is in the middle of a word.
     /// If the cursor is in the middle of a word, it starts from the cursor position.
-    fn extract_current_word_after_cursor(&self, include_space: bool, separators: Option<&str>) -> &str {
+    fn extract_current_word_after_cursor(
+        &self,
+        include_space: bool,
+        separators: Option<&str>,
+    ) -> &str {
         if self.text.is_empty() {
             return "";
         }
@@ -689,18 +706,18 @@ impl Document {
         if include_space {
             // For space variants, we want to include any leading separators plus the next word
             start = self.cursor_position;
-            
+
             // Find the end by first skipping any leading separators, then finding the end of the word
             let mut temp_pos = self.cursor_position;
             while temp_pos < chars.len() && is_separator(chars[temp_pos]) {
                 temp_pos += 1;
             }
-            
+
             // Now find the end of the word after those separators
             while temp_pos < chars.len() && !is_separator(chars[temp_pos]) {
                 temp_pos += 1;
             }
-            
+
             end = temp_pos;
         } else {
             // For normal variants, handle both separators and non-separators
@@ -727,8 +744,6 @@ impl Document {
         unicode::rune_slice(&self.text, start, end)
     }
 
-
-
     /// Find word boundary before cursor position.
     fn find_word_boundary_before(&self, include_space: bool, separators: Option<&str>) -> usize {
         let text_before = self.text_before_cursor();
@@ -741,13 +756,13 @@ impl Document {
 
         if let Some(seps) = separators {
             let separator_chars: Vec<char> = seps.chars().collect();
-            
+
             // Skip trailing separators/whitespace if not including them
             if !include_space {
                 while pos > 0 && separator_chars.contains(&chars[pos - 1]) {
                     pos -= 1;
                 }
-                
+
                 // If we've skipped all characters and found no word, return 0
                 if pos == 0 {
                     return 0;
@@ -770,13 +785,13 @@ impl Document {
             chars.len() - pos
         } else {
             // Default whitespace-based word boundaries
-            
+
             // Skip trailing whitespace if not including it
             if !include_space {
                 while pos > 0 && chars[pos - 1].is_whitespace() {
                     pos -= 1;
                 }
-                
+
                 // If we've skipped all characters and found no word, return 0
                 if pos == 0 {
                     return 0;
@@ -812,13 +827,13 @@ impl Document {
 
         if let Some(seps) = separators {
             let separator_chars: Vec<char> = seps.chars().collect();
-            
+
             // Skip leading separators if not including them
             if !include_space {
                 while pos < chars.len() && separator_chars.contains(&chars[pos]) {
                     pos += 1;
                 }
-                
+
                 // If we've skipped all characters and found no word, return 0
                 if pos >= chars.len() {
                     return 0;
@@ -841,13 +856,13 @@ impl Document {
             pos
         } else {
             // Default whitespace-based word boundaries
-            
+
             // Skip leading whitespace if not including it
             if !include_space {
                 while pos < chars.len() && chars[pos].is_whitespace() {
                     pos += 1;
                 }
-                
+
                 // If we've skipped all characters and found no word, return 0
                 if pos >= chars.len() {
                     return 0;
@@ -905,7 +920,7 @@ impl Document {
     pub fn current_line_after_cursor(&self) -> &str {
         let text_len = unicode::rune_count(&self.text);
         let mut line_end = self.cursor_position;
-        
+
         // Find the end of the current line (next newline or end of text)
         while line_end < text_len {
             if let Some(ch) = unicode::char_at_rune_index(&self.text, line_end) {
@@ -915,7 +930,7 @@ impl Document {
             }
             line_end += 1;
         }
-        
+
         unicode::rune_slice(&self.text, self.cursor_position, line_end)
     }
 
@@ -934,7 +949,7 @@ impl Document {
     pub fn current_line(&self) -> String {
         let before = self.current_line_before_cursor();
         let after = self.current_line_after_cursor();
-        format!("{}{}", before, after)
+        format!("{before}{after}")
     }
 
     /// Split the text into lines.
@@ -954,7 +969,7 @@ impl Document {
         if self.text.is_empty() {
             return vec![""];
         }
-        
+
         self.text.split('\n').collect()
     }
 
@@ -977,7 +992,7 @@ impl Document {
         if self.text.is_empty() {
             return 1;
         }
-        
+
         let newline_count = self.text.chars().filter(|&c| c == '\n').count();
         newline_count + 1
     }
@@ -997,11 +1012,11 @@ impl Document {
     /// ```
     pub fn line_start_indexes(&self) -> Vec<usize> {
         let mut indexes = vec![0];
-        
+
         if self.text.is_empty() {
             return indexes;
         }
-        
+
         let mut current_index = 0;
         for ch in self.text.chars() {
             if ch == '\n' {
@@ -1009,7 +1024,7 @@ impl Document {
             }
             current_index += 1;
         }
-        
+
         indexes
     }
 
@@ -1068,10 +1083,10 @@ impl Document {
     pub fn translate_index_to_position(&self, index: usize) -> (usize, usize) {
         let text_len = unicode::rune_count(&self.text);
         let clamped_index = index.min(text_len);
-        
+
         let (line_start, row) = self.find_line_start_index(clamped_index);
         let col = clamped_index - line_start;
-        
+
         (row, col)
     }
 
@@ -1097,19 +1112,19 @@ impl Document {
     /// ```
     pub fn translate_row_col_to_index(&self, row: usize, col: usize) -> usize {
         let line_starts = self.line_start_indexes();
-        
+
         if row >= line_starts.len() {
             // Row is beyond the document, return end of document
             return unicode::rune_count(&self.text);
         }
-        
+
         let line_start = line_starts[row];
         let line_end = if row + 1 < line_starts.len() {
             line_starts[row + 1] - 1 // Position of the newline, so line content ends at position - 1
         } else {
             unicode::rune_count(&self.text) // End of document
         };
-        
+
         // The maximum column is the number of characters in the line
         // For "ab" at positions 7-8, line_end=9, so max_col = 9-7 = 2, but we want columns 0,1
         // So the actual line content length is line_end - line_start
@@ -1117,7 +1132,7 @@ impl Document {
         let line_content_length = line_end - line_start;
         let max_col = line_content_length;
         let clamped_col = col.min(max_col);
-        
+
         line_start + clamped_col
     }
 
@@ -1134,7 +1149,7 @@ impl Document {
     /// A tuple of (line_start_rune_index, row_number) where row_number is 0-based.
     fn find_line_start_index(&self, index: usize) -> (usize, usize) {
         let line_starts = self.line_start_indexes();
-        
+
         // Binary search to find the appropriate line
         let mut row = 0;
         for (i, &start) in line_starts.iter().enumerate() {
@@ -1143,7 +1158,7 @@ impl Document {
             }
             row = i;
         }
-        
+
         (line_starts[row], row)
     }
 
@@ -1282,7 +1297,7 @@ impl Document {
 
         let current_row = self.cursor_position_row();
         let total_lines = self.line_count();
-        
+
         if current_row >= total_lines - 1 {
             return 0; // Already on last line
         }
@@ -1341,7 +1356,7 @@ impl Document {
     pub fn get_end_of_line_position(&self) -> usize {
         let (_line_start, row) = self.find_line_start_index(self.cursor_position);
         let line_starts = self.line_start_indexes();
-        
+
         if row + 1 < line_starts.len() {
             // Not the last line, end is just before the newline
             line_starts[row + 1] - 1
@@ -1375,7 +1390,7 @@ impl Document {
         let (line_start, _) = self.find_line_start_index(self.cursor_position);
         let text_len = unicode::rune_count(&self.text);
         let mut end_pos = line_start;
-        
+
         // Find the end of the current line
         let mut line_end = line_start;
         while line_end < text_len {
@@ -1386,7 +1401,7 @@ impl Document {
             }
             line_end += 1;
         }
-        
+
         // Find the end of leading whitespace
         while end_pos < line_end {
             if let Some(ch) = unicode::char_at_rune_index(&self.text, end_pos) {
@@ -1399,7 +1414,7 @@ impl Document {
                 break;
             }
         }
-        
+
         unicode::rune_slice(&self.text, line_start, end_pos)
     }
 }
@@ -1446,7 +1461,7 @@ mod tests {
     fn test_display_cursor_position() {
         let doc = Document::with_text("hello".to_string(), 3);
         assert_eq!(doc.display_cursor_position(), 3);
-        
+
         // Test with wide characters
         let doc_cjk = Document::with_text("こんにちは".to_string(), 2);
         assert_eq!(doc_cjk.display_cursor_position(), 4); // Each char is 2 columns
@@ -1455,7 +1470,7 @@ mod tests {
     #[test]
     fn test_get_char_relative_to_cursor() {
         let doc = Document::with_text("hello".to_string(), 2);
-        
+
         assert_eq!(doc.get_char_relative_to_cursor(-2), Some('h'));
         assert_eq!(doc.get_char_relative_to_cursor(-1), Some('e'));
         assert_eq!(doc.get_char_relative_to_cursor(0), Some('l'));
@@ -1483,34 +1498,32 @@ mod tests {
         assert_eq!(doc.last_key_stroke(), Some(key));
     }
 
-
-
     // Word operation tests
-    
+
     #[test]
     fn test_get_word_before_cursor() {
         // Basic word extraction
         let doc = Document::with_text("hello world".to_string(), 11);
         assert_eq!(doc.get_word_before_cursor(), "world");
-        
+
         let doc2 = Document::with_text("hello world".to_string(), 5);
         assert_eq!(doc2.get_word_before_cursor(), "hello");
-        
+
         // Cursor in middle of word
         let doc3 = Document::with_text("hello world".to_string(), 8);
         assert_eq!(doc3.get_word_before_cursor(), "wor");
-        
+
         // Multiple spaces
         let doc4 = Document::with_text("hello   world".to_string(), 13);
         assert_eq!(doc4.get_word_before_cursor(), "world");
-        
+
         // Empty cases
         let doc5 = Document::with_text("".to_string(), 0);
         assert_eq!(doc5.get_word_before_cursor(), "");
-        
+
         let doc6 = Document::with_text("hello".to_string(), 0);
         assert_eq!(doc6.get_word_before_cursor(), "");
-        
+
         // Only whitespace
         let doc7 = Document::with_text("   ".to_string(), 3);
         assert_eq!(doc7.get_word_before_cursor(), "");
@@ -1521,25 +1534,25 @@ mod tests {
         // Basic word extraction
         let doc = Document::with_text("hello world".to_string(), 0);
         assert_eq!(doc.get_word_after_cursor(), "hello");
-        
+
         let doc2 = Document::with_text("hello world".to_string(), 6);
         assert_eq!(doc2.get_word_after_cursor(), "world");
-        
+
         // Cursor in middle of word
         let doc3 = Document::with_text("hello world".to_string(), 2);
         assert_eq!(doc3.get_word_after_cursor(), "llo");
-        
+
         // Multiple spaces
         let doc4 = Document::with_text("hello   world".to_string(), 0);
         assert_eq!(doc4.get_word_after_cursor(), "hello");
-        
+
         // Empty cases
         let doc5 = Document::with_text("".to_string(), 0);
         assert_eq!(doc5.get_word_after_cursor(), "");
-        
+
         let doc6 = Document::with_text("hello".to_string(), 5);
         assert_eq!(doc6.get_word_after_cursor(), "");
-        
+
         // Only whitespace
         let doc7 = Document::with_text("   ".to_string(), 0);
         assert_eq!(doc7.get_word_after_cursor(), "");
@@ -1550,21 +1563,21 @@ mod tests {
         // Word before cursor with space
         let doc = Document::with_text("hello  world".to_string(), 7);
         assert_eq!(doc.get_word_before_cursor_with_space(), "hello  ");
-        
+
         let doc2 = Document::with_text("hello  world".to_string(), 12);
         assert_eq!(doc2.get_word_before_cursor_with_space(), "world");
-        
+
         // Word after cursor with space
         let doc3 = Document::with_text("hello  world".to_string(), 5);
         assert_eq!(doc3.get_word_after_cursor_with_space(), "  world");
-        
+
         let doc4 = Document::with_text("hello  world".to_string(), 0);
         assert_eq!(doc4.get_word_after_cursor_with_space(), "hello");
-        
+
         // Multiple spaces
         let doc5 = Document::with_text("hello   world   test".to_string(), 8);
         assert_eq!(doc5.get_word_before_cursor_with_space(), "hello   ");
-        
+
         let doc6 = Document::with_text("hello   world   test".to_string(), 5);
         assert_eq!(doc6.get_word_after_cursor_with_space(), "   world");
     }
@@ -1574,28 +1587,34 @@ mod tests {
         // Basic separator usage
         let doc = Document::with_text("hello.world/test".to_string(), 16);
         assert_eq!(doc.get_word_before_cursor_until_separator("./"), "test");
-        
+
         let doc2 = Document::with_text("hello.world/test".to_string(), 0);
         assert_eq!(doc2.get_word_after_cursor_until_separator("./"), "hello");
-        
+
         // Multiple separators
         let doc3 = Document::with_text("hello..world".to_string(), 12);
         assert_eq!(doc3.get_word_before_cursor_until_separator("."), "world");
-        
+
         let doc4 = Document::with_text("hello..world".to_string(), 5);
         assert_eq!(doc4.get_word_after_cursor_until_separator("."), "");
-        
+
         // With space variants
         let doc5 = Document::with_text("hello..world".to_string(), 7);
-        assert_eq!(doc5.get_word_before_cursor_until_separator_with_space("."), "hello..");
-        
+        assert_eq!(
+            doc5.get_word_before_cursor_until_separator_with_space("."),
+            "hello.."
+        );
+
         let doc6 = Document::with_text("hello..world".to_string(), 5);
-        assert_eq!(doc6.get_word_after_cursor_until_separator_with_space("."), "..world");
-        
+        assert_eq!(
+            doc6.get_word_after_cursor_until_separator_with_space("."),
+            "..world"
+        );
+
         // Complex separators
         let doc7 = Document::with_text("path/to\\file:name".to_string(), 17);
         assert_eq!(doc7.get_word_before_cursor_until_separator("/\\:"), "name");
-        
+
         let doc8 = Document::with_text("path/to\\file:name".to_string(), 0);
         assert_eq!(doc8.get_word_after_cursor_until_separator("/\\:"), "path");
     }
@@ -1605,32 +1624,32 @@ mod tests {
         // Find start of previous word
         let doc = Document::with_text("hello world test".to_string(), 16);
         assert_eq!(doc.find_start_of_previous_word(), 4); // "test" is 4 chars
-        
+
         let doc2 = Document::with_text("hello world test".to_string(), 11);
         assert_eq!(doc2.find_start_of_previous_word(), 5); // "world" is 5 chars
-        
+
         // Find end of current word
         let doc3 = Document::with_text("hello world test".to_string(), 0);
         assert_eq!(doc3.find_end_of_current_word(), 5); // "hello" is 5 chars
-        
+
         let doc4 = Document::with_text("hello world test".to_string(), 6);
         assert_eq!(doc4.find_end_of_current_word(), 5); // "world" is 5 chars
-        
+
         // With spaces
         let doc5 = Document::with_text("hello  world  test".to_string(), 18);
         assert_eq!(doc5.find_start_of_previous_word_with_space(), 6); // "  test" is 6 chars
-        
+
         let doc6 = Document::with_text("hello  world  test".to_string(), 0);
         assert_eq!(doc6.find_end_of_current_word_with_space(), 7); // "hello  " is 7 chars
-        
+
         // Edge cases
         let doc7 = Document::with_text("".to_string(), 0);
         assert_eq!(doc7.find_start_of_previous_word(), 0);
         assert_eq!(doc7.find_end_of_current_word(), 0);
-        
+
         let doc8 = Document::with_text("   ".to_string(), 3);
         assert_eq!(doc8.find_start_of_previous_word(), 0);
-        
+
         let doc9 = Document::with_text("   ".to_string(), 0);
         assert_eq!(doc9.find_end_of_current_word(), 0);
     }
@@ -1640,21 +1659,27 @@ mod tests {
         // Custom separators
         let doc = Document::with_text("hello.world/test".to_string(), 16);
         assert_eq!(doc.find_start_of_previous_word_until_separator("./"), 4); // "test"
-        
+
         let doc2 = Document::with_text("hello.world/test".to_string(), 0);
         assert_eq!(doc2.find_end_of_current_word_until_separator("./"), 5); // "hello"
-        
+
         // With separator spaces
         let doc3 = Document::with_text("hello..world".to_string(), 12);
-        assert_eq!(doc3.find_start_of_previous_word_until_separator_with_space("."), 7); // "..world"
-        
+        assert_eq!(
+            doc3.find_start_of_previous_word_until_separator_with_space("."),
+            7
+        ); // "..world"
+
         let doc4 = Document::with_text("hello..world".to_string(), 0);
-        assert_eq!(doc4.find_end_of_current_word_until_separator_with_space("."), 7); // "hello.."
-        
+        assert_eq!(
+            doc4.find_end_of_current_word_until_separator_with_space("."),
+            7
+        ); // "hello.."
+
         // Multiple separator types
         let doc5 = Document::with_text("a/b\\c:d".to_string(), 7);
         assert_eq!(doc5.find_start_of_previous_word_until_separator("/\\:"), 1); // "d"
-        
+
         let doc6 = Document::with_text("a/b\\c:d".to_string(), 0);
         assert_eq!(doc6.find_end_of_current_word_until_separator("/\\:"), 1); // "a"
     }
@@ -1665,31 +1690,34 @@ mod tests {
         let doc = Document::with_text("こんにちは 世界".to_string(), 8);
         assert_eq!(doc.get_word_before_cursor(), "世界");
         assert_eq!(doc.find_start_of_previous_word(), 2); // "世界" is 2 chars
-        
+
         let doc2 = Document::with_text("こんにちは 世界".to_string(), 0);
         assert_eq!(doc2.get_word_after_cursor(), "こんにちは");
         assert_eq!(doc2.find_end_of_current_word(), 5); // "こんにちは" is 5 chars
-        
+
         // Mixed Unicode and ASCII
         let doc3 = Document::with_text("hello 世界 test".to_string(), 15);
         assert_eq!(doc3.get_word_before_cursor(), "test");
-        
+
         let doc4 = Document::with_text("hello 世界 test".to_string(), 6);
         assert_eq!(doc4.get_word_after_cursor(), "世界");
-        
+
         // Emoji
         let doc5 = Document::with_text("hello 🦀 world".to_string(), 14);
         assert_eq!(doc5.get_word_before_cursor(), "world");
-        
+
         let doc6 = Document::with_text("hello 🦀 world".to_string(), 6);
         assert_eq!(doc6.get_word_after_cursor(), "🦀");
-        
+
         // Custom separators with Unicode
         let doc7 = Document::with_text("こんにちは。世界".to_string(), 8);
         assert_eq!(doc7.get_word_before_cursor_until_separator("。"), "世界");
-        
+
         let doc8 = Document::with_text("こんにちは。世界".to_string(), 0);
-        assert_eq!(doc8.get_word_after_cursor_until_separator("。"), "こんにちは");
+        assert_eq!(
+            doc8.get_word_after_cursor_until_separator("。"),
+            "こんにちは"
+        );
     }
 
     #[test]
@@ -1698,34 +1726,37 @@ mod tests {
         let doc = Document::with_text("a b c".to_string(), 5);
         assert_eq!(doc.get_word_before_cursor(), "c");
         assert_eq!(doc.find_start_of_previous_word(), 1);
-        
+
         let doc2 = Document::with_text("a b c".to_string(), 0);
         assert_eq!(doc2.get_word_after_cursor(), "a");
         assert_eq!(doc2.find_end_of_current_word(), 1);
-        
+
         // Cursor at word boundaries
         let doc3 = Document::with_text("hello world".to_string(), 5);
         assert_eq!(doc3.get_word_before_cursor(), "hello");
         assert_eq!(doc3.get_word_after_cursor(), "");
-        
+
         let doc4 = Document::with_text("hello world".to_string(), 6);
         assert_eq!(doc4.get_word_before_cursor(), "");
         assert_eq!(doc4.get_word_after_cursor(), "world");
-        
+
         // Consecutive separators
         let doc5 = Document::with_text("hello...world".to_string(), 13);
         assert_eq!(doc5.get_word_before_cursor_until_separator("."), "world");
-        
+
         let doc6 = Document::with_text("hello...world".to_string(), 5);
-        assert_eq!(doc6.get_word_after_cursor_until_separator_with_space("."), "...world");
-        
+        assert_eq!(
+            doc6.get_word_after_cursor_until_separator_with_space("."),
+            "...world"
+        );
+
         // Only separators
         let doc7 = Document::with_text("...".to_string(), 3);
         assert_eq!(doc7.get_word_before_cursor_until_separator("."), "");
-        
+
         let doc8 = Document::with_text("...".to_string(), 0);
         assert_eq!(doc8.get_word_after_cursor_until_separator("."), "");
-        
+
         // Mixed whitespace and separators
         let doc9 = Document::with_text("hello . world".to_string(), 13);
         assert_eq!(doc9.get_word_before_cursor(), "world");
@@ -1956,7 +1987,7 @@ mod tests {
         // Japanese text with newlines
         // "こんにちは\n世界\nテスト"
         // Line 0: "こんにちは" (positions 0-4)
-        // Line 1: "世界" (positions 6-7) 
+        // Line 1: "世界" (positions 6-7)
         // Line 2: "テスト" (positions 9-11)
         let doc = Document::with_text("こんにちは\n世界\nテスト".to_string(), 8); // End of line 1
         assert_eq!(doc.cursor_position_row(), 1);
@@ -2126,11 +2157,11 @@ mod tests {
         // Preferred column beyond line length
         // "longer\nab\nshort" - positions: longer(0-5), \n(6), ab(7-8), \n(9), short(10-14)
         let doc5 = Document::with_text("longer\nab\nshort".to_string(), 3); // "lon|ger" (line 0, col 3)
-        // When moving down with preferred column 10, it should clamp to end of "ab" line
-        // The "ab" line allows columns 0,1,2 where column 2 is after the 'b', so position 9
-        // But position 9 is the newline, so we should clamp to position 8 (end of line content)
-        // Actually, let's check what translate_row_col_to_index(1, 10) returns - it should be the newline position
-        // The offset should be 9 - 3 = 6
+                                                                            // When moving down with preferred column 10, it should clamp to end of "ab" line
+                                                                            // The "ab" line allows columns 0,1,2 where column 2 is after the 'b', so position 9
+                                                                            // But position 9 is the newline, so we should clamp to position 8 (end of line content)
+                                                                            // Actually, let's check what translate_row_col_to_index(1, 10) returns - it should be the newline position
+                                                                            // The offset should be 9 - 3 = 6
         assert_eq!(doc5.get_cursor_down_position(1, Some(10)), 6); // Move to position 9 (newline after "ab")
 
         // Down from single line
@@ -2359,12 +2390,12 @@ mod tests {
         let doc = Document::with_text("line1\nline2\nline3".to_string(), 0);
 
         // Test various positions
-        assert_eq!(doc.find_line_start_index(0), (0, 0));   // Start of first line
-        assert_eq!(doc.find_line_start_index(3), (0, 0));   // Middle of first line
-        assert_eq!(doc.find_line_start_index(5), (0, 0));   // End of first line
-        assert_eq!(doc.find_line_start_index(6), (6, 1));   // Start of second line
-        assert_eq!(doc.find_line_start_index(8), (6, 1));   // Middle of second line
-        assert_eq!(doc.find_line_start_index(11), (6, 1));  // End of second line
+        assert_eq!(doc.find_line_start_index(0), (0, 0)); // Start of first line
+        assert_eq!(doc.find_line_start_index(3), (0, 0)); // Middle of first line
+        assert_eq!(doc.find_line_start_index(5), (0, 0)); // End of first line
+        assert_eq!(doc.find_line_start_index(6), (6, 1)); // Start of second line
+        assert_eq!(doc.find_line_start_index(8), (6, 1)); // Middle of second line
+        assert_eq!(doc.find_line_start_index(11), (6, 1)); // End of second line
         assert_eq!(doc.find_line_start_index(12), (12, 2)); // Start of third line
         assert_eq!(doc.find_line_start_index(17), (12, 2)); // End of document
 
@@ -2375,122 +2406,146 @@ mod tests {
         let doc3 = Document::with_text("single".to_string(), 0);
         assert_eq!(doc3.find_line_start_index(3), (0, 0));
     }
-} 
-   #[test]
-    fn test_document_error_handling() {
-        // Test valid document creation
-        let doc = Document::with_text_validated("hello world".to_string(), 5);
-        assert!(doc.is_ok());
-        let doc = doc.unwrap();
-        assert_eq!(doc.text(), "hello world");
-        assert_eq!(doc.cursor_position(), 5);
-        
-        // Test invalid cursor position
-        let result = Document::with_text_validated("hello".to_string(), 10);
-        assert!(result.is_err());
-        if let Err(BufferError::InvalidCursorPosition { position, max }) = result {
-            assert_eq!(position, 10);
-            assert_eq!(max, 5);
-        } else {
-            panic!("Expected InvalidCursorPosition error");
-        }
-        
-        // Test text with null characters
-        let result = Document::with_text_validated("hello\0world".to_string(), 5);
-        assert!(result.is_err());
-        if let Err(BufferError::TextEncodingError(_)) = result {
-            // Expected
-        } else {
-            panic!("Expected TextEncodingError");
-        }
+}
+#[test]
+fn test_document_error_handling() {
+    // Test valid document creation
+    let doc = Document::with_text_validated("hello world".to_string(), 5);
+    assert!(doc.is_ok());
+    let doc = doc.unwrap();
+    assert_eq!(doc.text(), "hello world");
+    assert_eq!(doc.cursor_position(), 5);
+
+    // Test invalid cursor position
+    let result = Document::with_text_validated("hello".to_string(), 10);
+    assert!(result.is_err());
+    if let Err(BufferError::InvalidCursorPosition { position, max }) = result {
+        assert_eq!(position, 10);
+        assert_eq!(max, 5);
+    } else {
+        panic!("Expected InvalidCursorPosition error");
     }
 
-    #[test]
-    fn test_document_state_validation() {
-        let doc = Document::with_text("hello world".to_string(), 5);
-        
-        // Valid state
-        assert!(doc.validate_state().is_ok());
-        
-        // Test with Unicode text
-        let unicode_doc = Document::with_text("こんにちは".to_string(), 3);
-        assert!(unicode_doc.validate_state().is_ok());
+    // Test text with null characters
+    let result = Document::with_text_validated("hello\0world".to_string(), 5);
+    assert!(result.is_err());
+    if let Err(BufferError::TextEncodingError(_)) = result {
+        // Expected
+    } else {
+        panic!("Expected TextEncodingError");
+    }
+}
+
+#[test]
+fn test_document_state_validation() {
+    let doc = Document::with_text("hello world".to_string(), 5);
+
+    // Valid state
+    assert!(doc.validate_state().is_ok());
+
+    // Test with Unicode text
+    let unicode_doc = Document::with_text("こんにちは".to_string(), 3);
+    assert!(unicode_doc.validate_state().is_ok());
+}
+
+#[test]
+fn test_get_char_relative_validation() {
+    let doc = Document::with_text("hello".to_string(), 2);
+
+    // Valid relative positions
+    assert_eq!(
+        doc.get_char_relative_to_cursor_validated(-1).unwrap(),
+        Some('e')
+    );
+    assert_eq!(
+        doc.get_char_relative_to_cursor_validated(0).unwrap(),
+        Some('l')
+    );
+    assert_eq!(
+        doc.get_char_relative_to_cursor_validated(1).unwrap(),
+        Some('l')
+    );
+
+    // Invalid relative positions
+    let result = doc.get_char_relative_to_cursor_validated(-10);
+    assert!(result.is_err());
+    if let Err(BufferError::BoundsCheckFailed {
+        operation,
+        position: _,
+        bounds,
+    }) = result
+    {
+        assert_eq!(operation, "get_char_relative_to_cursor");
+        assert_eq!(bounds, (0, 5));
+    } else {
+        panic!("Expected BoundsCheckFailed error");
     }
 
-    #[test]
-    fn test_get_char_relative_validation() {
-        let doc = Document::with_text("hello".to_string(), 2);
-        
-        // Valid relative positions
-        assert_eq!(doc.get_char_relative_to_cursor_validated(-1).unwrap(), Some('e'));
-        assert_eq!(doc.get_char_relative_to_cursor_validated(0).unwrap(), Some('l'));
-        assert_eq!(doc.get_char_relative_to_cursor_validated(1).unwrap(), Some('l'));
-        
-        // Invalid relative positions
-        let result = doc.get_char_relative_to_cursor_validated(-10);
-        assert!(result.is_err());
-        if let Err(BufferError::BoundsCheckFailed { operation, position: _, bounds }) = result {
-            assert_eq!(operation, "get_char_relative_to_cursor");
-            assert_eq!(bounds, (0, 5));
-        } else {
-            panic!("Expected BoundsCheckFailed error");
-        }
-        
-        let result = doc.get_char_relative_to_cursor_validated(10);
-        assert!(result.is_err());
-        if let Err(BufferError::BoundsCheckFailed { operation, position, bounds }) = result {
-            assert_eq!(operation, "get_char_relative_to_cursor");
-            assert_eq!(position, 12);
-            assert_eq!(bounds, (0, 5));
-        } else {
-            panic!("Expected BoundsCheckFailed error");
-        }
+    let result = doc.get_char_relative_to_cursor_validated(10);
+    assert!(result.is_err());
+    if let Err(BufferError::BoundsCheckFailed {
+        operation,
+        position,
+        bounds,
+    }) = result
+    {
+        assert_eq!(operation, "get_char_relative_to_cursor");
+        assert_eq!(position, 12);
+        assert_eq!(bounds, (0, 5));
+    } else {
+        panic!("Expected BoundsCheckFailed error");
     }
+}
 
-    #[test]
-    fn test_document_with_key_validation() {
-        use crate::key::Key;
-        
-        // Valid document with key
-        let doc = Document::with_text_and_key_validated(
-            "hello".to_string(), 
-            3, 
-            Some(Key::ControlA)
-        );
-        assert!(doc.is_ok());
-        let doc = doc.unwrap();
-        assert_eq!(doc.cursor_position(), 3);
-        assert_eq!(doc.last_key_stroke(), Some(Key::ControlA));
-        
-        // Invalid cursor position with key
-        let result = Document::with_text_and_key_validated(
-            "hello".to_string(), 
-            10, 
-            Some(Key::ControlA)
-        );
-        assert!(result.is_err());
-    }
+#[test]
+fn test_document_with_key_validation() {
+    use crate::key::Key;
 
-    #[test]
-    fn test_unicode_document_validation() {
-        // Test with various Unicode characters
-        let emoji_text = "Hello 👋 World 🌍";
-        let emoji_doc = Document::with_text_validated(emoji_text.to_string(), 7);
-        assert!(emoji_doc.is_ok());
-        let doc = emoji_doc.unwrap();
-        assert!(doc.validate_state().is_ok());
-        
-        // Test character access with Unicode - let's check what's actually at position 7
-        // "Hello 👋 World 🌍" has characters at positions:
-        // 0:H 1:e 2:l 3:l 4:o 5:  6:👋 7:  8:W 9:o 10:r 11:l 12:d 13:  14:🌍
-        assert_eq!(doc.get_char_relative_to_cursor_validated(-1).unwrap(), Some('👋'));
-        assert_eq!(doc.get_char_relative_to_cursor_validated(0).unwrap(), Some(' '));
-        assert_eq!(doc.get_char_relative_to_cursor_validated(1).unwrap(), Some('W'));
-        
-        // Test CJK characters
-        let cjk_doc = Document::with_text_validated("你好世界".to_string(), 2);
-        assert!(cjk_doc.is_ok());
-        let doc = cjk_doc.unwrap();
-        assert!(doc.validate_state().is_ok());
-        assert_eq!(doc.get_char_relative_to_cursor_validated(0).unwrap(), Some('世'));
-    }
+    // Valid document with key
+    let doc = Document::with_text_and_key_validated("hello".to_string(), 3, Some(Key::ControlA));
+    assert!(doc.is_ok());
+    let doc = doc.unwrap();
+    assert_eq!(doc.cursor_position(), 3);
+    assert_eq!(doc.last_key_stroke(), Some(Key::ControlA));
+
+    // Invalid cursor position with key
+    let result =
+        Document::with_text_and_key_validated("hello".to_string(), 10, Some(Key::ControlA));
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_unicode_document_validation() {
+    // Test with various Unicode characters
+    let emoji_text = "Hello 👋 World 🌍";
+    let emoji_doc = Document::with_text_validated(emoji_text.to_string(), 7);
+    assert!(emoji_doc.is_ok());
+    let doc = emoji_doc.unwrap();
+    assert!(doc.validate_state().is_ok());
+
+    // Test character access with Unicode - let's check what's actually at position 7
+    // "Hello 👋 World 🌍" has characters at positions:
+    // 0:H 1:e 2:l 3:l 4:o 5:  6:👋 7:  8:W 9:o 10:r 11:l 12:d 13:  14:🌍
+    assert_eq!(
+        doc.get_char_relative_to_cursor_validated(-1).unwrap(),
+        Some('👋')
+    );
+    assert_eq!(
+        doc.get_char_relative_to_cursor_validated(0).unwrap(),
+        Some(' ')
+    );
+    assert_eq!(
+        doc.get_char_relative_to_cursor_validated(1).unwrap(),
+        Some('W')
+    );
+
+    // Test CJK characters
+    let cjk_doc = Document::with_text_validated("你好世界".to_string(), 2);
+    assert!(cjk_doc.is_ok());
+    let doc = cjk_doc.unwrap();
+    assert!(doc.validate_state().is_ok());
+    assert_eq!(
+        doc.get_char_relative_to_cursor_validated(0).unwrap(),
+        Some('世')
+    );
+}

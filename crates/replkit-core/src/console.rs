@@ -4,7 +4,10 @@
 //! including input handling, output rendering, and terminal state management.
 
 use crate::KeyEvent;
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 /// Helper trait for testing - allows downcasting to concrete types
 pub trait AsAny {
@@ -16,27 +19,27 @@ pub trait AsAny {
 pub trait ConsoleInput: Send + Sync + AsAny {
     /// Enable raw terminal mode with automatic restoration
     fn enable_raw_mode(&self) -> Result<RawModeGuard, ConsoleError>;
-    
+
     /// Get current terminal window size (columns, rows)
     /// Returns the visible window area (srWindow on Windows), not the buffer size (dwSize)
     /// Values are in character cells, 0-based for API but 1-based for ANSI sequences
     fn get_window_size(&self) -> Result<(u16, u16), ConsoleError>;
-    
+
     /// Start the event processing loop
     fn start_event_loop(&self) -> Result<(), ConsoleError>;
-    
+
     /// Stop the event processing loop
     fn stop_event_loop(&self) -> Result<(), ConsoleError>;
-    
+
     /// Register callback for window resize events
     fn on_window_resize(&self, callback: Box<dyn FnMut(u16, u16) + Send>);
-    
+
     /// Register callback for key press events
     fn on_key_pressed(&self, callback: Box<dyn FnMut(KeyEvent) + Send>);
-    
+
     /// Check if the event loop is currently running
     fn is_running(&self) -> bool;
-    
+
     /// Get platform-specific capabilities
     fn get_capabilities(&self) -> ConsoleCapabilities;
 }
@@ -45,42 +48,42 @@ pub trait ConsoleInput: Send + Sync + AsAny {
 pub trait ConsoleOutput: Send + Sync + AsAny {
     /// Write text at current cursor position
     fn write_text(&self, text: &str) -> ConsoleResult<()>;
-    
+
     /// Write text with specific styling
     fn write_styled_text(&self, text: &str, style: &TextStyle) -> ConsoleResult<()>;
-    
+
     /// Write safe text (control sequences removed/escaped)
     fn write_safe_text(&self, text: &str) -> ConsoleResult<()>;
-    
+
     /// Move cursor to specific position (0-based coordinates: row, col)
     /// Note: API uses 0-based coordinates, but ANSI sequences use 1-based
     fn move_cursor_to(&self, row: u16, col: u16) -> ConsoleResult<()>;
-    
+
     /// Move cursor relative to current position
     fn move_cursor_relative(&self, row_delta: i16, col_delta: i16) -> ConsoleResult<()>;
-    
+
     /// Clear screen or specific areas
     fn clear(&self, clear_type: ClearType) -> ConsoleResult<()>;
-    
+
     /// Set text styling for subsequent writes
     fn set_style(&self, style: &TextStyle) -> ConsoleResult<()>;
-    
+
     /// Reset all styling to default
     fn reset_style(&self) -> ConsoleResult<()>;
-    
+
     /// Flush buffered output to terminal
     fn flush(&self) -> ConsoleResult<()>;
-    
+
     /// Enable/disable alternate screen buffer
     fn set_alternate_screen(&self, enabled: bool) -> ConsoleResult<()>;
-    
+
     /// Show/hide cursor
     fn set_cursor_visible(&self, visible: bool) -> ConsoleResult<()>;
-    
+
     /// Get current cursor position (row, col)
     /// Returns 0-based coordinates (API convention), converted from 1-based ANSI responses
     fn get_cursor_position(&self) -> ConsoleResult<(u16, u16)>;
-    
+
     /// Get output capabilities
     fn get_capabilities(&self) -> OutputCapabilities;
 }
@@ -104,15 +107,15 @@ impl RawModeGuard {
             is_active,
         }
     }
-    
+
     pub fn platform_info(&self) -> &str {
         &self.platform_info
     }
-    
+
     pub fn is_active(&self) -> bool {
         self.is_active.load(Ordering::Relaxed)
     }
-    
+
     /// Manually restore terminal mode (prevents automatic restoration on drop)
     pub fn restore(mut self) -> Result<(), ConsoleError> {
         if let Some(restore_fn) = self.restore_fn.take() {
@@ -123,7 +126,7 @@ impl RawModeGuard {
             Err(ConsoleError::TerminalError("Already restored".to_string()))
         }
     }
-    
+
     /// Get a weak reference to check if this guard is still active
     pub fn weak_ref(&self) -> Arc<AtomicBool> {
         Arc::clone(&self.is_active)
@@ -177,7 +180,7 @@ pub enum BackendType {
 }
 
 /// Text styling configuration
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct TextStyle {
     pub foreground: Option<Color>,
     pub background: Option<Color>,
@@ -187,21 +190,6 @@ pub struct TextStyle {
     pub strikethrough: bool,
     pub dim: bool,
     pub reverse: bool,
-}
-
-impl Default for TextStyle {
-    fn default() -> Self {
-        TextStyle {
-            foreground: None,
-            background: None,
-            bold: false,
-            italic: false,
-            underline: false,
-            strikethrough: false,
-            dim: false,
-            reverse: false,
-        }
-    }
 }
 
 /// Color specification for text styling
@@ -276,15 +264,18 @@ pub enum EventLoopError {
 impl std::fmt::Display for ConsoleError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConsoleError::IoError(msg) => write!(f, "I/O error: {}", msg),
+            ConsoleError::IoError(msg) => write!(f, "I/O error: {msg}"),
             ConsoleError::UnsupportedFeature { feature, platform } => {
-                write!(f, "Feature '{}' not supported on platform '{}'", feature, platform)
+                write!(
+                    f,
+                    "Feature '{feature}' not supported on platform '{platform}'"
+                )
             }
-            ConsoleError::EventLoopError(e) => write!(f, "Event loop error: {:?}", e),
-            ConsoleError::TerminalError(msg) => write!(f, "Terminal error: {}", msg),
-            ConsoleError::ThreadError(msg) => write!(f, "Thread error: {}", msg),
-            ConsoleError::CallbackError(msg) => write!(f, "Callback error: {}", msg),
-            ConsoleError::WasmBridgeError(msg) => write!(f, "WASM bridge error: {}", msg),
+            ConsoleError::EventLoopError(e) => write!(f, "Event loop error: {e:?}"),
+            ConsoleError::TerminalError(msg) => write!(f, "Terminal error: {msg}"),
+            ConsoleError::ThreadError(msg) => write!(f, "Thread error: {msg}"),
+            ConsoleError::CallbackError(msg) => write!(f, "Callback error: {msg}"),
+            ConsoleError::WasmBridgeError(msg) => write!(f, "WASM bridge error: {msg}"),
         }
     }
 }
@@ -329,26 +320,26 @@ impl SafeTextFilter {
             state: FilterState::Normal,
         }
     }
-    
+
     /// Filter text according to the sanitization policy
     pub fn filter(&mut self, input: &str) -> String {
         let mut output = String::with_capacity(input.len());
-        
+
         for byte in input.bytes() {
             match self.process_byte(byte) {
                 FilterAction::Emit(b) => output.push(b as char),
                 FilterAction::EmitEscaped(b) => {
                     output.push('\\');
                     output.push('x');
-                    output.push_str(&format!("{:02x}", b));
+                    output.push_str(&format!("{b:02x}"));
                 }
                 FilterAction::Skip => {}
             }
         }
-        
+
         output
     }
-    
+
     fn process_byte(&mut self, byte: u8) -> FilterAction {
         match self.state {
             FilterState::Normal => {
@@ -381,28 +372,26 @@ impl SafeTextFilter {
                     _ => FilterAction::Emit(byte),
                 }
             }
-            FilterState::Escape => {
-                match byte {
-                    b'[' => {
-                        self.state = FilterState::Csi;
-                        FilterAction::Skip
-                    }
-                    b']' => {
-                        self.state = FilterState::OscString;
-                        FilterAction::Skip
-                    }
-                    b'P' => {
-                        self.state = FilterState::DcsString;
-                        FilterAction::Skip
-                    }
-                    _ => {
-                        self.state = FilterState::Normal;
-                        FilterAction::Skip
-                    }
+            FilterState::Escape => match byte {
+                b'[' => {
+                    self.state = FilterState::Csi;
+                    FilterAction::Skip
                 }
-            }
+                b']' => {
+                    self.state = FilterState::OscString;
+                    FilterAction::Skip
+                }
+                b'P' => {
+                    self.state = FilterState::DcsString;
+                    FilterAction::Skip
+                }
+                _ => {
+                    self.state = FilterState::Normal;
+                    FilterAction::Skip
+                }
+            },
             FilterState::Csi => {
-                if byte >= 0x40 && byte <= 0x7e {
+                if (0x40..=0x7e).contains(&byte) {
                     // CSI terminator
                     self.state = FilterState::Normal;
                 }
@@ -411,7 +400,11 @@ impl SafeTextFilter {
             FilterState::OscString => {
                 if byte == 0x07 || (byte == 0x1b) {
                     // OSC terminator (BEL or ESC)
-                    self.state = if byte == 0x1b { FilterState::Escape } else { FilterState::Normal };
+                    self.state = if byte == 0x1b {
+                        FilterState::Escape
+                    } else {
+                        FilterState::Normal
+                    };
                 }
                 FilterAction::Skip
             }

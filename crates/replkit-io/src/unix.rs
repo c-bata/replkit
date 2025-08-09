@@ -323,7 +323,7 @@ impl UnixConsoleOutput {
                         return Err(ConsoleError::IoError("Unexpected EAGAIN in blocking write".to_string()));
                     }
                     _ => {
-                        return Err(ConsoleError::IoError(format!("Write failed: {}", error)));
+                        return Err(ConsoleError::IoError(format!("Write failed: {error}")));
                     }
                 }
             } else {
@@ -356,8 +356,8 @@ impl UnixConsoleOutput {
             Color::BrightMagenta => "95".to_string(),
             Color::BrightCyan => "96".to_string(),
             Color::BrightWhite => "97".to_string(),
-            Color::Rgb(r, g, b) => format!("38;2;{};{};{}", r, g, b),
-            Color::Ansi256(n) => format!("38;5;{}", n),
+            Color::Rgb(r, g, b) => format!("38;2;{r};{g};{b}"),
+            Color::Ansi256(n) => format!("38;5;{n}"),
         }
     }
     
@@ -380,8 +380,8 @@ impl UnixConsoleOutput {
             Color::BrightMagenta => "105".to_string(),
             Color::BrightCyan => "106".to_string(),
             Color::BrightWhite => "107".to_string(),
-            Color::Rgb(r, g, b) => format!("48;2;{};{};{}", r, g, b),
-            Color::Ansi256(n) => format!("48;5;{}", n),
+            Color::Rgb(r, g, b) => format!("48;2;{r};{g};{b}"),
+            Color::Ansi256(n) => format!("48;5;{n}"),
         }
     }
     
@@ -468,7 +468,7 @@ impl UnixConsoleOutput {
                     _ => {
                         // Real error
                         unsafe { libc::fcntl(stdin_fd, libc::F_SETFL, original_flags) };
-                        return Err(ConsoleError::IoError(format!("Read error: {}", error)));
+                        return Err(ConsoleError::IoError(format!("Read error: {error}")));
                     }
                 }
                 // EAGAIN/EWOULDBLOCK - no data available, continue polling
@@ -580,14 +580,14 @@ impl ConsoleOutput for UnixConsoleOutput {
     fn move_cursor_relative(&self, row_delta: i16, col_delta: i16) -> ConsoleResult<()> {
         // Handle vertical movement
         if row_delta > 0 {
-            self.write_ansi(&format!("\x1b[{}B", row_delta))?; // Move down
+            self.write_ansi(&format!("\x1b[{row_delta}B"))?; // Move down
         } else if row_delta < 0 {
             self.write_ansi(&format!("\x1b[{}A", -row_delta))?; // Move up
         }
         
         // Handle horizontal movement
         if col_delta > 0 {
-            self.write_ansi(&format!("\x1b[{}C", col_delta))?; // Move right
+            self.write_ansi(&format!("\x1b[{col_delta}C"))?; // Move right
         } else if col_delta < 0 {
             self.write_ansi(&format!("\x1b[{}D", -col_delta))?; // Move left
         }
@@ -638,7 +638,7 @@ impl ConsoleOutput for UnixConsoleOutput {
             // so we ignore EINVAL and ENOTTY errors
             match error.raw_os_error() {
                 Some(libc::EINVAL) | Some(libc::ENOTTY) => Ok(()),
-                _ => Err(ConsoleError::IoError(format!("fsync failed: {}", error))),
+                _ => Err(ConsoleError::IoError(format!("fsync failed: {error}"))),
             }
         } else {
             Ok(())

@@ -1,11 +1,11 @@
-use replkit_core::{KeyParser, WasmKeyEvent, Buffer, Document, WasmBufferState, WasmDocumentState, Key, key_to_u32, u32_to_key};
-use serde_json;
+use replkit_core::{
+    u32_to_key, Buffer, Document, KeyParser, WasmBufferState, WasmDocumentState, WasmKeyEvent,
+};
 use std::collections::HashMap;
 use std::os::raw::c_void;
 use std::ptr;
 use std::slice;
 use std::str;
-
 
 // Global storage for instances
 static mut PARSERS: Option<HashMap<u32, KeyParser>> = None;
@@ -65,19 +65,19 @@ fn serialize_events(events: Vec<WasmKeyEvent>) -> u64 {
         Ok(json) => json,
         Err(_) => return 0, // Return null pointer on error
     };
-    
+
     // Allocate memory for the JSON string
     let json_bytes = json.as_bytes();
     let json_ptr = allocate_tracked(json_bytes.len());
-    
+
     if json_ptr.is_null() {
         return 0;
     }
-    
+
     unsafe {
         ptr::copy_nonoverlapping(json_bytes.as_ptr(), json_ptr, json_bytes.len());
     }
-    
+
     // Return pointer and length as packed u64
     ((json_ptr as u64) << 32) | (json_bytes.len() as u64)
 }
@@ -95,26 +95,26 @@ fn init_parsers() {
 #[no_mangle]
 pub extern "C" fn new_parser() -> u32 {
     init_parsers();
-    
+
     let parser = KeyParser::new();
     let id = unsafe { NEXT_ID };
-    
+
     unsafe {
         NEXT_ID += 1;
         if let Some(ref mut parsers) = PARSERS {
             parsers.insert(id, parser);
         }
     }
-    
+
     id
 }
 
 #[no_mangle]
 pub extern "C" fn feed(parser_id: u32, data_ptr: *const u8, data_len: u32) -> u64 {
     init_parsers();
-    
+
     let data = unsafe { slice::from_raw_parts(data_ptr, data_len as usize) };
-    
+
     let events = unsafe {
         if let Some(ref mut parsers) = PARSERS {
             if let Some(parser) = parsers.get_mut(&parser_id) {
@@ -126,16 +126,17 @@ pub extern "C" fn feed(parser_id: u32, data_ptr: *const u8, data_len: u32) -> u6
             Vec::new()
         }
     };
-    
+
     // Convert to serializable format and return
-    let serializable_events: Vec<WasmKeyEvent> = events.into_iter().map(WasmKeyEvent::from).collect();
+    let serializable_events: Vec<WasmKeyEvent> =
+        events.into_iter().map(WasmKeyEvent::from).collect();
     serialize_events(serializable_events)
 }
 
 #[no_mangle]
 pub extern "C" fn flush(parser_id: u32) -> u64 {
     init_parsers();
-    
+
     let events = unsafe {
         if let Some(ref mut parsers) = PARSERS {
             if let Some(parser) = parsers.get_mut(&parser_id) {
@@ -147,16 +148,17 @@ pub extern "C" fn flush(parser_id: u32) -> u64 {
             Vec::new()
         }
     };
-    
+
     // Convert to serializable format and return
-    let serializable_events: Vec<WasmKeyEvent> = events.into_iter().map(WasmKeyEvent::from).collect();
+    let serializable_events: Vec<WasmKeyEvent> =
+        events.into_iter().map(WasmKeyEvent::from).collect();
     serialize_events(serializable_events)
 }
 
 #[no_mangle]
 pub extern "C" fn reset(parser_id: u32) {
     init_parsers();
-    
+
     unsafe {
         if let Some(ref mut parsers) = PARSERS {
             if let Some(parser) = parsers.get_mut(&parser_id) {
@@ -169,7 +171,7 @@ pub extern "C" fn reset(parser_id: u32) {
 #[no_mangle]
 pub extern "C" fn destroy_parser(parser_id: u32) {
     init_parsers();
-    
+
     unsafe {
         if let Some(ref mut parsers) = PARSERS {
             parsers.remove(&parser_id);
@@ -213,18 +215,18 @@ fn serialize_string(s: &str) -> u64 {
         Ok(json) => json,
         Err(_) => return 0,
     };
-    
+
     let json_bytes = json.as_bytes();
     let json_ptr = allocate_tracked(json_bytes.len());
-    
+
     if json_ptr.is_null() {
         return 0;
     }
-    
+
     unsafe {
         ptr::copy_nonoverlapping(json_bytes.as_ptr(), json_ptr, json_bytes.len());
     }
-    
+
     ((json_ptr as u64) << 32) | (json_bytes.len() as u64)
 }
 
@@ -234,18 +236,18 @@ fn serialize_json<T: serde::Serialize>(data: &T) -> u64 {
         Ok(json) => json,
         Err(_) => return 0,
     };
-    
+
     let json_bytes = json.as_bytes();
     let json_ptr = allocate_tracked(json_bytes.len());
-    
+
     if json_ptr.is_null() {
         return 0;
     }
-    
+
     unsafe {
         ptr::copy_nonoverlapping(json_bytes.as_ptr(), json_ptr, json_bytes.len());
     }
-    
+
     ((json_ptr as u64) << 32) | (json_bytes.len() as u64)
 }
 
@@ -253,24 +255,30 @@ fn serialize_json<T: serde::Serialize>(data: &T) -> u64 {
 #[no_mangle]
 pub extern "C" fn new_buffer() -> u32 {
     init_buffers();
-    
+
     let buffer = Buffer::new();
     let id = unsafe { NEXT_ID };
-    
+
     unsafe {
         NEXT_ID += 1;
         if let Some(ref mut buffers) = BUFFERS {
             buffers.insert(id, buffer);
         }
     }
-    
+
     id
 }
 
 #[no_mangle]
-pub extern "C" fn buffer_insert_text(buffer_id: u32, text_ptr: *const u8, text_len: u32, overwrite: u32, move_cursor: u32) -> u32 {
+pub extern "C" fn buffer_insert_text(
+    buffer_id: u32,
+    text_ptr: *const u8,
+    text_len: u32,
+    overwrite: u32,
+    move_cursor: u32,
+) -> u32 {
     init_buffers();
-    
+
     let text = unsafe {
         let slice = slice::from_raw_parts(text_ptr, text_len as usize);
         match str::from_utf8(slice) {
@@ -278,7 +286,7 @@ pub extern "C" fn buffer_insert_text(buffer_id: u32, text_ptr: *const u8, text_l
             Err(_) => return 1, // Error: invalid UTF-8
         }
     };
-    
+
     unsafe {
         if let Some(ref mut buffers) = BUFFERS {
             if let Some(buffer) = buffers.get_mut(&buffer_id) {
@@ -296,7 +304,7 @@ pub extern "C" fn buffer_insert_text(buffer_id: u32, text_ptr: *const u8, text_l
 #[no_mangle]
 pub extern "C" fn buffer_delete_before_cursor(buffer_id: u32, count: u32) -> u64 {
     init_buffers();
-    
+
     unsafe {
         if let Some(ref mut buffers) = BUFFERS {
             if let Some(buffer) = buffers.get_mut(&buffer_id) {
@@ -314,7 +322,7 @@ pub extern "C" fn buffer_delete_before_cursor(buffer_id: u32, count: u32) -> u64
 #[no_mangle]
 pub extern "C" fn buffer_delete(buffer_id: u32, count: u32) -> u64 {
     init_buffers();
-    
+
     unsafe {
         if let Some(ref mut buffers) = BUFFERS {
             if let Some(buffer) = buffers.get_mut(&buffer_id) {
@@ -332,7 +340,7 @@ pub extern "C" fn buffer_delete(buffer_id: u32, count: u32) -> u64 {
 #[no_mangle]
 pub extern "C" fn buffer_cursor_left(buffer_id: u32, count: u32) -> u32 {
     init_buffers();
-    
+
     unsafe {
         if let Some(ref mut buffers) = BUFFERS {
             if let Some(buffer) = buffers.get_mut(&buffer_id) {
@@ -350,7 +358,7 @@ pub extern "C" fn buffer_cursor_left(buffer_id: u32, count: u32) -> u32 {
 #[no_mangle]
 pub extern "C" fn buffer_cursor_right(buffer_id: u32, count: u32) -> u32 {
     init_buffers();
-    
+
     unsafe {
         if let Some(ref mut buffers) = BUFFERS {
             if let Some(buffer) = buffers.get_mut(&buffer_id) {
@@ -368,7 +376,7 @@ pub extern "C" fn buffer_cursor_right(buffer_id: u32, count: u32) -> u32 {
 #[no_mangle]
 pub extern "C" fn buffer_cursor_up(buffer_id: u32, count: u32) -> u32 {
     init_buffers();
-    
+
     unsafe {
         if let Some(ref mut buffers) = BUFFERS {
             if let Some(buffer) = buffers.get_mut(&buffer_id) {
@@ -386,7 +394,7 @@ pub extern "C" fn buffer_cursor_up(buffer_id: u32, count: u32) -> u32 {
 #[no_mangle]
 pub extern "C" fn buffer_cursor_down(buffer_id: u32, count: u32) -> u32 {
     init_buffers();
-    
+
     unsafe {
         if let Some(ref mut buffers) = BUFFERS {
             if let Some(buffer) = buffers.get_mut(&buffer_id) {
@@ -404,7 +412,7 @@ pub extern "C" fn buffer_cursor_down(buffer_id: u32, count: u32) -> u32 {
 #[no_mangle]
 pub extern "C" fn buffer_set_text(buffer_id: u32, text_ptr: *const u8, text_len: u32) -> u32 {
     init_buffers();
-    
+
     let text = unsafe {
         let slice = slice::from_raw_parts(text_ptr, text_len as usize);
         match str::from_utf8(slice) {
@@ -412,7 +420,7 @@ pub extern "C" fn buffer_set_text(buffer_id: u32, text_ptr: *const u8, text_len:
             Err(_) => return 1, // Error: invalid UTF-8
         }
     };
-    
+
     unsafe {
         if let Some(ref mut buffers) = BUFFERS {
             if let Some(buffer) = buffers.get_mut(&buffer_id) {
@@ -430,7 +438,7 @@ pub extern "C" fn buffer_set_text(buffer_id: u32, text_ptr: *const u8, text_len:
 #[no_mangle]
 pub extern "C" fn buffer_set_cursor_position(buffer_id: u32, position: u32) -> u32 {
     init_buffers();
-    
+
     unsafe {
         if let Some(ref mut buffers) = BUFFERS {
             if let Some(buffer) = buffers.get_mut(&buffer_id) {
@@ -448,7 +456,7 @@ pub extern "C" fn buffer_set_cursor_position(buffer_id: u32, position: u32) -> u
 #[no_mangle]
 pub extern "C" fn buffer_new_line(buffer_id: u32, copy_margin: u32) -> u32 {
     init_buffers();
-    
+
     unsafe {
         if let Some(ref mut buffers) = BUFFERS {
             if let Some(buffer) = buffers.get_mut(&buffer_id) {
@@ -464,9 +472,13 @@ pub extern "C" fn buffer_new_line(buffer_id: u32, copy_margin: u32) -> u32 {
 }
 
 #[no_mangle]
-pub extern "C" fn buffer_join_next_line(buffer_id: u32, separator_ptr: *const u8, separator_len: u32) -> u32 {
+pub extern "C" fn buffer_join_next_line(
+    buffer_id: u32,
+    separator_ptr: *const u8,
+    separator_len: u32,
+) -> u32 {
     init_buffers();
-    
+
     let separator = unsafe {
         let slice = slice::from_raw_parts(separator_ptr, separator_len as usize);
         match str::from_utf8(slice) {
@@ -474,7 +486,7 @@ pub extern "C" fn buffer_join_next_line(buffer_id: u32, separator_ptr: *const u8
             Err(_) => return 1, // Error: invalid UTF-8
         }
     };
-    
+
     unsafe {
         if let Some(ref mut buffers) = BUFFERS {
             if let Some(buffer) = buffers.get_mut(&buffer_id) {
@@ -492,7 +504,7 @@ pub extern "C" fn buffer_join_next_line(buffer_id: u32, separator_ptr: *const u8
 #[no_mangle]
 pub extern "C" fn buffer_swap_characters_before_cursor(buffer_id: u32) -> u32 {
     init_buffers();
-    
+
     unsafe {
         if let Some(ref mut buffers) = BUFFERS {
             if let Some(buffer) = buffers.get_mut(&buffer_id) {
@@ -510,7 +522,7 @@ pub extern "C" fn buffer_swap_characters_before_cursor(buffer_id: u32) -> u32 {
 #[no_mangle]
 pub extern "C" fn buffer_to_wasm_state(buffer_id: u32) -> u64 {
     init_buffers();
-    
+
     unsafe {
         if let Some(ref buffers) = BUFFERS {
             if let Some(buffer) = buffers.get(&buffer_id) {
@@ -528,7 +540,7 @@ pub extern "C" fn buffer_to_wasm_state(buffer_id: u32) -> u64 {
 #[no_mangle]
 pub extern "C" fn buffer_from_wasm_state(state_ptr: *const u8, state_len: u32) -> u32 {
     init_buffers();
-    
+
     let state_json = unsafe {
         let slice = slice::from_raw_parts(state_ptr, state_len as usize);
         match str::from_utf8(slice) {
@@ -536,18 +548,18 @@ pub extern "C" fn buffer_from_wasm_state(state_ptr: *const u8, state_len: u32) -
             Err(_) => return 0, // Error: invalid UTF-8
         }
     };
-    
+
     if let Ok(state) = serde_json::from_str::<WasmBufferState>(state_json) {
         let buffer = Buffer::from_wasm_state(state);
         let id = unsafe { NEXT_ID };
-        
+
         unsafe {
             NEXT_ID += 1;
             if let Some(ref mut buffers) = BUFFERS {
                 buffers.insert(id, buffer);
             }
         }
-        
+
         id
     } else {
         0 // Error: invalid state
@@ -558,18 +570,18 @@ pub extern "C" fn buffer_from_wasm_state(state_ptr: *const u8, state_len: u32) -
 pub extern "C" fn buffer_get_document(buffer_id: u32) -> u32 {
     init_buffers();
     init_documents();
-    
+
     unsafe {
         if let Some(ref mut buffers) = BUFFERS {
             if let Some(buffer) = buffers.get_mut(&buffer_id) {
                 let document = buffer.document().clone();
                 let id = NEXT_ID;
                 NEXT_ID += 1;
-                
+
                 if let Some(ref mut documents) = DOCUMENTS {
                     documents.insert(id, document);
                 }
-                
+
                 id
             } else {
                 0 // Error: buffer not found
@@ -583,7 +595,7 @@ pub extern "C" fn buffer_get_document(buffer_id: u32) -> u32 {
 #[no_mangle]
 pub extern "C" fn destroy_buffer(buffer_id: u32) -> u32 {
     init_buffers();
-    
+
     unsafe {
         if let Some(ref mut buffers) = BUFFERS {
             if buffers.remove(&buffer_id).is_some() {
@@ -601,24 +613,28 @@ pub extern "C" fn destroy_buffer(buffer_id: u32) -> u32 {
 #[no_mangle]
 pub extern "C" fn new_document() -> u32 {
     init_documents();
-    
+
     let document = Document::new();
     let id = unsafe { NEXT_ID };
-    
+
     unsafe {
         NEXT_ID += 1;
         if let Some(ref mut documents) = DOCUMENTS {
             documents.insert(id, document);
         }
     }
-    
+
     id
 }
 
 #[no_mangle]
-pub extern "C" fn document_with_text(text_ptr: *const u8, text_len: u32, cursor_position: u32) -> u32 {
+pub extern "C" fn document_with_text(
+    text_ptr: *const u8,
+    text_len: u32,
+    cursor_position: u32,
+) -> u32 {
     init_documents();
-    
+
     let text = unsafe {
         let slice = slice::from_raw_parts(text_ptr, text_len as usize);
         match str::from_utf8(slice) {
@@ -626,24 +642,30 @@ pub extern "C" fn document_with_text(text_ptr: *const u8, text_len: u32, cursor_
             Err(_) => return 0, // Error: invalid UTF-8
         }
     };
-    
+
     let document = Document::with_text(text, cursor_position as usize);
     let id = unsafe { NEXT_ID };
-    
+
     unsafe {
         NEXT_ID += 1;
         if let Some(ref mut documents) = DOCUMENTS {
             documents.insert(id, document);
         }
     }
-    
+
     id
 }
 
 #[no_mangle]
-pub extern "C" fn document_with_text_and_key(text_ptr: *const u8, text_len: u32, cursor_position: u32, has_key: u32, key_value: u32) -> u32 {
+pub extern "C" fn document_with_text_and_key(
+    text_ptr: *const u8,
+    text_len: u32,
+    cursor_position: u32,
+    has_key: u32,
+    key_value: u32,
+) -> u32 {
     init_documents();
-    
+
     let text = unsafe {
         let slice = slice::from_raw_parts(text_ptr, text_len as usize);
         match str::from_utf8(slice) {
@@ -651,30 +673,30 @@ pub extern "C" fn document_with_text_and_key(text_ptr: *const u8, text_len: u32,
             Err(_) => return 0, // Error: invalid UTF-8
         }
     };
-    
+
     let key = if has_key != 0 {
         Some(u32_to_key(key_value))
     } else {
         None
     };
-    
+
     let document = Document::with_text_and_key(text, cursor_position as usize, key);
     let id = unsafe { NEXT_ID };
-    
+
     unsafe {
         NEXT_ID += 1;
         if let Some(ref mut documents) = DOCUMENTS {
             documents.insert(id, document);
         }
     }
-    
+
     id
 }
 
 #[no_mangle]
 pub extern "C" fn document_text_before_cursor(document_id: u32) -> u64 {
     init_documents();
-    
+
     unsafe {
         if let Some(ref documents) = DOCUMENTS {
             if let Some(document) = documents.get(&document_id) {
@@ -692,7 +714,7 @@ pub extern "C" fn document_text_before_cursor(document_id: u32) -> u64 {
 #[no_mangle]
 pub extern "C" fn document_text_after_cursor(document_id: u32) -> u64 {
     init_documents();
-    
+
     unsafe {
         if let Some(ref documents) = DOCUMENTS {
             if let Some(document) = documents.get(&document_id) {
@@ -710,7 +732,7 @@ pub extern "C" fn document_text_after_cursor(document_id: u32) -> u64 {
 #[no_mangle]
 pub extern "C" fn document_get_word_before_cursor(document_id: u32) -> u64 {
     init_documents();
-    
+
     unsafe {
         if let Some(ref documents) = DOCUMENTS {
             if let Some(document) = documents.get(&document_id) {
@@ -728,7 +750,7 @@ pub extern "C" fn document_get_word_before_cursor(document_id: u32) -> u64 {
 #[no_mangle]
 pub extern "C" fn document_get_word_after_cursor(document_id: u32) -> u64 {
     init_documents();
-    
+
     unsafe {
         if let Some(ref documents) = DOCUMENTS {
             if let Some(document) = documents.get(&document_id) {
@@ -746,7 +768,7 @@ pub extern "C" fn document_get_word_after_cursor(document_id: u32) -> u64 {
 #[no_mangle]
 pub extern "C" fn document_current_line(document_id: u32) -> u64 {
     init_documents();
-    
+
     unsafe {
         if let Some(ref documents) = DOCUMENTS {
             if let Some(document) = documents.get(&document_id) {
@@ -764,7 +786,7 @@ pub extern "C" fn document_current_line(document_id: u32) -> u64 {
 #[no_mangle]
 pub extern "C" fn document_line_count(document_id: u32) -> u32 {
     init_documents();
-    
+
     unsafe {
         if let Some(ref documents) = DOCUMENTS {
             if let Some(document) = documents.get(&document_id) {
@@ -781,7 +803,7 @@ pub extern "C" fn document_line_count(document_id: u32) -> u32 {
 #[no_mangle]
 pub extern "C" fn document_cursor_position_row(document_id: u32) -> u32 {
     init_documents();
-    
+
     unsafe {
         if let Some(ref documents) = DOCUMENTS {
             if let Some(document) = documents.get(&document_id) {
@@ -798,7 +820,7 @@ pub extern "C" fn document_cursor_position_row(document_id: u32) -> u32 {
 #[no_mangle]
 pub extern "C" fn document_cursor_position_col(document_id: u32) -> u32 {
     init_documents();
-    
+
     unsafe {
         if let Some(ref documents) = DOCUMENTS {
             if let Some(document) = documents.get(&document_id) {
@@ -815,7 +837,7 @@ pub extern "C" fn document_cursor_position_col(document_id: u32) -> u32 {
 #[no_mangle]
 pub extern "C" fn document_display_cursor_position(document_id: u32) -> u32 {
     init_documents();
-    
+
     unsafe {
         if let Some(ref documents) = DOCUMENTS {
             if let Some(document) = documents.get(&document_id) {
@@ -832,7 +854,7 @@ pub extern "C" fn document_display_cursor_position(document_id: u32) -> u32 {
 #[no_mangle]
 pub extern "C" fn document_to_wasm_state(document_id: u32) -> u64 {
     init_documents();
-    
+
     unsafe {
         if let Some(ref documents) = DOCUMENTS {
             if let Some(document) = documents.get(&document_id) {
@@ -850,7 +872,7 @@ pub extern "C" fn document_to_wasm_state(document_id: u32) -> u64 {
 #[no_mangle]
 pub extern "C" fn document_from_wasm_state(state_ptr: *const u8, state_len: u32) -> u32 {
     init_documents();
-    
+
     let state_json = unsafe {
         let slice = slice::from_raw_parts(state_ptr, state_len as usize);
         match str::from_utf8(slice) {
@@ -858,18 +880,18 @@ pub extern "C" fn document_from_wasm_state(state_ptr: *const u8, state_len: u32)
             Err(_) => return 0, // Error: invalid UTF-8
         }
     };
-    
+
     if let Ok(state) = serde_json::from_str::<WasmDocumentState>(state_json) {
         let document = Document::from_wasm_state(state);
         let id = unsafe { NEXT_ID };
-        
+
         unsafe {
             NEXT_ID += 1;
             if let Some(ref mut documents) = DOCUMENTS {
                 documents.insert(id, document);
             }
         }
-        
+
         id
     } else {
         0 // Error: invalid state
@@ -879,7 +901,7 @@ pub extern "C" fn document_from_wasm_state(state_ptr: *const u8, state_len: u32)
 #[no_mangle]
 pub extern "C" fn destroy_document(document_id: u32) -> u32 {
     init_documents();
-    
+
     unsafe {
         if let Some(ref mut documents) = DOCUMENTS {
             if documents.remove(&document_id).is_some() {

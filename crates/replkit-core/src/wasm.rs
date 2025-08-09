@@ -6,7 +6,7 @@ pub use self::wasm_impl::*;
 
 #[cfg(feature = "wasm")]
 mod wasm_impl {
-    use crate::{Key, KeyEvent, KeyParser, Buffer, Document};
+    use crate::{Buffer, Document, Key, KeyEvent, KeyParser};
     use serde::{Deserialize, Serialize};
 
     /// Serializable version of KeyEvent for WASM interop

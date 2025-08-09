@@ -5,7 +5,7 @@
 
 #[cfg(windows)]
 mod windows_vt_tests {
-    use replkit_io::{WindowsVtConsoleInput, ConsoleInput, BackendType};
+    use replkit_io::{BackendType, ConsoleInput, WindowsVtConsoleInput};
     use std::sync::mpsc;
     use std::time::Duration;
 
@@ -16,7 +16,7 @@ mod windows_vt_tests {
             Ok(console) => {
                 // Verify basic properties
                 assert!(!console.is_running());
-                
+
                 let caps = console.get_capabilities();
                 assert_eq!(caps.backend_type, BackendType::WindowsVt);
                 assert!(caps.supports_raw_mode);
@@ -25,16 +25,18 @@ mod windows_vt_tests {
                 assert!(caps.supports_bracketed_paste);
                 assert!(caps.supports_mouse_events);
                 assert_eq!(caps.platform_name, "Windows VT");
-                
+
                 println!("Windows VT console created successfully");
             }
             Err(e) => {
                 // On systems without VT support, this is expected
                 println!("VT mode not supported (expected on older Windows): {}", e);
-                
+
                 // Verify it's the right kind of error
-                assert!(e.to_string().contains("Virtual Terminal") || 
-                       e.to_string().contains("not supported"));
+                assert!(
+                    e.to_string().contains("Virtual Terminal")
+                        || e.to_string().contains("not supported")
+                );
             }
         }
     }
@@ -77,15 +79,15 @@ mod windows_vt_tests {
         if let Ok(console) = WindowsVtConsoleInput::new() {
             // Should not be running initially
             assert!(!console.is_running());
-            
+
             // Start should succeed
             if console.start_event_loop().is_ok() {
                 assert!(console.is_running());
                 println!("Event loop started successfully");
-                
+
                 // Stop should succeed
                 assert!(console.stop_event_loop().is_ok());
-                
+
                 // Give thread time to stop
                 std::thread::sleep(Duration::from_millis(100));
                 assert!(!console.is_running());
@@ -100,19 +102,19 @@ mod windows_vt_tests {
     fn test_callback_registration() {
         if let Ok(console) = WindowsVtConsoleInput::new() {
             let (tx, _rx) = mpsc::channel();
-            
+
             // Register key callback
             console.on_key_pressed(Box::new(move |event| {
                 let _ = tx.send(event);
             }));
-            
+
             let (resize_tx, _resize_rx) = mpsc::channel();
-            
+
             // Register resize callback
             console.on_window_resize(Box::new(move |w, h| {
                 let _ = resize_tx.send((w, h));
             }));
-            
+
             println!("Callbacks registered successfully");
             // Callbacks should be registered (we can't easily test invocation without actual input)
         }
@@ -123,18 +125,18 @@ mod windows_vt_tests {
         // Test that multiple instances can be created without interfering
         let console1 = WindowsVtConsoleInput::new();
         let console2 = WindowsVtConsoleInput::new();
-        
+
         match (console1, console2) {
             (Ok(c1), Ok(c2)) => {
                 assert!(!c1.is_running());
                 assert!(!c2.is_running());
-                
+
                 // Both should have the same capabilities
                 let caps1 = c1.get_capabilities();
                 let caps2 = c2.get_capabilities();
                 assert_eq!(caps1.backend_type, caps2.backend_type);
                 assert_eq!(caps1.platform_name, caps2.platform_name);
-                
+
                 println!("Multiple VT console instances created successfully");
             }
             _ => {

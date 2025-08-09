@@ -16,6 +16,12 @@ pub struct MockConsoleInput {
     key_callback: Arc<Mutex<Option<Box<dyn FnMut(KeyEvent) + Send>>>>,
 }
 
+impl Default for MockConsoleInput {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MockConsoleInput {
     pub fn new() -> Self {
         Self {
@@ -196,6 +202,12 @@ pub struct MockConsoleOutput {
     current_style: Arc<Mutex<TextStyle>>,
     alternate_screen_enabled: Arc<Mutex<bool>>,
     cursor_visible: Arc<Mutex<bool>>,
+}
+
+impl Default for MockConsoleOutput {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MockConsoleOutput {

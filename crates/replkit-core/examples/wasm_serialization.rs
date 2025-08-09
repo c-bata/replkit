@@ -38,61 +38,79 @@ fn main() {
     println!("{}", buffer_json);
 
     // Deserialize back from JSON
-    let buffer_state_from_json: WasmBufferState = serde_json::from_str(&buffer_json)
-        .expect("Failed to deserialize buffer from JSON");
+    let buffer_state_from_json: WasmBufferState =
+        serde_json::from_str(&buffer_json).expect("Failed to deserialize buffer from JSON");
     let restored_buffer = Buffer::from_wasm_state(buffer_state_from_json);
 
     println!("\nRestored Buffer:");
     println!("  Text: {:?}", restored_buffer.text());
     println!("  Cursor position: {}", restored_buffer.cursor_position());
-    println!("  Working lines count: {}", restored_buffer.working_lines_count());
+    println!(
+        "  Working lines count: {}",
+        restored_buffer.working_lines_count()
+    );
     println!("  Working index: {}", restored_buffer.working_index());
 
     // Verify roundtrip integrity
     assert_eq!(buffer.text(), restored_buffer.text());
     assert_eq!(buffer.cursor_position(), restored_buffer.cursor_position());
-    assert_eq!(buffer.working_lines_count(), restored_buffer.working_lines_count());
+    assert_eq!(
+        buffer.working_lines_count(),
+        restored_buffer.working_lines_count()
+    );
     assert_eq!(buffer.working_index(), restored_buffer.working_index());
     println!("✓ Buffer roundtrip successful!");
 
     // Document example
     println!("\n{}", "=".repeat(50));
-    
+
     let document = Document::with_text_and_key(
         "Document with 🚀 emoji and 中文".to_string(),
         15, // After "🚀 "
-        Some(Key::F1)
+        Some(Key::F1),
     );
 
     println!("\nOriginal Document:");
     println!("  Text: {:?}", document.text());
     println!("  Cursor position: {}", document.cursor_position());
-    println!("  Display cursor position: {}", document.display_cursor_position());
+    println!(
+        "  Display cursor position: {}",
+        document.display_cursor_position()
+    );
     println!("  Last key: {:?}", document.last_key_stroke());
 
     // Serialize Document to WASM state
     let doc_wasm_state = document.to_wasm_state();
     let doc_json = serde_json::to_string_pretty(&doc_wasm_state)
         .expect("Failed to serialize document to JSON");
-    
+
     println!("\nDocument as JSON:");
     println!("{}", doc_json);
 
     // Deserialize back
-    let doc_state_from_json: WasmDocumentState = serde_json::from_str(&doc_json)
-        .expect("Failed to deserialize document from JSON");
+    let doc_state_from_json: WasmDocumentState =
+        serde_json::from_str(&doc_json).expect("Failed to deserialize document from JSON");
     let restored_document = Document::from_wasm_state(doc_state_from_json);
 
     println!("\nRestored Document:");
     println!("  Text: {:?}", restored_document.text());
     println!("  Cursor position: {}", restored_document.cursor_position());
-    println!("  Display cursor position: {}", restored_document.display_cursor_position());
+    println!(
+        "  Display cursor position: {}",
+        restored_document.display_cursor_position()
+    );
     println!("  Last key: {:?}", restored_document.last_key_stroke());
 
     // Verify roundtrip integrity
     assert_eq!(document.text(), restored_document.text());
-    assert_eq!(document.cursor_position(), restored_document.cursor_position());
-    assert_eq!(document.last_key_stroke(), restored_document.last_key_stroke());
+    assert_eq!(
+        document.cursor_position(),
+        restored_document.cursor_position()
+    );
+    assert_eq!(
+        document.last_key_stroke(),
+        restored_document.last_key_stroke()
+    );
     println!("✓ Document roundtrip successful!");
 
     println!("\n🎉 All WASM serialization tests passed!");

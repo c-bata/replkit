@@ -1,7 +1,7 @@
-use pyo3::prelude::*;
 use pyo3::exceptions::PyRuntimeError;
+use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use replkit_core::{KeyParser as CoreKeyParser, Key as CoreKey, KeyEvent as CoreKeyEvent};
+use replkit_core::{Key as CoreKey, KeyEvent as CoreKeyEvent, KeyParser as CoreKeyParser};
 use std::panic;
 
 /// Python representation of a Key enum with proper string representations
@@ -361,10 +361,12 @@ impl KeyEvent {
     /// Debug representation of the KeyEvent
     fn __repr__(&self, py: Python) -> String {
         let raw_bytes = self.raw_bytes.as_ref(py).as_bytes();
-        format!("KeyEvent(key={}, raw_bytes={:?}, text={:?})", 
-                self.key.__repr__(), 
-                raw_bytes,
-                self.text)
+        format!(
+            "KeyEvent(key={}, raw_bytes={:?}, text={:?})",
+            self.key.__repr__(),
+            raw_bytes,
+            self.text
+        )
     }
 }
 
@@ -385,28 +387,26 @@ impl KeyParser {
     }
 
     /// Feed raw bytes to the parser and return any complete key events
-    /// 
+    ///
     /// Args:
     ///     data: Raw bytes from terminal input
-    /// 
+    ///
     /// Returns:
     ///     List of KeyEvent objects representing parsed key events
-    /// 
+    ///
     /// Raises:
     ///     RuntimeError: If parsing fails due to internal error
     ///     ValueError: If input data is invalid
     fn feed(&mut self, py: Python, data: &PyBytes) -> PyResult<Vec<KeyEvent>> {
         let bytes = data.as_bytes();
-        
+
         // Validate input
         if bytes.is_empty() {
             return Ok(Vec::new());
         }
 
         // Set up panic hook to convert panics to Python exceptions
-        let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-            self.inner.feed(bytes)
-        }));
+        let result = panic::catch_unwind(panic::AssertUnwindSafe(|| self.inner.feed(bytes)));
 
         match result {
             Ok(core_events) => {
@@ -417,25 +417,23 @@ impl KeyParser {
                 Ok(py_events)
             }
             Err(_) => Err(PyRuntimeError::new_err(
-                "Internal parser error occurred during feed operation"
+                "Internal parser error occurred during feed operation",
             )),
         }
     }
 
     /// Flush any incomplete sequences and return them as key events
-    /// 
+    ///
     /// This method should be called when input is complete (e.g., on EOF)
     /// to handle any remaining partial sequences in the buffer.
-    /// 
+    ///
     /// Returns:
     ///     List of KeyEvent objects representing any remaining parsed events
-    /// 
+    ///
     /// Raises:
     ///     RuntimeError: If flushing fails due to internal error
     fn flush(&mut self, py: Python) -> PyResult<Vec<KeyEvent>> {
-        let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-            self.inner.flush()
-        }));
+        let result = panic::catch_unwind(panic::AssertUnwindSafe(|| self.inner.flush()));
 
         match result {
             Ok(core_events) => {
@@ -446,28 +444,26 @@ impl KeyParser {
                 Ok(py_events)
             }
             Err(_) => Err(PyRuntimeError::new_err(
-                "Internal parser error occurred during flush operation"
+                "Internal parser error occurred during flush operation",
             )),
         }
     }
 
     /// Reset the parser state and clear all buffers
-    /// 
+    ///
     /// This method clears any accumulated state and returns the parser
     /// to its initial state. It's useful for handling connection resets
     /// or when starting fresh parsing.
-    /// 
+    ///
     /// Raises:
     ///     RuntimeError: If reset fails due to internal error
     fn reset(&mut self) -> PyResult<()> {
-        let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-            self.inner.reset()
-        }));
+        let result = panic::catch_unwind(panic::AssertUnwindSafe(|| self.inner.reset()));
 
         match result {
             Ok(_) => Ok(()),
             Err(_) => Err(PyRuntimeError::new_err(
-                "Internal parser error occurred during reset operation"
+                "Internal parser error occurred during reset operation",
             )),
         }
     }
@@ -490,16 +486,16 @@ impl KeyParser {
 }
 
 /// Python bindings for REPLKIT.
-/// 
+///
 /// This module provides Python access to the Rust-based key input parser
-/// that can handle raw terminal input and convert byte sequences to 
+/// that can handle raw terminal input and convert byte sequences to
 /// structured key events.
-/// 
+///
 /// Classes:
 ///     KeyParser: Main parser class for processing terminal input
 ///     KeyEvent: Represents a parsed key event
 ///     Key: Enumeration of all possible key types
-/// 
+///
 /// Example:
 ///     >>> import replkit
 ///     >>> parser = replkit.KeyParser()
@@ -510,12 +506,12 @@ impl KeyParser {
 fn replkit(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add("__doc__", "Python bindings for REPLKIT")?;
-    
+
     // Add classes
     m.add_class::<KeyParser>()?;
     m.add_class::<KeyEvent>()?;
     m.add_class::<PyKey>()?;
-    
+
     // Add module-level constants for convenience
     m.add("ESCAPE", PyKey::Escape)?;
     m.add("CTRL_C", PyKey::ControlC)?;
@@ -525,6 +521,6 @@ fn replkit(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add("DOWN", PyKey::Down)?;
     m.add("LEFT", PyKey::Left)?;
     m.add("RIGHT", PyKey::Right)?;
-    
+
     Ok(())
 }

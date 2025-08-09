@@ -69,7 +69,7 @@ impl SequenceMatcher {
         if bytes.is_empty() {
             return MatchResult::NoMatch;
         }
-        
+
         if let Some(node) = self.find_node(bytes) {
             if node.key.is_some() {
                 MatchResult::Exact(node.key.unwrap())
@@ -288,27 +288,45 @@ mod tests {
     #[test]
     fn test_exact_match() {
         let matcher = SequenceMatcher::new();
-        
+
         // Test control characters
-        assert_eq!(matcher.match_sequence(&[0x03]), MatchResult::Exact(Key::ControlC));
-        assert_eq!(matcher.match_sequence(&[0x1b]), MatchResult::Exact(Key::Escape));
-        
+        assert_eq!(
+            matcher.match_sequence(&[0x03]),
+            MatchResult::Exact(Key::ControlC)
+        );
+        assert_eq!(
+            matcher.match_sequence(&[0x1b]),
+            MatchResult::Exact(Key::Escape)
+        );
+
         // Test arrow keys
-        assert_eq!(matcher.match_sequence(&[0x1b, 0x5b, 0x41]), MatchResult::Exact(Key::Up));
-        assert_eq!(matcher.match_sequence(&[0x1b, 0x5b, 0x42]), MatchResult::Exact(Key::Down));
-        
+        assert_eq!(
+            matcher.match_sequence(&[0x1b, 0x5b, 0x41]),
+            MatchResult::Exact(Key::Up)
+        );
+        assert_eq!(
+            matcher.match_sequence(&[0x1b, 0x5b, 0x42]),
+            MatchResult::Exact(Key::Down)
+        );
+
         // Test function keys
-        assert_eq!(matcher.match_sequence(&[0x1b, 0x4f, 0x50]), MatchResult::Exact(Key::F1));
+        assert_eq!(
+            matcher.match_sequence(&[0x1b, 0x4f, 0x50]),
+            MatchResult::Exact(Key::F1)
+        );
     }
 
     #[test]
     fn test_prefix_match() {
         let matcher = SequenceMatcher::new();
-        
+
         // ESC alone is exact, but ESC[ is a prefix
-        assert_eq!(matcher.match_sequence(&[0x1b]), MatchResult::Exact(Key::Escape));
+        assert_eq!(
+            matcher.match_sequence(&[0x1b]),
+            MatchResult::Exact(Key::Escape)
+        );
         assert_eq!(matcher.match_sequence(&[0x1b, 0x5b]), MatchResult::Prefix);
-        
+
         // Partial arrow key sequences
         assert_eq!(matcher.match_sequence(&[0x1b, 0x5b]), MatchResult::Prefix);
         assert_eq!(matcher.match_sequence(&[0x1b, 0x4f]), MatchResult::Prefix);
@@ -317,31 +335,40 @@ mod tests {
     #[test]
     fn test_no_match() {
         let matcher = SequenceMatcher::new();
-        
+
         // Invalid sequences
         assert_eq!(matcher.match_sequence(&[0xff]), MatchResult::NoMatch);
         assert_eq!(matcher.match_sequence(&[0x1b, 0xff]), MatchResult::NoMatch);
-        assert_eq!(matcher.match_sequence(&[0x1b, 0x5b, 0xff]), MatchResult::NoMatch);
+        assert_eq!(
+            matcher.match_sequence(&[0x1b, 0x5b, 0xff]),
+            MatchResult::NoMatch
+        );
     }
 
     #[test]
     fn test_longest_match() {
         let matcher = SequenceMatcher::new();
-        
+
         // Test finding longest match in a sequence
         let result = matcher.find_longest_match(&[0x1b, 0x5b, 0x41, 0x42]);
-        assert_eq!(result, Some(LongestMatchResult {
-            key: Key::Up,
-            consumed_bytes: 3,
-        }));
-        
+        assert_eq!(
+            result,
+            Some(LongestMatchResult {
+                key: Key::Up,
+                consumed_bytes: 3,
+            })
+        );
+
         // Test with control character at start
         let result = matcher.find_longest_match(&[0x03, 0x1b, 0x5b]);
-        assert_eq!(result, Some(LongestMatchResult {
-            key: Key::ControlC,
-            consumed_bytes: 1,
-        }));
-        
+        assert_eq!(
+            result,
+            Some(LongestMatchResult {
+                key: Key::ControlC,
+                consumed_bytes: 1,
+            })
+        );
+
         // Test with no match
         let result = matcher.find_longest_match(&[0xff, 0xfe]);
         assert_eq!(result, None);
@@ -350,10 +377,10 @@ mod tests {
     #[test]
     fn test_custom_sequence() {
         let mut matcher = SequenceMatcher::new();
-        
+
         // Insert a custom sequence
         matcher.insert(b"gg", Key::F24); // Using F24 as a test key
-        
+
         assert_eq!(matcher.match_sequence(b"g"), MatchResult::Prefix);
         assert_eq!(matcher.match_sequence(b"gg"), MatchResult::Exact(Key::F24));
         assert_eq!(matcher.match_sequence(b"ggg"), MatchResult::NoMatch);
@@ -362,60 +389,93 @@ mod tests {
     #[test]
     fn test_overlapping_sequences() {
         let matcher = SequenceMatcher::new();
-        
+
         // ESC is both a complete sequence and a prefix
-        assert_eq!(matcher.match_sequence(&[0x1b]), MatchResult::Exact(Key::Escape));
-        
+        assert_eq!(
+            matcher.match_sequence(&[0x1b]),
+            MatchResult::Exact(Key::Escape)
+        );
+
         // But ESC[ is only a prefix (no key assigned to it)
         assert_eq!(matcher.match_sequence(&[0x1b, 0x5b]), MatchResult::Prefix);
-        
+
         // And ESC[A is a complete sequence
-        assert_eq!(matcher.match_sequence(&[0x1b, 0x5b, 0x41]), MatchResult::Exact(Key::Up));
+        assert_eq!(
+            matcher.match_sequence(&[0x1b, 0x5b, 0x41]),
+            MatchResult::Exact(Key::Up)
+        );
     }
 
     #[test]
     fn test_multiple_variants() {
         let matcher = SequenceMatcher::new();
-        
+
         // Test that multiple variants of the same key work
-        assert_eq!(matcher.match_sequence(&[0x1b, 0x5b, 0x48]), MatchResult::Exact(Key::Home));
-        assert_eq!(matcher.match_sequence(&[0x1b, 0x5b, 0x31, 0x7e]), MatchResult::Exact(Key::Home));
-        assert_eq!(matcher.match_sequence(&[0x1b, 0x5b, 0x37, 0x7e]), MatchResult::Exact(Key::Home));
+        assert_eq!(
+            matcher.match_sequence(&[0x1b, 0x5b, 0x48]),
+            MatchResult::Exact(Key::Home)
+        );
+        assert_eq!(
+            matcher.match_sequence(&[0x1b, 0x5b, 0x31, 0x7e]),
+            MatchResult::Exact(Key::Home)
+        );
+        assert_eq!(
+            matcher.match_sequence(&[0x1b, 0x5b, 0x37, 0x7e]),
+            MatchResult::Exact(Key::Home)
+        );
     }
 
     #[test]
     fn test_function_key_variants() {
         let matcher = SequenceMatcher::new();
-        
+
         // Test different F1 variants
-        assert_eq!(matcher.match_sequence(&[0x1b, 0x4f, 0x50]), MatchResult::Exact(Key::F1));
-        assert_eq!(matcher.match_sequence(&[0x1b, 0x4f, 0x50, 0x41]), MatchResult::Exact(Key::F1));
-        assert_eq!(matcher.match_sequence(&[0x1b, 0x5b, 0x31, 0x31, 0x7e]), MatchResult::Exact(Key::F1));
+        assert_eq!(
+            matcher.match_sequence(&[0x1b, 0x4f, 0x50]),
+            MatchResult::Exact(Key::F1)
+        );
+        assert_eq!(
+            matcher.match_sequence(&[0x1b, 0x4f, 0x50, 0x41]),
+            MatchResult::Exact(Key::F1)
+        );
+        assert_eq!(
+            matcher.match_sequence(&[0x1b, 0x5b, 0x31, 0x31, 0x7e]),
+            MatchResult::Exact(Key::F1)
+        );
     }
 
     #[test]
     fn test_modifier_combinations() {
         let matcher = SequenceMatcher::new();
-        
+
         // Test Shift + Arrow keys
-        assert_eq!(matcher.match_sequence(&[0x1b, 0x5b, 0x31, 0x3b, 0x32, 0x41]), MatchResult::Exact(Key::ShiftUp));
-        
+        assert_eq!(
+            matcher.match_sequence(&[0x1b, 0x5b, 0x31, 0x3b, 0x32, 0x41]),
+            MatchResult::Exact(Key::ShiftUp)
+        );
+
         // Test Control + Arrow keys
-        assert_eq!(matcher.match_sequence(&[0x1b, 0x5b, 0x31, 0x3b, 0x35, 0x41]), MatchResult::Exact(Key::ControlUp));
+        assert_eq!(
+            matcher.match_sequence(&[0x1b, 0x5b, 0x31, 0x3b, 0x35, 0x41]),
+            MatchResult::Exact(Key::ControlUp)
+        );
     }
 
     #[test]
     fn test_ignore_sequences() {
         let matcher = SequenceMatcher::new();
-        
+
         // Test sequences that should be ignored
-        assert_eq!(matcher.match_sequence(&[0x1b, 0x5b, 0x45]), MatchResult::Exact(Key::Ignore));
+        assert_eq!(
+            matcher.match_sequence(&[0x1b, 0x5b, 0x45]),
+            MatchResult::Exact(Key::Ignore)
+        );
     }
 
     #[test]
     fn test_empty_sequence() {
         let matcher = SequenceMatcher::new();
-        
+
         // Empty sequence should not match anything
         assert_eq!(matcher.match_sequence(&[]), MatchResult::NoMatch);
         assert_eq!(matcher.find_longest_match(&[]), None);
@@ -424,28 +484,34 @@ mod tests {
     #[test]
     fn test_complex_longest_match_scenarios() {
         let matcher = SequenceMatcher::new();
-        
+
         // Test sequence with multiple potential matches
         let input = &[0x1b, 0x5b, 0x31, 0x3b, 0x32, 0x41, 0x03]; // Shift+Up followed by Ctrl+C
         let result = matcher.find_longest_match(input);
-        assert_eq!(result, Some(LongestMatchResult {
-            key: Key::ShiftUp,
-            consumed_bytes: 6,
-        }));
-        
+        assert_eq!(
+            result,
+            Some(LongestMatchResult {
+                key: Key::ShiftUp,
+                consumed_bytes: 6,
+            })
+        );
+
         // Test with partial sequence at end
         let input = &[0x03, 0x1b, 0x5b]; // Ctrl+C followed by incomplete escape sequence
         let result = matcher.find_longest_match(input);
-        assert_eq!(result, Some(LongestMatchResult {
-            key: Key::ControlC,
-            consumed_bytes: 1,
-        }));
+        assert_eq!(
+            result,
+            Some(LongestMatchResult {
+                key: Key::ControlC,
+                consumed_bytes: 1,
+            })
+        );
     }
 
     #[test]
     fn test_all_control_characters() {
         let matcher = SequenceMatcher::new();
-        
+
         // Test all basic control characters
         let control_tests = [
             (0x00, Key::ControlSpace),
@@ -481,16 +547,19 @@ mod tests {
             (0x1f, Key::ControlUnderscore),
             (0x7f, Key::Backspace),
         ];
-        
+
         for (byte, expected_key) in control_tests {
-            assert_eq!(matcher.match_sequence(&[byte]), MatchResult::Exact(expected_key));
+            assert_eq!(
+                matcher.match_sequence(&[byte]),
+                MatchResult::Exact(expected_key)
+            );
         }
     }
 
     #[test]
     fn test_prefix_detection_comprehensive() {
         let matcher = SequenceMatcher::new();
-        
+
         // Test various prefix scenarios
         let prefix_tests = [
             (&[0x1b][..], MatchResult::Exact(Key::Escape)), // ESC is both exact and prefix
@@ -499,7 +568,7 @@ mod tests {
             (&[0x1b, 0x5b, 0x31][..], MatchResult::Prefix), // ESC[1 is prefix
             (&[0x1b, 0x5b, 0x31, 0x3b][..], MatchResult::Prefix), // ESC[1; is prefix
         ];
-        
+
         for (bytes, expected) in prefix_tests {
             assert_eq!(matcher.match_sequence(bytes), expected);
         }
@@ -508,21 +577,33 @@ mod tests {
     #[test]
     fn test_insert_overwrites_existing() {
         let mut matcher = SequenceMatcher::new();
-        
+
         // Insert a custom mapping that overwrites an existing one
         matcher.insert(&[0x03], Key::F1); // Override Ctrl+C with F1
-        
+
         assert_eq!(matcher.match_sequence(&[0x03]), MatchResult::Exact(Key::F1));
     }
 
     #[test]
     fn test_single_byte_sequences() {
         let matcher = SequenceMatcher::new();
-        
+
         // Test that single-byte sequences work correctly
-        assert_eq!(matcher.match_sequence(&[0x1b]), MatchResult::Exact(Key::Escape));
-        assert_eq!(matcher.match_sequence(&[0x09]), MatchResult::Exact(Key::Tab));
-        assert_eq!(matcher.match_sequence(&[0x0a]), MatchResult::Exact(Key::ControlJ));
-        assert_eq!(matcher.match_sequence(&[0x0d]), MatchResult::Exact(Key::Enter));
+        assert_eq!(
+            matcher.match_sequence(&[0x1b]),
+            MatchResult::Exact(Key::Escape)
+        );
+        assert_eq!(
+            matcher.match_sequence(&[0x09]),
+            MatchResult::Exact(Key::Tab)
+        );
+        assert_eq!(
+            matcher.match_sequence(&[0x0a]),
+            MatchResult::Exact(Key::ControlJ)
+        );
+        assert_eq!(
+            matcher.match_sequence(&[0x0d]),
+            MatchResult::Exact(Key::Enter)
+        );
     }
 }

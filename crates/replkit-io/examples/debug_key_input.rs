@@ -3,7 +3,7 @@
 //! Usage: cargo run --example vt100_debug
 //! Press Ctrl+C (or Enter + Ctrl+C on some shells) to exit.
 
-use replkit_core::{Key, KeyEvent, ConsoleInput};
+use replkit_core::{ConsoleInput, Key, KeyEvent};
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -17,12 +17,20 @@ struct ConsoleInputGuard {
 
 impl ConsoleInputGuard {
     fn new(input: Box<dyn ConsoleInput>) -> io::Result<Self> {
-        let raw_guard = input.enable_raw_mode().map_err(|e| io::Error::new(io::ErrorKind::Other, format!("raw mode error: {}", e)))?;
-        Ok(Self { input, _raw_guard: Some(raw_guard), running: false })
+        let raw_guard = input
+            .enable_raw_mode()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("raw mode error: {}", e)))?;
+        Ok(Self {
+            input,
+            _raw_guard: Some(raw_guard),
+            running: false,
+        })
     }
 
     fn start_event_loop(&mut self) -> io::Result<()> {
-        self.input.start_event_loop().map_err(|e| io::Error::new(io::ErrorKind::Other, format!("start error: {}", e)))?;
+        self.input
+            .start_event_loop()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("start error: {}", e)))?;
         self.running = true;
         Ok(())
     }
@@ -56,12 +64,14 @@ impl Drop for ConsoleInputGuard {
 
 /// Format raw bytes for display
 fn format_bytes(bytes: &[u8]) -> String {
-    let hex: String = bytes.iter()
+    let hex: String = bytes
+        .iter()
         .map(|b| format!("{:02x}", b))
         .collect::<Vec<_>>()
         .join(" ");
-    
-    let ascii: String = bytes.iter()
+
+    let ascii: String = bytes
+        .iter()
         .map(|&b| {
             if b.is_ascii_graphic() || b == b' ' {
                 b as char
@@ -70,7 +80,7 @@ fn format_bytes(bytes: &[u8]) -> String {
             }
         })
         .collect();
-    
+
     format!("[{}] \"{}\"", hex, ascii)
 }
 
@@ -78,19 +88,21 @@ fn format_bytes(bytes: &[u8]) -> String {
 fn display_key_event(event: &replkit_core::KeyEvent) {
     let key_name = format!("{:?}", event.key);
     let raw_bytes = format_bytes(&event.raw_bytes);
-    
+
     // Use different formatting for better readability
-    print!("KeyPress(key={:<20}, raw={:<25}", 
-           format!("'{}'", key_name), 
-           raw_bytes);
-    
+    print!(
+        "KeyPress(key={:<20}, raw={:<25}",
+        format!("'{}'", key_name),
+        raw_bytes
+    );
+
     if let Some(text) = &event.text {
         print!(", data='{}'", text);
     }
-    
+
     // Use explicit \r\n for proper line breaks in raw terminal mode
     print!(")\r\n");
-    
+
     // Flush output immediately
     io::stdout().flush().unwrap();
 }
@@ -115,15 +127,16 @@ fn main() -> io::Result<()> {
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_flag = shutdown.clone();
 
-    let input_impl = make_input().map_err(|e| io::Error::new(io::ErrorKind::Other, format!("init error: {}", e)))?;
+    let input_impl = make_input()
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("init error: {}", e)))?;
     let mut input = ConsoleInputGuard::new(input_impl)?;
 
     input.set_key_event_callback(Box::new(move |ev: KeyEvent| {
         display_key_event(&ev);
-        if ev.key == Key::ControlC { 
+        if ev.key == Key::ControlC {
             println!("\r\nReceived Ctrl+C, shutting down...\r\n");
             io::stdout().flush().unwrap();
-            shutdown_flag.store(true, Ordering::Relaxed); 
+            shutdown_flag.store(true, Ordering::Relaxed);
         }
     }));
 
@@ -145,7 +158,7 @@ fn main() -> io::Result<()> {
     // Explicit cleanup - the Drop impl will also handle this as a fallback
     println!("Stopping event loop...");
     input.stop_event_loop()?;
-    
+
     println!("Done. Goodbye!");
     Ok(())
 }
@@ -158,35 +171,35 @@ mod tests {
     fn test_format_bytes() {
         // Test printable ASCII
         assert_eq!(format_bytes(b"hello"), "[68 65 6c 6c 6f] \"hello\"");
-        
+
         // Test control characters
         assert_eq!(format_bytes(&[0x1b, 0x5b, 0x41]), "[1b 5b 41] \".[A\"");
-        
+
         // Test mixed content
         assert_eq!(format_bytes(&[0x03, 0x61, 0x0a]), "[03 61 0a] \".a.\"");
-        
+
         // Test empty
         assert_eq!(format_bytes(&[]), "[] \"\"");
     }
-    
+
     #[test]
     fn test_key_parser_integration() {
         let mut parser = KeyParser::new();
-        
+
         // Test basic control character
         let events = parser.feed(&[0x03]);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].key, Key::ControlC);
-        
+
         // Test arrow key sequence
         let events = parser.feed(&[0x1b, 0x5b, 0x41]);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].key, Key::Up);
-        
+
         // Test partial sequence handling
         let events = parser.feed(&[0x1b]);
         assert_eq!(events.len(), 0); // Should buffer partial sequence
-        
+
         let events = parser.feed(&[0x5b, 0x42]);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].key, Key::Down);
