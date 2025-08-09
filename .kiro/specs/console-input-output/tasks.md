@@ -1,19 +1,25 @@
 # Implementation Plan
 
-- [ ] 1. Set up core console traits and error types
-  - Create `crates/prompt-core/src/console.rs` with ConsoleInput and ConsoleOutput traits
-  - Add ConsoleError, ConsoleResult, and related error types
-  - Define ConsoleCapabilities, OutputCapabilities, and BackendType enums
-  - Add TextStyle, Color, ClearType, and RawModeGuard types
-  - Update lib.rs to export new console module
+- [ ] 1. Fix architectural issue: Move console traits to prompt-core
+  - Create `crates/prompt-core/src/console.rs` with ConsoleInput and ConsoleOutput traits from design document
+  - Add ConsoleError, ConsoleResult, and related error types as specified in design
+  - Define ConsoleCapabilities, OutputCapabilities, BackendType, TextStyle, Color, ClearType, and RawModeGuard types
+  - Update `crates/prompt-core/src/lib.rs` to export new console module
+  - Update `crates/prompt-io/src/lib.rs` to import traits from prompt-core instead of defining them locally
+  - Update all platform implementations (unix.rs, windows.rs) to use traits from prompt-core
+  - Update examples/debug_key_input.rs to import ConsoleInput from prompt-core
+  - Update Cargo.toml dependencies: prompt-io should depend on prompt-core
+  - **REASON**: Design specifies traits in prompt-core for proper architectural separation
   - _Requirements: 1.1, 1.2, 1.3, 9.1, 9.2_
 
-- [ ] 2. Create prompt-io crate structure
-  - Create `crates/prompt-io/` directory with Cargo.toml
-  - Set up platform-specific dependencies (libc for Unix, winapi for Windows, wasm-bindgen for WASM)
-  - Create basic module structure: lib.rs, unix.rs, windows/, wasm.rs, mock.rs
-  - Add feature flags and conditional compilation setup
-  - Create factory functions: create_console_io(), create_console_input(), create_console_output()
+- [ ] 2. Update prompt-io crate structure to match design
+  - ~~Create `crates/prompt-io/` directory with Cargo.toml~~ ✓
+  - ~~Set up platform-specific dependencies (libc for Unix, winapi for Windows, wasm-bindgen for WASM)~~ ✓
+  - ~~Create basic module structure: lib.rs, unix.rs, windows/, wasm.rs, mock.rs~~ ✓ (partial)
+  - Update trait signatures to match design document (enable_raw_mode should return RawModeGuard, not mutate self)
+  - Add factory functions: create_console_io(), create_console_input(), create_console_output()
+  - Add missing modules: mock.rs, wasm.rs
+  - Update method signatures to match design (remove &mut self requirements)
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6_
 
 - [ ] 3. Implement mock console input for testing
@@ -34,14 +40,15 @@
   - Write unit tests for output capture and state tracking
   - _Requirements: 8.1, 8.2, 8.3, 12.1, 12.2_
 
-- [ ] 5. Implement Unix console input
-  - Create `crates/prompt-io/src/unix.rs` with UnixConsoleInput implementation
-  - Set up termios-based raw mode configuration with proper error handling
-  - Implement non-blocking input reading using poll() system call
-  - Create self-pipe for clean event loop shutdown signaling
-  - Integrate with existing KeyParser for key event generation
-  - Add SIGWINCH handling for window resize detection
-  - Write platform-specific tests for Unix input functionality
+- [x] 5. Implement Unix console input
+  - ~~Create `crates/prompt-io/src/unix.rs` with UnixConsoleInput implementation~~
+  - ~~Set up termios-based raw mode configuration with proper error handling~~
+  - ~~Implement non-blocking input reading using poll() system call~~
+  - ~~Create self-pipe for clean event loop shutdown signaling~~
+  - ~~Integrate with existing KeyParser for key event generation~~
+  - ~~Add SIGWINCH handling for window resize detection~~
+  - **COMPLETE**: UnixVtConsoleInput implemented with termios, poll(), and KeyParser integration
+  - Write platform-specific tests for Unix input functionality (TODO)
   - _Requirements: 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 3.1, 3.2, 3.3, 4.1, 4.2, 4.3_
 
 - [ ] 6. Implement Unix console output
@@ -54,14 +61,15 @@
   - Write tests for ANSI sequence generation and output functionality
   - _Requirements: 1.1, 1.2, 1.3, 10.1, 10.2, 10.3, 10.4_
 
-- [ ] 7. Replace existing vt100_debug examples with ConsoleInput-based implementation
-  - Replace `examples/vt100_debug.rs` with ConsoleInput-based key event display
-  - Remove platform-specific raw mode setup and replace with ConsoleInput::enable_raw_mode()
-  - Replace manual select/poll loops with ConsoleInput event callbacks
-  - Add cross-platform support (Unix + Windows) using the same codebase
-  - Display key events in the same format as original for compatibility
-  - Add graceful shutdown with Ctrl+C handling and proper terminal restoration
-  - Test on available platforms to validate ConsoleInput implementation correctness
+- [x] 7. Replace existing vt100_debug examples with ConsoleInput-based implementation
+  - ~~Replace `examples/vt100_debug.rs` with ConsoleInput-based key event display~~
+  - ~~Remove platform-specific raw mode setup and replace with ConsoleInput::enable_raw_mode()~~
+  - ~~Replace manual select/poll loops with ConsoleInput event callbacks~~
+  - ~~Add cross-platform support (Unix + Windows) using the same codebase~~
+  - ~~Display key events in the same format as original for compatibility~~
+  - ~~Add graceful shutdown with Ctrl+C handling and proper terminal restoration~~
+  - **COMPLETE**: examples/debug_key_input.rs implemented with ConsoleInput abstraction
+  - Test on available platforms to validate ConsoleInput implementation correctness (TODO)
   - _Requirements: 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 5.1, 5.2, 5.3_
 
 - [ ] 8. Validate cross-platform vt100_debug functionality
@@ -99,14 +107,15 @@
   - Document Windows-specific behaviors and limitations
   - _Requirements: 6.1, 6.2, 6.3, 12.1, 12.2_
 
-- [ ] 12. Implement Windows Legacy console input
-  - Create `crates/prompt-io/src/windows/legacy.rs` with WindowsLegacyConsoleInput implementation
-  - Use ReadConsoleInputW to receive KEY_EVENT_RECORD and WINDOW_BUFFER_SIZE_EVENT
-  - Implement direct key mapping from virtual keys to Key enum values
-  - Handle modifier keys (Ctrl, Alt, Shift) and special key combinations
-  - Add proper Unicode character handling for text input
-  - Bypass KeyParser for structured Windows console events
-  - Write tests for Windows legacy key mapping and event handling
+- [x] 12. Implement Windows Legacy console input
+  - ~~Create `crates/prompt-io/src/windows.rs` with WindowsLegacyConsoleInput implementation~~
+  - ~~Use ReadConsoleInputW to receive KEY_EVENT_RECORD and WINDOW_BUFFER_SIZE_EVENT~~
+  - ~~Implement direct key mapping from virtual keys to Key enum values~~
+  - ~~Handle modifier keys (Ctrl, Alt, Shift) and special key combinations~~
+  - ~~Add proper Unicode character handling for text input~~
+  - ~~Bypass KeyParser for structured Windows console events~~
+  - **COMPLETE**: WindowsLegacyConsoleInput implemented with Win32 Console API
+  - Write tests for Windows legacy key mapping and event handling (TODO)
   - _Requirements: 1.1, 1.2, 1.3, 6.1, 6.2, 6.3, 6.4, 6.5_
 
 - [ ] 13. Implement Windows Legacy console output

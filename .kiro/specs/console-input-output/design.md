@@ -182,6 +182,7 @@ pub trait ConsoleOutput: Send + Sync + AsAny {
     fn write_safe_text(&self, text: &str) -> ConsoleResult<()>;
     
     /// Move cursor to specific position (0-based coordinates: row, col)
+    /// Note: API uses 0-based coordinates, but ANSI sequences use 1-based
     fn move_cursor_to(&self, row: u16, col: u16) -> ConsoleResult<()>;
     
     /// Move cursor relative to current position
@@ -206,6 +207,7 @@ pub trait ConsoleOutput: Send + Sync + AsAny {
     fn set_cursor_visible(&self, visible: bool) -> ConsoleResult<()>;
     
     /// Get current cursor position (row, col)
+    /// Returns 0-based coordinates (API convention), converted from 1-based ANSI responses
     fn get_cursor_position(&self) -> ConsoleResult<(u16, u16)>;
     
     /// Get output capabilities
@@ -265,6 +267,8 @@ pub enum Color {
 #[derive(Debug, Clone)]
 pub struct OutputCapabilities {
     pub supports_colors: bool,
+    /// True color (24-bit RGB) support - determined by runtime detection or environment variables
+    /// Windows legacy environments may not support 24-bit color even if the API exists
     pub supports_true_color: bool,
     pub supports_styling: bool,
     pub supports_alternate_screen: bool,
@@ -907,6 +911,8 @@ impl UnixConsoleInput {
         let mut winsize = unsafe { std::mem::zeroed::<libc::winsize>() };
         
         if unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, &mut winsize) } == 0 {
+            // Return visible window size (equivalent to Windows srWindow)
+            // ws_col/ws_row represent the visible terminal area, not buffer size
             Ok((winsize.ws_col, winsize.ws_row))
         } else {
             Err(ConsoleError::IoError(
@@ -1264,6 +1270,8 @@ impl ConsoleOutput for UnixConsoleOutput {
     }
     
     fn move_cursor_to(&self, row: u16, col: u16) -> ConsoleResult<()> {
+        // Convert from 0-based API coordinates to 1-based ANSI coordinates
+        // API: (0,0) = top-left, ANSI: (1,1) = top-left
         let sequence = format!("\x1b[{};{}H", row + 1, col + 1);
         self.write_ansi_sequence(sequence.as_bytes());
         Ok(())
@@ -1375,16 +1383,43 @@ impl ConsoleOutput for UnixConsoleOutput {
     }
     
     fn get_capabilities(&self) -> OutputCapabilities {
+        // Detect true color support through environment variables or runtime testing
+        let supports_true_color = Self::detect_true_color_support();
+        let max_colors = if supports_true_color { 16777216 } else { 256 };
+        
         OutputCapabilities {
             supports_colors: true,
-            supports_true_color: true,
+            supports_true_color,
             supports_styling: true,
             supports_alternate_screen: true,
             supports_cursor_control: true,
-            max_colors: 16777216, // 24-bit color
+            max_colors,
             platform_name: "Unix/Linux".to_string(),
             backend_type: BackendType::UnixVt,
         }
+    }
+    
+    fn detect_true_color_support() -> bool {
+        // Check environment variables first
+        if let Ok(colorterm) = std::env::var("COLORTERM") {
+            if colorterm == "truecolor" || colorterm == "24bit" {
+                return true;
+            }
+        }
+        
+        // Check TERM variable for known true color terminals
+        if let Ok(term) = std::env::var("TERM") {
+            if term.contains("256color") || term.contains("truecolor") {
+                return true;
+            }
+        }
+        
+        // Runtime detection could be added here:
+        // 1. Send a true color sequence
+        // 2. Query terminal capabilities
+        // 3. Check if the sequence was interpreted correctly
+        // For now, default to true on modern Unix systems
+        true
     }
 }
 
@@ -2435,8 +2470,8 @@ mod golden_tests {
     fn test_ansi_sequence_generation() {
         let mut output = UnixConsoleOutput::new().unwrap();
         
-        // Test cursor movement
-        output.move_cursor_to(5, 10).unwrap();
+        // Test cursor movement (API uses 0-based coordinates)
+        output.move_cursor_to(5, 10).unwrap();  // Should generate \x1b[6;11H (1-based ANSI)
         output.move_cursor_relative(-2, 3).unwrap();
         
         // Test styling
@@ -2457,6 +2492,21 @@ mod golden_tests {
         
         // Snapshot test - will create/update golden file
         assert_snapshot!(ansi_string);
+    }
+    
+    #[test]
+    fn test_coordinate_system_consistency() {
+        let mut output = UnixConsoleOutput::new().unwrap();
+        
+        // Test 0-based API to 1-based ANSI conversion
+        output.move_cursor_to(0, 0).unwrap();  // Top-left corner
+        let ansi_output = String::from_utf8_lossy(&output.get_output_buffer());
+        assert!(ansi_output.contains("\x1b[1;1H"), "Should convert (0,0) to ANSI (1,1)");
+        
+        output.clear_output_buffer();
+        output.move_cursor_to(10, 20).unwrap();
+        let ansi_output = String::from_utf8_lossy(&output.get_output_buffer());
+        assert!(ansi_output.contains("\x1b[11;21H"), "Should convert (10,20) to ANSI (11,21)");
     }
 }
 ```
@@ -2727,6 +2777,96 @@ crates/
     ├── console.rs                # Python console bindings
     └── ... (existing files)
 ```
+
+## Input/Output Coordination Design Considerations
+
+### The `get_cursor_position` Challenge
+
+The `get_cursor_position` method presents a fundamental design challenge that highlights the tension between clean API boundaries and practical functionality.
+
+#### Problem Statement
+
+Cursor position querying requires bidirectional communication:
+1. **Output**: Send DSR (Device Status Report) sequence `\x1b[6n` to stdout
+2. **Input**: Read CPR (Cursor Position Report) response `\x1b[{row};{col}R` from stdin
+3. **Parsing**: Extract coordinates from the response
+
+This violates the Input/Output separation principle.
+
+#### Design Options
+
+**Option 1: Current Approach - Strict Separation**
+```rust
+// Pros: Clean API boundaries, testable, platform-flexible
+// Cons: get_cursor_position() unavailable on some platforms
+
+impl ConsoleOutput for UnixConsoleOutput {
+    fn get_cursor_position(&self) -> ConsoleResult<(u16, u16)> {
+        Err(ConsoleError::UnsupportedFeature { ... })
+    }
+}
+```
+
+**Option 2: Shared Communication Channel**
+```rust
+// Requires coordination between Input/Output instances
+pub struct ConsoleCoordinator {
+    input: Box<dyn ConsoleInput>,
+    output: Box<dyn ConsoleOutput>,
+    shared_channel: Arc<Mutex<Channel>>,
+}
+
+impl ConsoleCoordinator {
+    fn get_cursor_position(&self) -> ConsoleResult<(u16, u16)> {
+        // Coordinate between input and output
+    }
+}
+```
+
+**Option 3: Unified Console Interface**
+```rust
+// Single trait combining Input/Output
+pub trait Console: ConsoleInput + ConsoleOutput {
+    fn get_cursor_position(&self) -> ConsoleResult<(u16, u16)>;
+}
+```
+
+**Option 4: Capability-Based Design**
+```rust
+// Optional coordination capability
+pub trait ConsoleInputOutputCoordination {
+    fn get_cursor_position(&self) -> ConsoleResult<(u16, u16)>;
+}
+
+// Only implement for platforms that support it
+impl ConsoleInputOutputCoordination for UnixConsole {
+    fn get_cursor_position(&self) -> ConsoleResult<(u16, u16)> {
+        // Implementation with internal coordination
+    }
+}
+```
+
+#### Recommended Approach
+
+**Current Phase**: Maintain Option 1 (strict separation) because:
+- Preserves clean architecture
+- Supports diverse platform combinations (PowerShell VT input + legacy output)
+- Avoids complex coordination logic
+- Most applications can work without cursor position queries
+
+**Future Enhancement**: Consider Option 4 (capability-based) when:
+- Real-world usage demonstrates need for cursor position queries
+- Platform-specific coordination patterns are well understood
+- Testing strategies for bidirectional communication are established
+
+#### Platform-Specific Considerations
+
+- **Unix**: CPR via DSR is standard but requires stdin/stdout coordination
+- **Windows VT**: Same as Unix when VT mode is available
+- **Windows Legacy**: `GetConsoleScreenBufferInfo` provides direct access without coordination
+- **WASM**: Host environment must provide cursor position through different mechanism
+
+This design decision prioritizes architectural clarity over feature completeness in the initial implementation.
 
 ## Implementation Phases
 
