@@ -180,19 +180,33 @@ impl ConsoleInput for MockConsoleInput {
     }
 }
 
+/// Styled output event for testing
+#[derive(Debug, Clone, PartialEq)]
+pub struct StyledOutputEvent {
+    pub text: String,
+    pub style: TextStyle,
+    pub cursor_position: (u16, u16),
+}
+
 /// Mock console output for testing
 pub struct MockConsoleOutput {
     output_buffer: Arc<Mutex<Vec<u8>>>,
+    styled_output_events: Arc<Mutex<Vec<StyledOutputEvent>>>,
     cursor_position: Arc<Mutex<(u16, u16)>>,
     current_style: Arc<Mutex<TextStyle>>,
+    alternate_screen_enabled: Arc<Mutex<bool>>,
+    cursor_visible: Arc<Mutex<bool>>,
 }
 
 impl MockConsoleOutput {
     pub fn new() -> Self {
         Self {
             output_buffer: Arc::new(Mutex::new(Vec::new())),
+            styled_output_events: Arc::new(Mutex::new(Vec::new())),
             cursor_position: Arc::new(Mutex::new((0, 0))),
             current_style: Arc::new(Mutex::new(TextStyle::default())),
+            alternate_screen_enabled: Arc::new(Mutex::new(false)),
+            cursor_visible: Arc::new(Mutex::new(true)),
         }
     }
     
@@ -206,14 +220,35 @@ impl MockConsoleOutput {
         String::from_utf8_lossy(&self.get_output()).to_string()
     }
     
-    /// Clear captured output
+    /// Get styled output events for testing
+    pub fn get_styled_output(&self) -> Vec<StyledOutputEvent> {
+        self.styled_output_events.lock().unwrap().clone()
+    }
+    
+    /// Clear captured output and styled events
     pub fn clear_output(&self) {
         self.output_buffer.lock().unwrap().clear();
+        self.styled_output_events.lock().unwrap().clear();
     }
     
     /// Get current cursor position
     pub fn get_mock_cursor_position(&self) -> (u16, u16) {
         *self.cursor_position.lock().unwrap()
+    }
+    
+    /// Get current style for testing
+    pub fn get_current_style(&self) -> TextStyle {
+        self.current_style.lock().unwrap().clone()
+    }
+    
+    /// Check if alternate screen is enabled
+    pub fn is_alternate_screen_enabled(&self) -> bool {
+        *self.alternate_screen_enabled.lock().unwrap()
+    }
+    
+    /// Check if cursor is visible
+    pub fn is_cursor_visible(&self) -> bool {
+        *self.cursor_visible.lock().unwrap()
     }
 }
 
@@ -236,6 +271,15 @@ impl ConsoleOutput for MockConsoleOutput {
     }
     
     fn write_styled_text(&self, text: &str, style: &TextStyle) -> ConsoleResult<()> {
+        // Record styled output event
+        let cursor_pos = *self.cursor_position.lock().unwrap();
+        let event = StyledOutputEvent {
+            text: text.to_string(),
+            style: style.clone(),
+            cursor_position: cursor_pos,
+        };
+        self.styled_output_events.lock().unwrap().push(event);
+        
         self.set_style(style)?;
         self.write_text(text)?;
         self.reset_style()
@@ -296,6 +340,7 @@ impl ConsoleOutput for MockConsoleOutput {
     }
     
     fn set_alternate_screen(&self, enabled: bool) -> ConsoleResult<()> {
+        *self.alternate_screen_enabled.lock().unwrap() = enabled;
         if enabled {
             self.write_text("\x1b[?1049h")
         } else {
@@ -304,6 +349,7 @@ impl ConsoleOutput for MockConsoleOutput {
     }
     
     fn set_cursor_visible(&self, visible: bool) -> ConsoleResult<()> {
+        *self.cursor_visible.lock().unwrap() = visible;
         if visible {
             self.write_text("\x1b[?25h")
         } else {
@@ -688,5 +734,210 @@ mod tests {
         // For mock, safe text is just written directly
         output.write_safe_text("Safe text with \x1b[31m ANSI").unwrap();
         assert_eq!(output.get_output_string(), "Safe text with \x1b[31m ANSI");
+    }
+
+    #[test]
+    fn test_styled_output_tracking() {
+        let output = MockConsoleOutput::new();
+        
+        let red_style = TextStyle {
+            foreground: Some(Color::Red),
+            bold: true,
+            ..Default::default()
+        };
+        
+        let blue_style = TextStyle {
+            foreground: Some(Color::Blue),
+            italic: true,
+            ..Default::default()
+        };
+        
+        output.move_cursor_to(2, 5).unwrap();
+        output.write_styled_text("Red text", &red_style).unwrap();
+        
+        output.move_cursor_to(3, 10).unwrap();
+        output.write_styled_text("Blue text", &blue_style).unwrap();
+        
+        let styled_events = output.get_styled_output();
+        assert_eq!(styled_events.len(), 2);
+        
+        // Check first styled event
+        assert_eq!(styled_events[0].text, "Red text");
+        assert_eq!(styled_events[0].style.foreground, Some(Color::Red));
+        assert!(styled_events[0].style.bold);
+        assert_eq!(styled_events[0].cursor_position, (2, 5));
+        
+        // Check second styled event
+        assert_eq!(styled_events[1].text, "Blue text");
+        assert_eq!(styled_events[1].style.foreground, Some(Color::Blue));
+        assert!(styled_events[1].style.italic);
+        assert_eq!(styled_events[1].cursor_position, (3, 10));
+    }
+
+    #[test]
+    fn test_terminal_state_tracking() {
+        let output = MockConsoleOutput::new();
+        
+        // Initial state
+        assert!(!output.is_alternate_screen_enabled());
+        assert!(output.is_cursor_visible());
+        
+        // Enable alternate screen
+        output.set_alternate_screen(true).unwrap();
+        assert!(output.is_alternate_screen_enabled());
+        
+        // Hide cursor
+        output.set_cursor_visible(false).unwrap();
+        assert!(!output.is_cursor_visible());
+        
+        // Disable alternate screen
+        output.set_alternate_screen(false).unwrap();
+        assert!(!output.is_alternate_screen_enabled());
+        
+        // Show cursor
+        output.set_cursor_visible(true).unwrap();
+        assert!(output.is_cursor_visible());
+    }
+
+    #[test]
+    fn test_current_style_tracking() {
+        let output = MockConsoleOutput::new();
+        
+        // Initial style should be default
+        let initial_style = output.get_current_style();
+        assert_eq!(initial_style, TextStyle::default());
+        
+        // Set a new style
+        let new_style = TextStyle {
+            foreground: Some(Color::Green),
+            bold: true,
+            underline: true,
+            ..Default::default()
+        };
+        
+        output.set_style(&new_style).unwrap();
+        let current_style = output.get_current_style();
+        assert_eq!(current_style, new_style);
+        
+        // Reset style
+        output.reset_style().unwrap();
+        let reset_style = output.get_current_style();
+        assert_eq!(reset_style, TextStyle::default());
+    }
+
+    #[test]
+    fn test_clear_output_clears_styled_events() {
+        let output = MockConsoleOutput::new();
+        
+        let style = TextStyle {
+            foreground: Some(Color::Yellow),
+            ..Default::default()
+        };
+        
+        output.write_text("Regular text").unwrap();
+        output.write_styled_text("Styled text", &style).unwrap();
+        
+        assert!(!output.get_output_string().is_empty());
+        assert_eq!(output.get_styled_output().len(), 1);
+        
+        output.clear_output();
+        
+        assert!(output.get_output_string().is_empty());
+        assert!(output.get_styled_output().is_empty());
+    }
+
+    #[test]
+    fn test_complex_output_sequence() {
+        let output = MockConsoleOutput::new();
+        
+        // Complex sequence: move cursor, write styled text, clear line, move again
+        output.move_cursor_to(1, 0).unwrap();
+        
+        let header_style = TextStyle {
+            foreground: Some(Color::White),
+            background: Some(Color::Blue),
+            bold: true,
+            ..Default::default()
+        };
+        
+        output.write_styled_text("Header", &header_style).unwrap();
+        output.clear(ClearType::FromCursorToEndOfLine).unwrap();
+        output.move_cursor_to(2, 4).unwrap();
+        output.write_text("Body text").unwrap();
+        
+        // Verify cursor position
+        assert_eq!(output.get_mock_cursor_position(), (2, 4));
+        
+        // Verify styled output was captured
+        let styled_events = output.get_styled_output();
+        assert_eq!(styled_events.len(), 1);
+        assert_eq!(styled_events[0].text, "Header");
+        assert_eq!(styled_events[0].cursor_position, (1, 0));
+        
+        // Verify output buffer contains all sequences
+        let output_str = output.get_output_string();
+        assert!(output_str.contains("\x1b[2;1H")); // Move to (1,0) - 1-based ANSI
+        assert!(output_str.contains("Header"));
+        assert!(output_str.contains("\x1b[0K")); // Clear to end of line
+        assert!(output_str.contains("\x1b[3;5H")); // Move to (2,4) - 1-based ANSI
+        assert!(output_str.contains("Body text"));
+    }
+
+    #[test]
+    fn test_styled_output_event_equality() {
+        let event1 = StyledOutputEvent {
+            text: "Test".to_string(),
+            style: TextStyle {
+                foreground: Some(Color::Red),
+                bold: true,
+                ..Default::default()
+            },
+            cursor_position: (1, 2),
+        };
+        
+        let event2 = StyledOutputEvent {
+            text: "Test".to_string(),
+            style: TextStyle {
+                foreground: Some(Color::Red),
+                bold: true,
+                ..Default::default()
+            },
+            cursor_position: (1, 2),
+        };
+        
+        let event3 = StyledOutputEvent {
+            text: "Different".to_string(),
+            style: TextStyle {
+                foreground: Some(Color::Red),
+                bold: true,
+                ..Default::default()
+            },
+            cursor_position: (1, 2),
+        };
+        
+        assert_eq!(event1, event2);
+        assert_ne!(event1, event3);
+    }
+
+    #[test]
+    fn test_thread_safety_output() {
+        use std::thread;
+        
+        let output = Arc::new(MockConsoleOutput::new());
+        let output_clone = Arc::clone(&output);
+        
+        let handle = thread::spawn(move || {
+            for i in 0..10 {
+                let text = format!("Text {}", i);
+                output_clone.write_text(&text).unwrap();
+            }
+        });
+        
+        handle.join().unwrap();
+        
+        let output_str = output.get_output_string();
+        for i in 0..10 {
+            assert!(output_str.contains(&format!("Text {}", i)));
+        }
     }
 }
