@@ -4,7 +4,6 @@
 //! and provides comprehensive text analysis methods. It's designed to be cached
 //! and shared safely across operations.
 
-use crate::error::{BufferError, BufferResult};
 use crate::key::Key;
 use crate::unicode;
 

@@ -16,7 +16,7 @@
   - Validate WASM compatibility of unicode-width dependency
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 8.2_
 
-- [ ] 3. Implement Document structure with basic functionality
+- [x] 3. Implement Document structure with basic functionality
   - Create Document struct with text, cursor_position, and last_key fields
   - Implement new(), with_text(), and with_text_and_key() constructors
   - Add basic accessor methods: text(), cursor_position(), last_key_stroke()
