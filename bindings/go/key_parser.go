@@ -10,7 +10,8 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
 
-// Key represents the different types of keys that can be parsed
+// Key represents the different types of keys that can be parsed.
+// These constants must match the u32 values from the Rust WASM module.
 type Key int
 
 const (
@@ -104,11 +105,193 @@ const (
 	NotDefined         Key = 86
 )
 
-// KeyEvent represents a parsed key event
+// String returns a human-readable representation of the Key
+func (k Key) String() string {
+	switch k {
+	case Escape:
+		return "Escape"
+	case ControlA:
+		return "Ctrl+A"
+	case ControlB:
+		return "Ctrl+B"
+	case ControlC:
+		return "Ctrl+C"
+	case ControlD:
+		return "Ctrl+D"
+	case ControlE:
+		return "Ctrl+E"
+	case ControlF:
+		return "Ctrl+F"
+	case ControlG:
+		return "Ctrl+G"
+	case ControlH:
+		return "Ctrl+H"
+	case ControlI:
+		return "Ctrl+I"
+	case ControlJ:
+		return "Ctrl+J"
+	case ControlK:
+		return "Ctrl+K"
+	case ControlL:
+		return "Ctrl+L"
+	case ControlM:
+		return "Ctrl+M"
+	case ControlN:
+		return "Ctrl+N"
+	case ControlO:
+		return "Ctrl+O"
+	case ControlP:
+		return "Ctrl+P"
+	case ControlQ:
+		return "Ctrl+Q"
+	case ControlR:
+		return "Ctrl+R"
+	case ControlS:
+		return "Ctrl+S"
+	case ControlT:
+		return "Ctrl+T"
+	case ControlU:
+		return "Ctrl+U"
+	case ControlV:
+		return "Ctrl+V"
+	case ControlW:
+		return "Ctrl+W"
+	case ControlX:
+		return "Ctrl+X"
+	case ControlY:
+		return "Ctrl+Y"
+	case ControlZ:
+		return "Ctrl+Z"
+	case ControlSpace:
+		return "Ctrl+Space"
+	case ControlBackslash:
+		return "Ctrl+\\"
+	case ControlSquareClose:
+		return "Ctrl+]"
+	case ControlCircumflex:
+		return "Ctrl+^"
+	case ControlUnderscore:
+		return "Ctrl+_"
+	case ControlLeft:
+		return "Ctrl+Left"
+	case ControlRight:
+		return "Ctrl+Right"
+	case ControlUp:
+		return "Ctrl+Up"
+	case ControlDown:
+		return "Ctrl+Down"
+	case Up:
+		return "Up"
+	case Down:
+		return "Down"
+	case Right:
+		return "Right"
+	case Left:
+		return "Left"
+	case ShiftLeft:
+		return "Shift+Left"
+	case ShiftUp:
+		return "Shift+Up"
+	case ShiftDown:
+		return "Shift+Down"
+	case ShiftRight:
+		return "Shift+Right"
+	case Home:
+		return "Home"
+	case End:
+		return "End"
+	case Delete:
+		return "Delete"
+	case ShiftDelete:
+		return "Shift+Delete"
+	case ControlDelete:
+		return "Ctrl+Delete"
+	case PageUp:
+		return "PageUp"
+	case PageDown:
+		return "PageDown"
+	case BackTab:
+		return "BackTab"
+	case Insert:
+		return "Insert"
+	case Backspace:
+		return "Backspace"
+	case Tab:
+		return "Tab"
+	case Enter:
+		return "Enter"
+	case F1:
+		return "F1"
+	case F2:
+		return "F2"
+	case F3:
+		return "F3"
+	case F4:
+		return "F4"
+	case F5:
+		return "F5"
+	case F6:
+		return "F6"
+	case F7:
+		return "F7"
+	case F8:
+		return "F8"
+	case F9:
+		return "F9"
+	case F10:
+		return "F10"
+	case F11:
+		return "F11"
+	case F12:
+		return "F12"
+	case F13:
+		return "F13"
+	case F14:
+		return "F14"
+	case F15:
+		return "F15"
+	case F16:
+		return "F16"
+	case F17:
+		return "F17"
+	case F18:
+		return "F18"
+	case F19:
+		return "F19"
+	case F20:
+		return "F20"
+	case F21:
+		return "F21"
+	case F22:
+		return "F22"
+	case F23:
+		return "F23"
+	case F24:
+		return "F24"
+	case Any:
+		return "Any"
+	case CPRResponse:
+		return "CPRResponse"
+	case Vt100MouseEvent:
+		return "Vt100MouseEvent"
+	case WindowsMouseEvent:
+		return "WindowsMouseEvent"
+	case BracketedPaste:
+		return "BracketedPaste"
+	case Ignore:
+		return "Ignore"
+	case NotDefined:
+		return "NotDefined"
+	default:
+		return fmt.Sprintf("Key(%d)", int(k))
+	}
+}
+
+// KeyEvent represents a parsed key event with the key type, raw bytes, and optional text
 type KeyEvent struct {
-	Key      Key     `json:"key"`
-	RawBytes []byte  `json:"raw_bytes"`
-	Text     *string `json:"text,omitempty"`
+	Key      Key     `json:"key"`            // The parsed key type
+	RawBytes []byte  `json:"raw_bytes"`      // The original raw bytes that produced this key event
+	Text     *string `json:"text,omitempty"` // Optional text representation (for printable characters)
 }
 
 // KeyParser wraps the WASM-based key parser
@@ -128,8 +311,24 @@ type KeyParser struct {
 	parserID uint32
 }
 
-// NewKeyParser creates a new KeyParser instance using the provided WASM binary
+// NewKeyParser creates a new KeyParser instance using the provided WASM binary.
+// The WASM binary should be compiled from the prompt-wasm crate.
+//
+// Example usage:
+//
+//	wasmBytes, err := ioutil.ReadFile("prompt_wasm.wasm")
+//	if err != nil {
+//	    return err
+//	}
+//	parser, err := NewKeyParser(ctx, wasmBytes)
+//	if err != nil {
+//	    return err
+//	}
+//	defer parser.Close()
 func NewKeyParser(ctx context.Context, wasmBytes []byte) (*KeyParser, error) {
+	if len(wasmBytes) == 0 {
+		return nil, fmt.Errorf("WASM binary cannot be empty")
+	}
 	// Create a new WASM runtime
 	runtime := wazero.NewRuntime(ctx)
 
@@ -140,7 +339,7 @@ func NewKeyParser(ctx context.Context, wasmBytes []byte) (*KeyParser, error) {
 		return nil, fmt.Errorf("failed to instantiate WASI: %w", err)
 	}
 
-	// Create env module for WASM malloc function
+	// Create env module for WASM malloc/free functions
 	envBuilder := runtime.NewHostModuleBuilder("env")
 	envBuilder.NewFunctionBuilder().
 		WithFunc(func(ctx context.Context, size uint32) uint32 {
@@ -148,6 +347,12 @@ func NewKeyParser(ctx context.Context, wasmBytes []byte) (*KeyParser, error) {
 			return size // This is a placeholder - the WASM module should handle its own allocation
 		}).
 		Export("__wbindgen_malloc")
+	envBuilder.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, ptr uint32, size uint32) {
+			// Simple deallocator - the WASM module handles its own deallocation
+			// This is a no-op since WASM has its own memory management
+		}).
+		Export("__wbindgen_free")
 
 	_, err = envBuilder.Instantiate(ctx)
 	if err != nil {
@@ -221,8 +426,16 @@ func NewKeyParser(ctx context.Context, wasmBytes []byte) (*KeyParser, error) {
 	}, nil
 }
 
-// Feed processes input bytes and returns parsed key events
+// Feed processes input bytes and returns parsed key events.
+// Returns an empty slice if no complete key sequences are found.
+// Partial sequences are buffered internally until complete.
 func (p *KeyParser) Feed(input []byte) ([]KeyEvent, error) {
+	if p == nil {
+		return nil, fmt.Errorf("parser is nil")
+	}
+	if p.module == nil {
+		return nil, fmt.Errorf("parser has been closed")
+	}
 	if len(input) == 0 {
 		return nil, nil
 	}
@@ -286,8 +499,15 @@ func (p *KeyParser) Feed(input []byte) ([]KeyEvent, error) {
 	return events, nil
 }
 
-// Flush processes any remaining buffered input and returns key events
+// Flush processes any remaining buffered input and returns key events.
+// This should be called when input is complete to handle any partial sequences.
 func (p *KeyParser) Flush() ([]KeyEvent, error) {
+	if p == nil {
+		return nil, fmt.Errorf("parser is nil")
+	}
+	if p.module == nil {
+		return nil, fmt.Errorf("parser has been closed")
+	}
 	results, err := p.flushFn.Call(p.ctx, uint64(p.parserID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to call flush function: %w", err)
@@ -321,8 +541,14 @@ func (p *KeyParser) Flush() ([]KeyEvent, error) {
 	return events, nil
 }
 
-// Reset clears the parser state
+// Reset clears the parser state, discarding any buffered partial sequences.
 func (p *KeyParser) Reset() error {
+	if p == nil {
+		return fmt.Errorf("parser is nil")
+	}
+	if p.module == nil {
+		return fmt.Errorf("parser has been closed")
+	}
 	_, err := p.resetFn.Call(p.ctx, uint64(p.parserID))
 	if err != nil {
 		return fmt.Errorf("failed to call reset function: %w", err)
@@ -330,10 +556,25 @@ func (p *KeyParser) Reset() error {
 	return nil
 }
 
-// Close releases all resources
+// Close releases all resources and marks the parser as closed.
+// After calling Close, the parser cannot be used anymore.
 func (p *KeyParser) Close() error {
+	if p == nil {
+		return fmt.Errorf("parser is nil")
+	}
+	if p.module == nil {
+		return nil // Already closed
+	}
+
 	if p.destroyFn != nil {
 		p.destroyFn.Call(p.ctx, uint64(p.parserID))
 	}
-	return p.runtime.Close(p.ctx)
+
+	err := p.runtime.Close(p.ctx)
+
+	// Mark as closed to prevent further use
+	p.module = nil
+	p.runtime = nil
+
+	return err
 }

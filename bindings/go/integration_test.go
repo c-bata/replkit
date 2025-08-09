@@ -83,4 +83,58 @@ func TestWASMIntegration(t *testing.T) {
 	if len(events) != 0 {
 		t.Errorf("Expected 0 events after flush, got %d", len(events))
 	}
+
+	// Test partial sequence handling
+	// Feed partial escape sequence
+	events, err = parser.Feed([]byte{0x1b}) // Just ESC
+	if err != nil {
+		t.Fatalf("Failed to feed partial sequence: %v", err)
+	}
+
+	// Should not produce any events yet
+	if len(events) != 0 {
+		t.Errorf("Expected 0 events for partial sequence, got %d", len(events))
+	}
+
+	// Complete the sequence
+	events, err = parser.Feed([]byte{0x5b, 0x42}) // [B for Down arrow
+	if err != nil {
+		t.Fatalf("Failed to complete sequence: %v", err)
+	}
+
+	if len(events) != 1 {
+		t.Fatalf("Expected 1 event for completed sequence, got %d", len(events))
+	}
+
+	if events[0].Key != Down {
+		t.Errorf("Expected Down key, got %v", events[0].Key)
+	}
+
+	// Test feeding empty input
+	events, err = parser.Feed([]byte{})
+	if err != nil {
+		t.Fatalf("Failed to feed empty input: %v", err)
+	}
+
+	if len(events) != 0 {
+		t.Errorf("Expected 0 events for empty input, got %d", len(events))
+	}
+
+	// Test multiple key events in one feed
+	events, err = parser.Feed([]byte{0x03, 0x1b, 0x5b, 0x43}) // Ctrl+C followed by Right arrow
+	if err != nil {
+		t.Fatalf("Failed to feed multiple keys: %v", err)
+	}
+
+	if len(events) != 2 {
+		t.Fatalf("Expected 2 events for multiple keys, got %d", len(events))
+	}
+
+	if events[0].Key != ControlC {
+		t.Errorf("Expected first event to be ControlC, got %v", events[0].Key)
+	}
+
+	if events[1].Key != Right {
+		t.Errorf("Expected second event to be Right, got %v", events[1].Key)
+	}
 }

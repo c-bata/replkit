@@ -55,3 +55,76 @@ func TestKeyEventStruct(t *testing.T) {
 		t.Errorf("Expected 3 raw bytes, got %d", len(event.RawBytes))
 	}
 }
+
+func TestKeyParserMethods(t *testing.T) {
+	// Test that all required methods are available on KeyParser
+	// This is a compile-time test to ensure the interface is complete
+
+	var parser *KeyParser
+
+	// These should compile without errors
+	_ = func() ([]KeyEvent, error) { return parser.Feed([]byte{}) }
+	_ = func() ([]KeyEvent, error) { return parser.Flush() }
+	_ = func() error { return parser.Reset() }
+	_ = func() error { return parser.Close() }
+}
+func TestKeyStringRepresentation(t *testing.T) {
+	// Test that keys have proper string representations
+	testCases := []struct {
+		key      Key
+		expected string
+	}{
+		{ControlA, "Ctrl+A"},
+		{ControlC, "Ctrl+C"},
+		{Up, "Up"},
+		{Down, "Down"},
+		{Left, "Left"},
+		{Right, "Right"},
+		{F1, "F1"},
+		{F12, "F12"},
+		{Tab, "Tab"},
+		{Enter, "Enter"},
+		{Escape, "Escape"},
+		{ShiftUp, "Shift+Up"},
+		{ControlLeft, "Ctrl+Left"},
+		{NotDefined, "NotDefined"},
+		{Ignore, "Ignore"},
+	}
+
+	for _, tc := range testCases {
+		if tc.key.String() != tc.expected {
+			t.Errorf("Expected %s.String() to be %q, got %q", tc.expected, tc.expected, tc.key.String())
+		}
+	}
+
+	// Test unknown key
+	unknownKey := Key(999)
+	expected := "Key(999)"
+	if unknownKey.String() != expected {
+		t.Errorf("Expected unknown key string to be %q, got %q", expected, unknownKey.String())
+	}
+}
+func TestKeyParserErrorHandling(t *testing.T) {
+	// Test error handling for nil parser
+	var parser *KeyParser
+
+	_, err := parser.Feed([]byte{0x03})
+	if err == nil {
+		t.Error("Expected error when calling Feed on nil parser")
+	}
+
+	_, err = parser.Flush()
+	if err == nil {
+		t.Error("Expected error when calling Flush on nil parser")
+	}
+
+	err = parser.Reset()
+	if err == nil {
+		t.Error("Expected error when calling Reset on nil parser")
+	}
+
+	err = parser.Close()
+	if err == nil {
+		t.Error("Expected error when calling Close on nil parser")
+	}
+}

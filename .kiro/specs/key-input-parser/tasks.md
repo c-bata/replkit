@@ -48,7 +48,7 @@
   - Create WASM-compatible interface functions in `crates/prompt-core/src/wasm.rs`
   - _Requirements: 2.1, 2.4_
 
-- [ ] 7. Implement Go binding API with WASM
+- [x] 7. Implement Go binding API with WASM
   - Create `bindings/go/key_parser.go` with Go-idiomatic Key enum and KeyEvent struct
   - Implement KeyParser struct wrapping WASM module with wazero runtime
   - Add Feed(), Flush(), Reset(), and Close() methods with WASM function calls
