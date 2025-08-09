@@ -10,10 +10,10 @@ This directory contains a demonstration of the Go key parser binding.
 
 ## Running the Demo
 
-From the project root directory:
+From the Go bindings directory:
 
 ```bash
-cd examples
+cd bindings/go/_examples
 go run go_key_demo.go
 ```
 
@@ -31,7 +31,7 @@ The demo will:
 Run the integration tests:
 
 ```bash
-cd examples
+cd bindings/go/_examples
 go test -v go_key_demo_test.go
 ```
 
@@ -85,6 +85,6 @@ Received Ctrl+C. Exiting gracefully...
 
 ## Notes
 
-- The demo must be run from the project root directory so it can find the WASM binary at `bindings/go/wasm/prompt_wasm.wasm`
+- The WASM binary is embedded in the Go binding using `go:embed`, so no external files are needed
 - The terminal is automatically restored to its original state on exit
 - The demo handles both normal termination (Ctrl+C) and signal-based termination (SIGINT/SIGTERM)

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"io/ioutil"
 	"testing"
 
 	keyparsing "github.com/c-bata/prompt/bindings/go"
@@ -11,15 +10,8 @@ import (
 func TestGoKeyDemoIntegration(t *testing.T) {
 	ctx := context.Background()
 
-	// Load the WASM binary
-	wasmPath := "../bindings/go/wasm/prompt_wasm.wasm"
-	wasmBytes, err := ioutil.ReadFile(wasmPath)
-	if err != nil {
-		t.Fatalf("Error loading WASM binary from %s: %v", wasmPath, err)
-	}
-
-	// Create a new parser
-	parser, err := keyparsing.NewKeyParser(ctx, wasmBytes)
+	// Create a new parser using the embedded WASM binary
+	parser, err := keyparsing.New(ctx)
 	if err != nil {
 		t.Fatalf("Error creating key parser: %v", err)
 	}
@@ -101,15 +93,8 @@ func TestGoKeyDemoIntegration(t *testing.T) {
 func TestPartialSequenceHandling(t *testing.T) {
 	ctx := context.Background()
 
-	// Load the WASM binary
-	wasmPath := "../bindings/go/wasm/prompt_wasm.wasm"
-	wasmBytes, err := ioutil.ReadFile(wasmPath)
-	if err != nil {
-		t.Fatalf("Error loading WASM binary: %v", err)
-	}
-
-	// Create a new parser
-	parser, err := keyparsing.NewKeyParser(ctx, wasmBytes)
+	// Create a new parser using the embedded WASM binary
+	parser, err := keyparsing.New(ctx)
 	if err != nil {
 		t.Fatalf("Error creating key parser: %v", err)
 	}
@@ -146,15 +131,8 @@ func TestPartialSequenceHandling(t *testing.T) {
 func TestFlushAndReset(t *testing.T) {
 	ctx := context.Background()
 
-	// Load the WASM binary
-	wasmPath := "../bindings/go/wasm/prompt_wasm.wasm"
-	wasmBytes, err := ioutil.ReadFile(wasmPath)
-	if err != nil {
-		t.Fatalf("Error loading WASM binary: %v", err)
-	}
-
-	// Create a new parser
-	parser, err := keyparsing.NewKeyParser(ctx, wasmBytes)
+	// Create a new parser using the embedded WASM binary
+	parser, err := keyparsing.New(ctx)
 	if err != nil {
 		t.Fatalf("Error creating key parser: %v", err)
 	}

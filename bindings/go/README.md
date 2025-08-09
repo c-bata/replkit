@@ -6,6 +6,7 @@ This package provides Go bindings for the Rust-based key input parser using WebA
 
 - **Cross-platform**: Works on any platform supported by Go and WASM
 - **Zero dependencies**: Uses wazero for WASM runtime (pure Go implementation)
+- **Embedded WASM**: WASM binary is embedded using `go:embed`, no external files needed
 - **Memory safe**: Proper memory management between Go and WASM
 - **Complete key support**: Handles control characters, arrow keys, function keys, and special sequences
 - **Partial sequence handling**: Buffers incomplete escape sequences until complete
@@ -19,7 +20,6 @@ package main
 import (
     "context"
     "fmt"
-    "io/ioutil"
     
     keyparsing "github.com/c-bata/prompt/bindings/go"
 )
@@ -27,14 +27,8 @@ import (
 func main() {
     ctx := context.Background()
     
-    // Load the WASM binary
-    wasmBytes, err := ioutil.ReadFile("wasm/prompt_wasm.wasm")
-    if err != nil {
-        panic(err)
-    }
-    
-    // Create a new parser
-    parser, err := keyparsing.NewKeyParser(ctx, wasmBytes)
+    // Create a new parser using the embedded WASM binary
+    parser, err := keyparsing.New(ctx)
     if err != nil {
         panic(err)
     }
@@ -101,8 +95,11 @@ Represents a parsed key event with:
 
 ### Methods
 
+#### `New(ctx context.Context) (*KeyParser, error)`
+Creates a new KeyParser instance using the embedded WASM binary. This is the recommended way to create a parser.
+
 #### `NewKeyParser(ctx context.Context, wasmBytes []byte) (*KeyParser, error)`
-Creates a new KeyParser instance using the provided WASM binary.
+Creates a new KeyParser instance using a custom WASM binary. Use this for advanced cases where you need a custom WASM binary.
 
 #### `Feed(input []byte) ([]KeyEvent, error)`
 Processes input bytes and returns parsed key events. Partial sequences are buffered internally.

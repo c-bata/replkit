@@ -2,6 +2,7 @@ package keyparsing
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 
@@ -9,6 +10,9 @@ import (
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
+
+//go:embed wasm/prompt_wasm.wasm
+var embeddedWasm []byte
 
 // Key represents the different types of keys that can be parsed.
 // These constants must match the u32 values from the Rust WASM module.
@@ -311,12 +315,28 @@ type KeyParser struct {
 	parserID uint32
 }
 
-// NewKeyParser creates a new KeyParser instance using the provided WASM binary.
-// The WASM binary should be compiled from the prompt-wasm crate.
+// New creates a new KeyParser instance using the embedded WASM binary.
+// This is the recommended way to create a parser as it uses the embedded WASM binary
+// that is guaranteed to be compatible with this version of the Go binding.
 //
 // Example usage:
 //
-//	wasmBytes, err := ioutil.ReadFile("prompt_wasm.wasm")
+//	parser, err := keyparsing.New(ctx)
+//	if err != nil {
+//	    return err
+//	}
+//	defer parser.Close()
+func New(ctx context.Context) (*KeyParser, error) {
+	return NewKeyParser(ctx, embeddedWasm)
+}
+
+// NewKeyParser creates a new KeyParser instance using the provided WASM binary.
+// This function is provided for advanced use cases where you need to use a custom WASM binary.
+// For most use cases, use New() instead which uses the embedded WASM binary.
+//
+// Example usage:
+//
+//	wasmBytes, err := os.ReadFile("custom_prompt_wasm.wasm")
 //	if err != nil {
 //	    return err
 //	}
