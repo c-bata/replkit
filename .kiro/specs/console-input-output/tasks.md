@@ -166,10 +166,13 @@
   - Write performance benchmarks and resource usage tests for all platforms
   - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6_
 
-- [ ] 17. Create comprehensive integration tests
+- [ ] 17. Create comprehensive integration tests with advanced testing strategies
   - Write cross-platform integration tests using mock implementations
-  - Add tests for complete input/output workflows
-  - Create tests for platform capability detection and feature availability
+  - Add Unix PTY-based tests using openpty() for realistic terminal simulation
+  - Create ANSI sequence golden tests using insta for snapshot testing
+  - Implement property-based tests for control sequence filtering using quickcheck
+  - Add Windows pipe-based tests for console size fallback mechanisms
+  - Write tests for complete input/output workflows and platform capability detection
   - Add stress tests for high-frequency input and output operations
   - Write tests for error recovery and graceful degradation
   - Add tests for proper resource cleanup and memory management

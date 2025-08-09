@@ -59,27 +59,35 @@ The system includes both ConsoleInput for handling keyboard input and events, an
 
 ```rust
 // In prompt-core/src/console.rs
-use crate::{Key, KeyEvent};
+use crate::{Key, KeyEvent, KeyModifiers};
 use std::sync::{Arc, Mutex};
 
-pub trait ConsoleInput: Send + Sync {
+/// Helper trait for testing - allows downcasting to concrete types
+pub trait AsAny {
+    fn as_any(&self) -> &dyn std::any::Any;
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
+}
+
+pub trait ConsoleInput: Send + Sync + AsAny {
     /// Enable raw terminal mode with automatic restoration
-    fn enable_raw_mode(&mut self) -> Result<RawModeGuard, ConsoleError>;
+    fn enable_raw_mode(&self) -> Result<RawModeGuard, ConsoleError>;
     
     /// Get current terminal window size (columns, rows)
+    /// Returns the visible window area (srWindow on Windows), not the buffer size (dwSize)
+    /// Values are in character cells, 0-based for API but 1-based for ANSI sequences
     fn get_window_size(&self) -> Result<(u16, u16), ConsoleError>;
     
     /// Start the event processing loop
-    fn start_event_loop(&mut self) -> Result<(), ConsoleError>;
+    fn start_event_loop(&self) -> Result<(), ConsoleError>;
     
     /// Stop the event processing loop
-    fn stop_event_loop(&mut self) -> Result<(), ConsoleError>;
+    fn stop_event_loop(&self) -> Result<(), ConsoleError>;
     
     /// Register callback for window resize events
-    fn on_window_resize(&mut self, callback: Box<dyn FnMut(u16, u16) + Send>);
+    fn on_window_resize(&self, callback: Box<dyn FnMut(u16, u16) + Send>);
     
     /// Register callback for key press events
-    fn on_key_pressed(&mut self, callback: Box<dyn FnMut(KeyEvent) + Send>);
+    fn on_key_pressed(&self, callback: Box<dyn FnMut(KeyEvent) + Send>);
     
     /// Check if the event loop is currently running
     fn is_running(&self) -> bool;
@@ -88,10 +96,11 @@ pub trait ConsoleInput: Send + Sync {
     fn get_capabilities(&self) -> ConsoleCapabilities;
 }
 
-/// RAII guard for terminal raw mode
+/// RAII guard for terminal raw mode with primary restoration responsibility
 pub struct RawModeGuard {
     restore_fn: Option<Box<dyn FnOnce() + Send>>,
     platform_info: String,
+    is_active: Arc<AtomicBool>,
 }
 
 impl RawModeGuard {
@@ -99,20 +108,43 @@ impl RawModeGuard {
     where
         F: FnOnce() + Send + 'static,
     {
+        let is_active = Arc::new(AtomicBool::new(true));
         Self {
             restore_fn: Some(Box::new(restore_fn)),
             platform_info,
+            is_active,
         }
     }
     
     pub fn platform_info(&self) -> &str {
         &self.platform_info
     }
+    
+    pub fn is_active(&self) -> bool {
+        self.is_active.load(Ordering::Relaxed)
+    }
+    
+    /// Manually restore terminal mode (prevents automatic restoration on drop)
+    pub fn restore(mut self) -> Result<(), ConsoleError> {
+        if let Some(restore_fn) = self.restore_fn.take() {
+            self.is_active.store(false, Ordering::Relaxed);
+            restore_fn();
+            Ok(())
+        } else {
+            Err(ConsoleError::TerminalError("Already restored".to_string()))
+        }
+    }
+    
+    /// Get a weak reference to check if this guard is still active
+    pub fn weak_ref(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.is_active)
+    }
 }
 
 impl Drop for RawModeGuard {
     fn drop(&mut self) {
         if let Some(restore_fn) = self.restore_fn.take() {
+            self.is_active.store(false, Ordering::Relaxed);
             restore_fn();
         }
     }
@@ -139,38 +171,41 @@ pub enum BackendType {
     Mock,
 }
 
-pub trait ConsoleOutput: Send + Sync {
+pub trait ConsoleOutput: Send + Sync + AsAny {
     /// Write text at current cursor position
-    fn write_text(&mut self, text: &str) -> ConsoleResult<()>;
+    fn write_text(&self, text: &str) -> ConsoleResult<()>;
     
     /// Write text with specific styling
-    fn write_styled_text(&mut self, text: &str, style: &TextStyle) -> ConsoleResult<()>;
+    fn write_styled_text(&self, text: &str, style: &TextStyle) -> ConsoleResult<()>;
     
-    /// Move cursor to specific position (0-based coordinates)
-    fn move_cursor_to(&mut self, col: u16, row: u16) -> ConsoleResult<()>;
+    /// Write safe text (control sequences removed/escaped)
+    fn write_safe_text(&self, text: &str) -> ConsoleResult<()>;
+    
+    /// Move cursor to specific position (0-based coordinates: row, col)
+    fn move_cursor_to(&self, row: u16, col: u16) -> ConsoleResult<()>;
     
     /// Move cursor relative to current position
-    fn move_cursor_relative(&mut self, col_delta: i16, row_delta: i16) -> ConsoleResult<()>;
+    fn move_cursor_relative(&self, row_delta: i16, col_delta: i16) -> ConsoleResult<()>;
     
     /// Clear screen or specific areas
-    fn clear(&mut self, clear_type: ClearType) -> ConsoleResult<()>;
+    fn clear(&self, clear_type: ClearType) -> ConsoleResult<()>;
     
     /// Set text styling for subsequent writes
-    fn set_style(&mut self, style: &TextStyle) -> ConsoleResult<()>;
+    fn set_style(&self, style: &TextStyle) -> ConsoleResult<()>;
     
     /// Reset all styling to default
-    fn reset_style(&mut self) -> ConsoleResult<()>;
+    fn reset_style(&self) -> ConsoleResult<()>;
     
     /// Flush buffered output to terminal
-    fn flush(&mut self) -> ConsoleResult<()>;
+    fn flush(&self) -> ConsoleResult<()>;
     
     /// Enable/disable alternate screen buffer
-    fn set_alternate_screen(&mut self, enabled: bool) -> ConsoleResult<()>;
+    fn set_alternate_screen(&self, enabled: bool) -> ConsoleResult<()>;
     
     /// Show/hide cursor
-    fn set_cursor_visible(&mut self, visible: bool) -> ConsoleResult<()>;
+    fn set_cursor_visible(&self, visible: bool) -> ConsoleResult<()>;
     
-    /// Get current cursor position
+    /// Get current cursor position (row, col)
     fn get_cursor_position(&self) -> ConsoleResult<(u16, u16)>;
     
     /// Get output capabilities
@@ -252,6 +287,144 @@ impl Default for TextStyle {
             reverse: false,
         }
     }
+}
+
+/// Control sequence sanitization policy for safe text output
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SanitizationPolicy {
+    /// Remove all control sequences (CSI, OSC, DCS, etc.)
+    RemoveAll,
+    /// Remove only potentially dangerous sequences (CSI, OSC)
+    RemoveDangerous,
+    /// Escape control sequences to make them visible
+    EscapeAll,
+    /// Allow basic formatting but remove dangerous sequences
+    AllowBasicFormatting,
+}
+
+/// Safe text writer with control sequence filtering
+pub struct SafeTextFilter {
+    policy: SanitizationPolicy,
+    state: FilterState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum FilterState {
+    Normal,
+    Escape,
+    Csi,
+    OscString,
+    DcsString,
+}
+
+impl SafeTextFilter {
+    pub fn new(policy: SanitizationPolicy) -> Self {
+        SafeTextFilter {
+            policy,
+            state: FilterState::Normal,
+        }
+    }
+    
+    /// Filter text according to the sanitization policy
+    pub fn filter(&mut self, input: &str) -> String {
+        let mut output = String::with_capacity(input.len());
+        
+        for byte in input.bytes() {
+            match self.process_byte(byte) {
+                FilterAction::Emit(b) => output.push(b as char),
+                FilterAction::EmitEscaped(b) => {
+                    output.push('\\');
+                    output.push('x');
+                    output.push_str(&format!("{:02x}", b));
+                }
+                FilterAction::Skip => {}
+            }
+        }
+        
+        output
+    }
+    
+    fn process_byte(&mut self, byte: u8) -> FilterAction {
+        match self.state {
+            FilterState::Normal => {
+                match byte {
+                    0x1b => {
+                        self.state = FilterState::Escape;
+                        match self.policy {
+                            SanitizationPolicy::EscapeAll => FilterAction::EmitEscaped(byte),
+                            _ => FilterAction::Skip,
+                        }
+                    }
+                    0x00..=0x1f | 0x7f => {
+                        // Control characters
+                        match self.policy {
+                            SanitizationPolicy::RemoveAll | SanitizationPolicy::RemoveDangerous => {
+                                match byte {
+                                    0x09 | 0x0a | 0x0d => FilterAction::Emit(byte), // Tab, LF, CR
+                                    _ => FilterAction::Skip,
+                                }
+                            }
+                            SanitizationPolicy::EscapeAll => FilterAction::EmitEscaped(byte),
+                            SanitizationPolicy::AllowBasicFormatting => {
+                                match byte {
+                                    0x07 | 0x08 | 0x09 | 0x0a | 0x0d => FilterAction::Emit(byte), // BEL, BS, Tab, LF, CR
+                                    _ => FilterAction::Skip,
+                                }
+                            }
+                        }
+                    }
+                    _ => FilterAction::Emit(byte),
+                }
+            }
+            FilterState::Escape => {
+                match byte {
+                    b'[' => {
+                        self.state = FilterState::Csi;
+                        FilterAction::Skip
+                    }
+                    b']' => {
+                        self.state = FilterState::OscString;
+                        FilterAction::Skip
+                    }
+                    b'P' => {
+                        self.state = FilterState::DcsString;
+                        FilterAction::Skip
+                    }
+                    _ => {
+                        self.state = FilterState::Normal;
+                        FilterAction::Skip
+                    }
+                }
+            }
+            FilterState::Csi => {
+                if byte >= 0x40 && byte <= 0x7e {
+                    // CSI terminator
+                    self.state = FilterState::Normal;
+                }
+                FilterAction::Skip
+            }
+            FilterState::OscString => {
+                if byte == 0x07 || (byte == 0x1b) {
+                    // OSC terminator (BEL or ESC)
+                    self.state = if byte == 0x1b { FilterState::Escape } else { FilterState::Normal };
+                }
+                FilterAction::Skip
+            }
+            FilterState::DcsString => {
+                if byte == 0x1b {
+                    self.state = FilterState::Escape;
+                }
+                FilterAction::Skip
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum FilterAction {
+    Emit(u8),
+    EmitEscaped(u8),
+    Skip,
 }
 ```
 
@@ -397,25 +570,39 @@ use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use std::thread::{self, JoinHandle};
 use std::os::unix::io::RawFd;
 
-pub struct UnixConsoleInput {
+// Event loop state machine for proper synchronization
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(u8)]
+enum EventLoopState {
+    Stopped = 0,
+    Starting = 1,
+    Running = 2,
+    Stopping = 3,
+}
+
+// Separate inner state for safe thread sharing
+struct UnixConsoleInputInner {
     // Terminal state
     stdin_fd: RawFd,
-    original_termios: Option<libc::termios>,
     
     // Event loop management
-    event_loop_running: Arc<AtomicBool>,
-    event_thread: Option<JoinHandle<()>>,
-    wake_pipe: Option<(RawFd, RawFd)>, // (read_fd, write_fd)
+    event_loop_state: AtomicU8,
+    wake_pipe: Mutex<Option<(RawFd, RawFd)>>, // (read_fd, write_fd)
+    event_thread: Mutex<Option<JoinHandle<()>>>,
     
     // Key parsing
-    key_parser: KeyParser,
+    key_parser: Mutex<KeyParser>,
     
     // Callbacks
-    resize_callback: Arc<Mutex<Option<Box<dyn FnMut(u16, u16) + Send>>>>,
-    key_callback: Arc<Mutex<Option<Box<dyn FnMut(KeyEvent) + Send>>>>,
+    resize_callback: Mutex<Option<Box<dyn FnMut(u16, u16) + Send>>>,
+    key_callback: Mutex<Option<Box<dyn FnMut(KeyEvent) + Send>>>,
     
     // Window size tracking
-    last_window_size: Arc<Mutex<Option<(u16, u16)>>>,
+    last_window_size: Mutex<Option<(u16, u16)>>,
+}
+
+pub struct UnixConsoleInput {
+    inner: Arc<UnixConsoleInputInner>,
 }
 
 impl UnixConsoleInput {
@@ -429,31 +616,32 @@ impl UnixConsoleInput {
             ));
         }
         
-        Ok(UnixConsoleInput {
+        let inner = Arc::new(UnixConsoleInputInner {
             stdin_fd,
-            original_termios: None,
-            event_loop_running: Arc::new(AtomicBool::new(false)),
-            event_thread: None,
-            wake_pipe: None,
-            key_parser: KeyParser::new(),
-            resize_callback: Arc::new(Mutex::new(None)),
-            key_callback: Arc::new(Mutex::new(None)),
-            last_window_size: Arc::new(Mutex::new(None)),
-        })
+            event_loop_state: AtomicU8::new(EventLoopState::Stopped as u8),
+            wake_pipe: Mutex::new(None),
+            event_thread: Mutex::new(None),
+            key_parser: Mutex::new(KeyParser::new()),
+            resize_callback: Mutex::new(None),
+            key_callback: Mutex::new(None),
+            last_window_size: Mutex::new(None),
+        });
+        
+        Ok(UnixConsoleInput { inner })
     }
     
-    fn setup_raw_mode(&mut self) -> ConsoleResult<()> {
+    fn setup_raw_mode(&self) -> ConsoleResult<libc::termios> {
         let mut termios = unsafe { std::mem::zeroed::<libc::termios>() };
         
         // Get current terminal attributes
-        if unsafe { libc::tcgetattr(self.stdin_fd, &mut termios) } != 0 {
+        if unsafe { libc::tcgetattr(self.inner.stdin_fd, &mut termios) } != 0 {
             return Err(ConsoleError::IoError(
                 "Failed to get terminal attributes".to_string()
             ));
         }
         
-        // Save original settings
-        self.original_termios = Some(termios);
+        // Save original settings for return
+        let original_termios = termios;
         
         // Configure raw mode
         termios.c_lflag &= !(libc::ICANON | libc::ECHO | libc::ISIG);
@@ -462,27 +650,27 @@ impl UnixConsoleInput {
         termios.c_cc[libc::VTIME] = 0;
         
         // Apply new settings
-        if unsafe { libc::tcsetattr(self.stdin_fd, libc::TCSANOW, &termios) } != 0 {
+        if unsafe { libc::tcsetattr(self.inner.stdin_fd, libc::TCSANOW, &termios) } != 0 {
             return Err(ConsoleError::IoError(
                 "Failed to set terminal attributes".to_string()
             ));
         }
         
         // Set non-blocking mode
-        let flags = unsafe { libc::fcntl(self.stdin_fd, libc::F_GETFL) };
+        let flags = unsafe { libc::fcntl(self.inner.stdin_fd, libc::F_GETFL) };
         if flags == -1 {
             return Err(ConsoleError::IoError(
                 "Failed to get file flags".to_string()
             ));
         }
         
-        if unsafe { libc::fcntl(self.stdin_fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } == -1 {
+        if unsafe { libc::fcntl(self.inner.stdin_fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } == -1 {
             return Err(ConsoleError::IoError(
                 "Failed to set non-blocking mode".to_string()
             ));
         }
         
-        Ok(())
+        Ok(original_termios)
     }
     
     fn restore_terminal(&mut self) -> ConsoleResult<()> {
@@ -496,7 +684,7 @@ impl UnixConsoleInput {
         Ok(())
     }
     
-    fn create_wake_pipe(&mut self) -> ConsoleResult<()> {
+    fn create_wake_pipe(&self) -> ConsoleResult<()> {
         let mut pipe_fds = [0i32; 2];
         if unsafe { libc::pipe(pipe_fds.as_mut_ptr()) } != 0 {
             return Err(ConsoleError::IoError(
@@ -504,31 +692,82 @@ impl UnixConsoleInput {
             ));
         }
         
-        self.wake_pipe = Some((pipe_fds[0], pipe_fds[1]));
+        // Set CLOEXEC on both ends
+        for &fd in &pipe_fds {
+            let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+            if flags != -1 {
+                unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) };
+            }
+        }
+        
+        // Set non-blocking on read end
+        let flags = unsafe { libc::fcntl(pipe_fds[0], libc::F_GETFL) };
+        if flags != -1 {
+            unsafe { libc::fcntl(pipe_fds[0], libc::F_SETFL, flags | libc::O_NONBLOCK) };
+        }
+        
+        *self.inner.wake_pipe.lock().unwrap() = Some((pipe_fds[0], pipe_fds[1]));
         Ok(())
     }
     
     fn setup_signal_handlers(&self) -> ConsoleResult<()> {
         // Install SIGWINCH handler for window resize detection
-        unsafe {
-            let handler = libc::SIG_IGN; // We'll poll for size changes instead
-            libc::signal(libc::SIGWINCH, handler);
+        #[cfg(target_os = "linux")]
+        {
+            // Linux: Use signalfd for clean signal handling
+            use libc::{signalfd, signalfd_siginfo, sigset_t, sigemptyset, sigaddset, sigprocmask, SIG_BLOCK};
+            
+            let mut mask: sigset_t = unsafe { std::mem::zeroed() };
+            unsafe {
+                sigemptyset(&mut mask);
+                sigaddset(&mut mask, libc::SIGWINCH);
+                sigprocmask(SIG_BLOCK, &mask, std::ptr::null_mut());
+            }
+            
+            let signal_fd = unsafe { signalfd(-1, &mask, 0) };
+            if signal_fd == -1 {
+                return Err(ConsoleError::IoError("Failed to create signalfd".to_string()));
+            }
+            
+            // Store signal_fd for use in event loop
+            // (This would need to be added to the struct)
         }
+        #[cfg(not(target_os = "linux"))]
+        {
+            // Other Unix: Use sigaction + self-pipe
+            use libc::{sigaction, sighandler_t};
+            
+            let (_, write_fd) = self.wake_pipe.ok_or_else(|| {
+                ConsoleError::IoError("Wake pipe not initialized".to_string())
+            })?;
+            
+            extern "C" fn sigwinch_handler(_: libc::c_int) {
+                // Write to self-pipe to wake up poll()
+                // Note: This is a simplified example - in real implementation,
+                // we'd need to store write_fd in a static or use a different approach
+                let wake_byte = [1u8];
+                unsafe {
+                    libc::write(write_fd, wake_byte.as_ptr() as *const libc::c_void, 1);
+                }
+            }
+            
+            let mut sa: sigaction = unsafe { std::mem::zeroed() };
+            sa.sa_sigaction = sigwinch_handler as sighandler_t;
+            
+            if unsafe { sigaction(libc::SIGWINCH, &sa, std::ptr::null_mut()) } != 0 {
+                return Err(ConsoleError::IoError("Failed to install SIGWINCH handler".to_string()));
+            }
+        }
+        
         Ok(())
     }
     
-    fn event_loop_thread(&self) {
-        let stdin_fd = self.stdin_fd;
-        let (wake_read_fd, _) = self.wake_pipe.unwrap();
-        let running = Arc::clone(&self.event_loop_running);
-        let resize_callback = Arc::clone(&self.resize_callback);
-        let key_callback = Arc::clone(&self.key_callback);
-        let last_size = Arc::clone(&self.last_window_size);
-        
-        let mut key_parser = KeyParser::new();
+    fn event_loop_thread(inner: Arc<UnixConsoleInputInner>) {
+        let stdin_fd = inner.stdin_fd;
+        let (wake_read_fd, _) = *inner.wake_pipe.lock().unwrap().unwrap();
         let mut buffer = [0u8; 1024];
         
-        while running.load(Ordering::Relaxed) {
+        'main_loop: while inner.event_loop_state.load(Ordering::Relaxed) == EventLoopState::Running as u8 {
             // Set up poll for stdin and wake pipe
             let mut poll_fds = [
                 libc::pollfd {
@@ -555,22 +794,58 @@ impl UnixConsoleInput {
             
             // Check for stdin input
             if poll_fds[0].revents & libc::POLLIN != 0 {
-                let bytes_read = unsafe {
-                    libc::read(stdin_fd, buffer.as_mut_ptr() as *mut libc::c_void, buffer.len())
-                };
-                
-                if bytes_read > 0 {
-                    let input = &buffer[..bytes_read as usize];
-                    let key_events = key_parser.feed(input);
+                loop {
+                    let bytes_read = unsafe {
+                        libc::read(stdin_fd, buffer.as_mut_ptr() as *mut libc::c_void, buffer.len())
+                    };
                     
-                    // Invoke key callback for each event
-                    if let Ok(mut callback_guard) = key_callback.lock() {
-                        if let Some(ref mut callback) = *callback_guard {
+                    if bytes_read > 0 {
+                        let input = &buffer[..bytes_read as usize];
+                        
+                        // Parse key events using shared parser instance
+                        let key_events = {
+                            let mut parser = inner.key_parser.lock().unwrap();
+                            parser.feed(input)
+                        };
+                        
+                        // Invoke key callback for each event (avoid holding lock during callback)
+                        let callback = {
+                            let mut callback_guard = inner.key_callback.lock().unwrap();
+                            callback_guard.take()
+                        };
+                        
+                        if let Some(mut callback) = callback {
                             for event in key_events {
                                 // Catch panics in user callback
                                 let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                                     callback(event);
                                 }));
+                            }
+                            
+                            // Restore callback
+                            *inner.key_callback.lock().unwrap() = Some(callback);
+                        }
+                        
+                        // Continue reading if there might be more data
+                        continue;
+                    } else if bytes_read == 0 {
+                        // EOF - stdin closed
+                        break 'main_loop;
+                    } else {
+                        // Error occurred
+                        let errno = unsafe { *libc::__errno_location() };
+                        match errno {
+                            libc::EAGAIN | libc::EWOULDBLOCK => {
+                                // No more data available, continue with poll
+                                break;
+                            }
+                            libc::EINTR => {
+                                // Interrupted by signal, retry read
+                                continue;
+                            }
+                            _ => {
+                                // Other error, exit loop
+                                break 'main_loop;
                             }
                         }
                     }
@@ -579,31 +854,49 @@ impl UnixConsoleInput {
             
             // Check for wake signal
             if poll_fds[1].revents & libc::POLLIN != 0 {
-                // Drain wake pipe
-                let _ = unsafe {
-                    libc::read(wake_read_fd, buffer.as_mut_ptr() as *mut libc::c_void, buffer.len())
-                };
+                // Drain wake pipe completely
+                loop {
+                    let bytes_read = unsafe {
+                        libc::read(wake_read_fd, buffer.as_mut_ptr() as *mut libc::c_void, buffer.len())
+                    };
+                    if bytes_read <= 0 {
+                        break;
+                    }
+                }
+                // Wake signal received, check if we should exit
+                if inner.event_loop_state.load(Ordering::Relaxed) == EventLoopState::Stopping as u8 {
+                    break 'main_loop;
+                }
             }
             
-            // Periodic window size check
+            // Periodic window size check (with debouncing)
             if let Ok(current_size) = Self::query_window_size_static(stdin_fd) {
-                let mut last_size_guard = last_size.lock().unwrap();
-                let size_changed = match *last_size_guard {
-                    Some(last) => last != current_size,
-                    None => true,
+                let size_changed = {
+                    let mut last_size_guard = inner.last_window_size.lock().unwrap();
+                    let changed = match *last_size_guard {
+                        Some(last) => last != current_size,
+                        None => true,
+                    };
+                    if changed {
+                        *last_size_guard = Some(current_size);
+                    }
+                    changed
                 };
                 
                 if size_changed {
-                    *last_size_guard = Some(current_size);
-                    drop(last_size_guard);
+                    // Invoke resize callback (avoid holding lock during callback)
+                    let callback = {
+                        let mut callback_guard = inner.resize_callback.lock().unwrap();
+                        callback_guard.take()
+                    };
                     
-                    // Invoke resize callback
-                    if let Ok(mut callback_guard) = resize_callback.lock() {
-                        if let Some(ref mut callback) = *callback_guard {
-                            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                callback(current_size.0, current_size.1);
-                            }));
-                        }
+                    if let Some(mut callback) = callback {
+                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            callback(current_size.0, current_size.1);
+                        }));
+                        
+                        // Restore callback
+                        *inner.resize_callback.lock().unwrap() = Some(callback);
                     }
                 }
             }
@@ -623,12 +916,21 @@ impl UnixConsoleInput {
     }
 }
 
+impl AsAny for UnixConsoleInput {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
 impl ConsoleInput for UnixConsoleInput {
     fn enable_raw_mode(&mut self) -> ConsoleResult<RawModeGuard> {
-        self.setup_raw_mode()?;
+        let original_termios = self.setup_raw_mode()?;
         
-        let stdin_fd = self.stdin_fd;
-        let original_termios = self.original_termios.unwrap();
+        let stdin_fd = self.inner.stdin_fd;
         
         let restore_fn = move || {
             unsafe {
@@ -646,9 +948,37 @@ impl ConsoleInput for UnixConsoleInput {
         Self::query_window_size_static(self.stdin_fd)
     }
     
-    fn start_event_loop(&mut self) -> ConsoleResult<()> {
-        if self.event_loop_running.load(Ordering::Relaxed) {
-            return Err(ConsoleError::EventLoopError(EventLoopError::AlreadyRunning));
+    fn start_event_loop(&self) -> ConsoleResult<()> {
+        // Use compare_exchange to prevent race conditions
+        match self.inner.event_loop_state.compare_exchange(
+            EventLoopState::Stopped as u8,
+            EventLoopState::Starting as u8,
+            Ordering::SeqCst,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => {
+                // Successfully transitioned to Starting state
+            }
+            Err(current) => {
+                let current_state = match current {
+                    x if x == EventLoopState::Starting as u8 => EventLoopState::Starting,
+                    x if x == EventLoopState::Running as u8 => EventLoopState::Running,
+                    x if x == EventLoopState::Stopping as u8 => EventLoopState::Stopping,
+                    _ => EventLoopState::Stopped,
+                };
+                
+                return match current_state {
+                    EventLoopState::Starting | EventLoopState::Running => {
+                        Err(ConsoleError::EventLoopError(EventLoopError::AlreadyRunning))
+                    }
+                    EventLoopState::Stopping => {
+                        Err(ConsoleError::EventLoopError(EventLoopError::StartupFailed(
+                            "Event loop is currently stopping".to_string()
+                        )))
+                    }
+                    _ => unreachable!(),
+                };
+            }
         }
         
         // Create wake pipe for clean shutdown
@@ -658,15 +988,92 @@ impl ConsoleInput for UnixConsoleInput {
         self.setup_signal_handlers()?;
         
         // Start event loop thread
-        self.event_loop_running.store(true, Ordering::Relaxed);
-        
-        let thread_self = unsafe { std::ptr::read(self) }; // Move self into thread
+        let inner_clone = Arc::clone(&self.inner);
         let handle = thread::spawn(move || {
-            thread_self.event_loop_thread();
+            // Mark as running
+            inner_clone.event_loop_state.store(EventLoopState::Running as u8, Ordering::SeqCst);
+            
+            Self::event_loop_thread(inner_clone.clone());
+            
+            // Mark as stopped
+            inner_clone.event_loop_state.store(EventLoopState::Stopped as u8, Ordering::SeqCst);
         });
         
-        self.event_thread = Some(handle);
+        *self.inner.event_thread.lock().unwrap() = Some(handle);
         Ok(())
+    }
+    
+    fn stop_event_loop(&self) -> ConsoleResult<()> {
+        // Use compare_exchange to prevent race conditions
+        match self.inner.event_loop_state.compare_exchange(
+            EventLoopState::Running as u8,
+            EventLoopState::Stopping as u8,
+            Ordering::SeqCst,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => {
+                // Successfully transitioned to Stopping state
+            }
+            Err(current) => {
+                let current_state = match current {
+                    x if x == EventLoopState::Stopped as u8 => EventLoopState::Stopped,
+                    x if x == EventLoopState::Starting as u8 => EventLoopState::Starting,
+                    x if x == EventLoopState::Stopping as u8 => EventLoopState::Stopping,
+                    _ => EventLoopState::Running,
+                };
+                
+                return match current_state {
+                    EventLoopState::Stopped => {
+                        Err(ConsoleError::EventLoopError(EventLoopError::NotRunning))
+                    }
+                    EventLoopState::Starting => {
+                        Err(ConsoleError::EventLoopError(EventLoopError::StartupFailed(
+                            "Event loop is currently starting".to_string()
+                        )))
+                    }
+                    EventLoopState::Stopping => {
+                        // Already stopping, this is okay
+                        return Ok(());
+                    }
+                    _ => unreachable!(),
+                };
+            }
+        }
+        
+        // Wake up the event loop
+        if let Some((_, write_fd)) = *self.inner.wake_pipe.lock().unwrap() {
+            let wake_byte = [1u8];
+            unsafe {
+                libc::write(write_fd, wake_byte.as_ptr() as *const libc::c_void, 1);
+            }
+        }
+        
+        // Wait for thread to finish
+        if let Some(handle) = self.inner.event_thread.lock().unwrap().take() {
+            match handle.join() {
+                Ok(_) => {}
+                Err(_) => {
+                    return Err(ConsoleError::EventLoopError(
+                        EventLoopError::ThreadPanic("Event loop thread panicked".to_string())
+                    ));
+                }
+            }
+        }
+        
+        // Clean up wake pipe
+        if let Some((read_fd, write_fd)) = self.inner.wake_pipe.lock().unwrap().take() {
+            unsafe {
+                libc::close(read_fd);
+                libc::close(write_fd);
+            }
+        }
+        
+        Ok(())
+    }
+    
+    fn is_running(&self) -> bool {
+        let state = self.inner.event_loop_state.load(Ordering::Relaxed);
+        state == EventLoopState::Running as u8 || state == EventLoopState::Starting as u8
     }
     
     fn stop_event_loop(&mut self) -> ConsoleResult<()> {
@@ -832,6 +1239,16 @@ impl UnixConsoleOutput {
     }
 }
 
+impl AsAny for UnixConsoleOutput {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
 impl ConsoleOutput for UnixConsoleOutput {
     fn write_text(&mut self, text: &str) -> ConsoleResult<()> {
         self.output_buffer.extend_from_slice(text.as_bytes());
@@ -846,7 +1263,7 @@ impl ConsoleOutput for UnixConsoleOutput {
         Ok(())
     }
     
-    fn move_cursor_to(&mut self, col: u16, row: u16) -> ConsoleResult<()> {
+    fn move_cursor_to(&self, row: u16, col: u16) -> ConsoleResult<()> {
         let sequence = format!("\x1b[{};{}H", row + 1, col + 1);
         self.write_ansi_sequence(sequence.as_bytes());
         Ok(())
@@ -940,11 +1357,20 @@ impl ConsoleOutput for UnixConsoleOutput {
     }
     
     fn get_cursor_position(&self) -> ConsoleResult<(u16, u16)> {
-        // This would require reading from stdin, which is complex in this context
-        // For now, return an error indicating this feature needs special handling
+        // Cursor position query requires CPR (Cursor Position Report) via DSR sequence:
+        // 1. Send "\x1b[6n" to stdout
+        // 2. Read response "\x1b[{row};{col}R" from stdin
+        // 
+        // This creates a dependency between ConsoleOutput and ConsoleInput, which
+        // violates the current API boundary design. Future implementation would need:
+        // - Shared communication channel between Input/Output
+        // - Timeout handling for unresponsive terminals
+        // - Proper sequence parsing in the input stream
+        //
+        // For now, return UnsupportedFeature to maintain clean API boundaries
         Err(ConsoleError::UnsupportedFeature {
             feature: "cursor position query".to_string(),
-            platform: "Unix".to_string(),
+            platform: "Unix (requires Input/Output coordination)".to_string(),
         })
     }
     
@@ -990,16 +1416,95 @@ pub struct WasmResizeEventData {
     pub rows: u16,
 }
 
+/// Bounded ring buffer for WASM message handling with backpressure
+pub struct BoundedRingBuffer<T> {
+    buffer: Vec<Option<T>>,
+    head: usize,
+    tail: usize,
+    size: usize,
+    capacity: usize,
+    drop_strategy: DropStrategy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DropStrategy {
+    /// Drop oldest messages when buffer is full
+    DropOldest,
+    /// Drop newest messages when buffer is full
+    DropNewest,
+    /// Block until space is available (not suitable for WASM)
+    Block,
+}
+
+impl<T> BoundedRingBuffer<T> {
+    pub fn new(capacity: usize, drop_strategy: DropStrategy) -> Self {
+        BoundedRingBuffer {
+            buffer: (0..capacity).map(|_| None).collect(),
+            head: 0,
+            tail: 0,
+            size: 0,
+            capacity,
+            drop_strategy,
+        }
+    }
+    
+    pub fn push(&mut self, item: T) -> bool {
+        if self.size == self.capacity {
+            match self.drop_strategy {
+                DropStrategy::DropOldest => {
+                    // Overwrite oldest item
+                    self.buffer[self.tail] = Some(item);
+                    self.tail = (self.tail + 1) % self.capacity;
+                    self.head = (self.head + 1) % self.capacity;
+                    true
+                }
+                DropStrategy::DropNewest => {
+                    // Drop the new item
+                    false
+                }
+                DropStrategy::Block => {
+                    // Not suitable for WASM, treat as drop newest
+                    false
+                }
+            }
+        } else {
+            self.buffer[self.tail] = Some(item);
+            self.tail = (self.tail + 1) % self.capacity;
+            self.size += 1;
+            true
+        }
+    }
+    
+    pub fn pop(&mut self) -> Option<T> {
+        if self.size == 0 {
+            None
+        } else {
+            let item = self.buffer[self.head].take();
+            self.head = (self.head + 1) % self.capacity;
+            self.size -= 1;
+            item
+        }
+    }
+    
+    pub fn len(&self) -> usize {
+        self.size
+    }
+    
+    pub fn is_full(&self) -> bool {
+        self.size == self.capacity
+    }
+}
+
 pub struct WasmBridgeConsoleInput {
     // Event loop state
-    event_loop_running: Arc<AtomicBool>,
+    event_loop_state: Arc<AtomicU8>,
     
     // Callbacks
     resize_callback: Arc<Mutex<Option<Box<dyn FnMut(u16, u16) + Send>>>>,
     key_callback: Arc<Mutex<Option<Box<dyn FnMut(KeyEvent) + Send>>>>,
     
-    // Host communication
-    message_queue: Arc<Mutex<Vec<WasmConsoleMessage>>>,
+    // Host communication with backpressure handling
+    message_queue: Arc<Mutex<BoundedRingBuffer<WasmConsoleMessage>>>,
     current_window_size: Arc<Mutex<Option<(u16, u16)>>>,
 }
 
@@ -1030,11 +1535,20 @@ impl WasmBridgeConsoleInput {
                     text: key_data.text,
                 };
                 
-                // Invoke key callback
-                if let Ok(mut callback_guard) = self.key_callback.lock() {
-                    if let Some(ref mut callback) = *callback_guard {
+                // Invoke key callback with panic protection
+                let callback = {
+                    let mut callback_guard = self.key_callback.lock().unwrap();
+                    callback_guard.take()
+                };
+                
+                if let Some(mut callback) = callback {
+                    // Catch panics in user callback
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         callback(key_event);
-                    }
+                    }));
+                    
+                    // Restore callback
+                    *self.key_callback.lock().unwrap() = Some(callback);
                 }
             }
             "resize_event" => {
@@ -1044,11 +1558,20 @@ impl WasmBridgeConsoleInput {
                 // Update cached size
                 *self.current_window_size.lock().unwrap() = Some((resize_data.columns, resize_data.rows));
                 
-                // Invoke resize callback
-                if let Ok(mut callback_guard) = self.resize_callback.lock() {
-                    if let Some(ref mut callback) = *callback_guard {
+                // Invoke resize callback with panic protection
+                let callback = {
+                    let mut callback_guard = self.resize_callback.lock().unwrap();
+                    callback_guard.take()
+                };
+                
+                if let Some(mut callback) = callback {
+                    // Catch panics in user callback
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         callback(resize_data.columns, resize_data.rows);
-                    }
+                    }));
+                    
+                    // Restore callback
+                    *self.resize_callback.lock().unwrap() = Some(callback);
                 }
             }
             "window_size_response" => {
@@ -1338,6 +1861,16 @@ impl MockConsoleInput {
     }
 }
 
+impl AsAny for MockConsoleInput {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
 impl ConsoleInput for MockConsoleInput {
     fn enable_raw_mode(&mut self) -> ConsoleResult<RawModeGuard> {
         self.raw_mode_enabled.store(true, Ordering::Relaxed);
@@ -1455,6 +1988,16 @@ impl MockConsoleOutput {
     }
 }
 
+impl AsAny for MockConsoleOutput {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
 impl ConsoleOutput for MockConsoleOutput {
     fn write_text(&mut self, text: &str) -> ConsoleResult<()> {
         self.output_buffer.lock().unwrap().extend_from_slice(text.as_bytes());
@@ -1467,8 +2010,8 @@ impl ConsoleOutput for MockConsoleOutput {
         Ok(())
     }
     
-    fn move_cursor_to(&mut self, col: u16, row: u16) -> ConsoleResult<()> {
-        *self.cursor_position.lock().unwrap() = (col, row);
+    fn move_cursor_to(&self, row: u16, col: u16) -> ConsoleResult<()> {
+        *self.cursor_position.lock().unwrap() = (row, col);
         Ok(())
     }
     
@@ -1800,6 +2343,196 @@ impl Drop for PyRawModeGuard {
 
 ## Testing Strategy
 
+### Advanced Testing Framework
+
+#### 1. TTY Pseudo-Terminal Testing (Unix)
+
+```rust
+#[cfg(unix)]
+mod pty_tests {
+    use super::*;
+    use libc::{openpty, write, close};
+    use std::os::unix::io::RawFd;
+    
+    struct PtyPair {
+        master_fd: RawFd,
+        slave_fd: RawFd,
+    }
+    
+    impl PtyPair {
+        fn new() -> Result<Self, std::io::Error> {
+            let mut master_fd = 0;
+            let mut slave_fd = 0;
+            
+            if unsafe { openpty(&mut master_fd, &mut slave_fd, std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) } != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            
+            Ok(PtyPair { master_fd, slave_fd })
+        }
+        
+        fn write_to_slave(&self, data: &[u8]) -> Result<(), std::io::Error> {
+            let written = unsafe { write(self.master_fd, data.as_ptr() as *const libc::c_void, data.len()) };
+            if written < 0 {
+                Err(std::io::Error::last_os_error())
+            } else {
+                Ok(())
+            }
+        }
+    }
+    
+    impl Drop for PtyPair {
+        fn drop(&mut self) {
+            unsafe {
+                close(self.master_fd);
+                close(self.slave_fd);
+            }
+        }
+    }
+    
+    #[test]
+    fn test_real_terminal_key_parsing() {
+        let pty = PtyPair::new().expect("Failed to create PTY");
+        
+        // Create console input using slave side of PTY
+        let mut console_input = UnixConsoleInput::new_with_fd(pty.slave_fd).unwrap();
+        
+        let received_keys = Arc::new(Mutex::new(Vec::new()));
+        let keys_clone = Arc::clone(&received_keys);
+        
+        console_input.on_key_pressed(Box::new(move |event| {
+            keys_clone.lock().unwrap().push(event);
+        }));
+        
+        console_input.start_event_loop().unwrap();
+        
+        // Send key sequences through master side
+        pty.write_to_slave(b"\x1b[A").unwrap(); // Up arrow
+        pty.write_to_slave(b"\x1b[B").unwrap(); // Down arrow
+        pty.write_to_slave(b"hello").unwrap();  // Text
+        
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        
+        console_input.stop_event_loop().unwrap();
+        
+        let keys = received_keys.lock().unwrap();
+        assert_eq!(keys.len(), 7); // Up, Down, h, e, l, l, o
+        assert_eq!(keys[0].key, Key::Up);
+        assert_eq!(keys[1].key, Key::Down);
+    }
+}
+```
+
+#### 2. ANSI Sequence Golden Testing
+
+```rust
+#[cfg(test)]
+mod golden_tests {
+    use super::*;
+    use insta::assert_snapshot;
+    
+    #[test]
+    fn test_ansi_sequence_generation() {
+        let mut output = UnixConsoleOutput::new().unwrap();
+        
+        // Test cursor movement
+        output.move_cursor_to(5, 10).unwrap();
+        output.move_cursor_relative(-2, 3).unwrap();
+        
+        // Test styling
+        let style = TextStyle {
+            foreground: Some(Color::Red),
+            background: Some(Color::Blue),
+            bold: true,
+            italic: true,
+            ..Default::default()
+        };
+        output.set_style(&style).unwrap();
+        output.write_text("Hello, World!").unwrap();
+        output.reset_style().unwrap();
+        
+        // Capture generated ANSI sequences
+        let ansi_output = output.get_output_buffer();
+        let ansi_string = String::from_utf8_lossy(&ansi_output);
+        
+        // Snapshot test - will create/update golden file
+        assert_snapshot!(ansi_string);
+    }
+}
+```
+
+#### 3. Property-Based Control Sequence Filtering
+
+```rust
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use quickcheck::{quickcheck, TestResult, Arbitrary, Gen};
+    use rand::Rng;
+    
+    #[derive(Debug, Clone)]
+    struct MixedText {
+        content: String,
+    }
+    
+    impl Arbitrary for MixedText {
+        fn arbitrary(g: &mut Gen) -> Self {
+            let mut content = String::new();
+            let len = g.gen_range(0..200);
+            
+            for _ in 0..len {
+                match g.gen_range(0..10) {
+                    0..=6 => {
+                        // Regular printable character
+                        content.push(g.gen_range('a'..='z'));
+                    }
+                    7 => {
+                        // CSI sequence
+                        content.push_str(&format!("\x1b[{}m", g.gen_range(0..100)));
+                    }
+                    8 => {
+                        // OSC sequence
+                        content.push_str(&format!("\x1b]0;{}\x07", 
+                            (0..g.gen_range(1..20)).map(|_| g.gen_range('A'..='Z')).collect::<String>()));
+                    }
+                    9 => {
+                        // Random control character
+                        content.push(g.gen_range('\x00'..='\x1f'));
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            
+            MixedText { content }
+        }
+    }
+    
+    #[quickcheck]
+    fn prop_safe_text_removes_all_control_sequences(mixed: MixedText) -> TestResult {
+        if mixed.content.len() > 1000 {
+            return TestResult::discard();
+        }
+        
+        let mut filter = SafeTextFilter::new(SanitizationPolicy::RemoveAll);
+        let filtered = filter.filter(&mixed.content);
+        
+        // Property: filtered text should contain no control sequences
+        for byte in filtered.bytes() {
+            if byte < 0x20 && byte != 0x09 && byte != 0x0a && byte != 0x0d {
+                return TestResult::failed();
+            }
+        }
+        
+        // Property: no escape sequences should remain
+        if filtered.contains('\x1b') {
+            return TestResult::failed();
+        }
+        
+        TestResult::passed()
+    }
+}
+```
+
 ### Unit Testing Framework
 
 ```rust
@@ -1837,7 +2570,7 @@ mod tests {
         }));
         
         // Queue test events
-        if let Some(mock) = console.as_any().downcast_mut::<MockConsoleInput>() {
+        if let Some(mock) = console.as_any_mut().downcast_mut::<MockConsoleInput>() {
             mock.queue_key_sequence(&[Key::ControlA, Key::Right, Key::Enter]);
             mock.process_queued_events();
         }
@@ -1860,7 +2593,7 @@ mod tests {
         }));
         
         // Queue resize events
-        if let Some(mock) = console.as_any().downcast_mut::<MockConsoleInput>() {
+        if let Some(mock) = console.as_any_mut().downcast_mut::<MockConsoleInput>() {
             mock.queue_resize_event(120, 30);
             mock.queue_resize_event(100, 25);
             mock.process_queued_events();
@@ -1954,6 +2687,11 @@ wasm-bindgen = "0.2"
 [dev-dependencies]
 quickcheck = "1.0"
 quickcheck_macros = "1.0"
+insta = "1.0"  # For snapshot testing
+rand = "0.8"   # For property-based testing
+
+[target.'cfg(unix)'.dev-dependencies]
+libc = "0.2"   # For PTY testing
 
 [features]
 default = []
