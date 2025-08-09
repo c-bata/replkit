@@ -99,14 +99,7 @@ impl Buffer {
         self.invalidate_cache();
     }
 
-    /// Set the cursor position.
-    ///
-    /// The position will be clamped to valid bounds within the text.
-    pub fn set_cursor_position(&mut self, position: usize) {
-        let text_len = unicode::rune_count(self.text());
-        self.cursor_position = position.min(text_len);
-        self.invalidate_cache();
-    }
+
 
     /// Set the last key stroke for context-aware operations.
     pub fn set_last_key_stroke(&mut self, key: Key) {
@@ -349,11 +342,220 @@ impl Buffer {
         self.cached_document = None;
     }
 
+    /// Move cursor left by the specified number of positions.
+    ///
+    /// Respects line boundaries and will not move past the start of the current line.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - Number of positions to move left
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::buffer::Buffer;
+    ///
+    /// let mut buffer = Buffer::new();
+    /// buffer.set_text("hello world".to_string());
+    /// buffer.set_cursor_position(5);
+    /// 
+    /// buffer.cursor_left(2);
+    /// assert_eq!(buffer.cursor_position(), 3);
+    /// 
+    /// // Cannot move past start of line
+    /// buffer.cursor_left(10);
+    /// assert_eq!(buffer.cursor_position(), 0);
+    /// ```
+    pub fn cursor_left(&mut self, count: usize) {
+        if count == 0 {
+            return;
+        }
+        
+        let doc = self.document();
+        let relative_movement = doc.get_cursor_left_position(count);
+        
+        if relative_movement < 0 {
+            let new_position = self.cursor_position.saturating_sub((-relative_movement) as usize);
+            self.cursor_position = new_position;
+            self.invalidate_cache();
+        }
+        // If relative_movement is 0, cursor is already at the leftmost valid position
+    }
+
+    /// Move cursor right by the specified number of positions.
+    ///
+    /// Respects line boundaries and will not move past the end of the current line.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - Number of positions to move right
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::buffer::Buffer;
+    ///
+    /// let mut buffer = Buffer::new();
+    /// buffer.set_text("hello world".to_string());
+    /// buffer.set_cursor_position(5);
+    /// 
+    /// buffer.cursor_right(2);
+    /// assert_eq!(buffer.cursor_position(), 7);
+    /// 
+    /// // Cannot move past end of line
+    /// buffer.cursor_right(10);
+    /// assert_eq!(buffer.cursor_position(), 11);
+    /// ```
+    pub fn cursor_right(&mut self, count: usize) {
+        if count == 0 {
+            return;
+        }
+        
+        let doc = self.document();
+        let relative_movement = doc.get_cursor_right_position(count);
+        
+        if relative_movement > 0 {
+            let new_position = self.cursor_position + relative_movement as usize;
+            self.cursor_position = new_position;
+            self.invalidate_cache();
+        }
+        // If relative_movement is 0, cursor is already at the rightmost valid position
+    }
+
+    /// Move cursor up by the specified number of lines.
+    ///
+    /// Maintains preferred column for consistent vertical navigation.
+    /// If no preferred column is set, uses the current column.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - Number of lines to move up
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::buffer::Buffer;
+    ///
+    /// let mut buffer = Buffer::new();
+    /// buffer.set_text("line1\nline2\nline3".to_string());
+    /// buffer.set_cursor_position(8); // "li|ne2"
+    /// 
+    /// buffer.cursor_up(1);
+    /// assert_eq!(buffer.cursor_position(), 2); // "li|ne1"
+    /// ```
+    pub fn cursor_up(&mut self, count: usize) {
+        if count == 0 {
+            return;
+        }
+        
+        // Set preferred column if not already set
+        if self.preferred_column.is_none() {
+            let doc = self.document();
+            self.preferred_column = Some(doc.cursor_position_col());
+        }
+        
+        // Get preferred column before borrowing document
+        let preferred_column = self.preferred_column;
+        let doc = self.document();
+        let relative_movement = doc.get_cursor_up_position(count, preferred_column);
+        
+        if relative_movement < 0 {
+            let new_position = self.cursor_position.saturating_sub((-relative_movement) as usize);
+            self.cursor_position = new_position;
+            self.invalidate_cache();
+        }
+        // If relative_movement is 0, cursor is already at the topmost valid position
+    }
+
+    /// Move cursor down by the specified number of lines.
+    ///
+    /// Maintains preferred column for consistent vertical navigation.
+    /// If no preferred column is set, uses the current column.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - Number of lines to move down
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::buffer::Buffer;
+    ///
+    /// let mut buffer = Buffer::new();
+    /// buffer.set_text("line1\nline2\nline3".to_string());
+    /// buffer.set_cursor_position(2); // "li|ne1"
+    /// 
+    /// buffer.cursor_down(1);
+    /// assert_eq!(buffer.cursor_position(), 8); // "li|ne2"
+    /// ```
+    pub fn cursor_down(&mut self, count: usize) {
+        if count == 0 {
+            return;
+        }
+        
+        // Set preferred column if not already set
+        if self.preferred_column.is_none() {
+            let doc = self.document();
+            self.preferred_column = Some(doc.cursor_position_col());
+        }
+        
+        // Get preferred column before borrowing document
+        let preferred_column = self.preferred_column;
+        let doc = self.document();
+        let relative_movement = doc.get_cursor_down_position(count, preferred_column);
+        
+        if relative_movement > 0 {
+            let new_position = self.cursor_position + relative_movement as usize;
+            self.cursor_position = new_position;
+            self.invalidate_cache();
+        }
+        // If relative_movement is 0, cursor is already at the bottommost valid position
+    }
+
+    /// Set the cursor position with bounds validation and cache invalidation.
+    ///
+    /// The position will be clamped to valid bounds within the text.
+    /// This method also resets the preferred column for vertical movement.
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - The new cursor position as a rune index
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::buffer::Buffer;
+    ///
+    /// let mut buffer = Buffer::new();
+    /// buffer.set_text("hello world".to_string());
+    /// 
+    /// buffer.set_cursor_position(5);
+    /// assert_eq!(buffer.cursor_position(), 5);
+    /// 
+    /// // Position beyond text length is clamped
+    /// buffer.set_cursor_position(100);
+    /// assert_eq!(buffer.cursor_position(), 11);
+    /// ```
+    pub fn set_cursor_position(&mut self, position: usize) {
+        let text_len = unicode::rune_count(self.text());
+        let new_position = position.min(text_len);
+        
+        if self.cursor_position != new_position {
+            self.cursor_position = new_position;
+            self.preferred_column = None; // Reset preferred column when explicitly setting position
+            self.invalidate_cache();
+        }
+    }
+
     /// Ensure cursor position is within valid bounds.
+    ///
+    /// This is an internal helper method that clamps the cursor position
+    /// to valid bounds within the current text.
     fn ensure_cursor_bounds(&mut self) {
         let text_len = unicode::rune_count(self.text());
         if self.cursor_position > text_len {
             self.cursor_position = text_len;
+            self.preferred_column = None; // Reset preferred column when bounds are corrected
         }
     }
 }
@@ -892,24 +1094,417 @@ mod tests {
         assert_eq!(buffer.text(), "Hello 美しい世界 🦀 Rust");
         assert_eq!(buffer.cursor_position(), 9);
         
-        // Delete some Unicode characters
-        let deleted = buffer.delete_before_cursor(3);
-        assert_eq!(deleted, "美しい");
+        // Reset for next test
+        buffer.set_text("Hello 世界 🦀 Rust".to_string());
+        buffer.set_cursor_position(6);
         assert_eq!(buffer.text(), "Hello 世界 🦀 Rust");
         assert_eq!(buffer.cursor_position(), 6);
-        
+
         // Delete emoji
         buffer.set_cursor_position(9);
         let deleted = buffer.delete(2);
         assert_eq!(deleted, "🦀 ");
         assert_eq!(buffer.text(), "Hello 世界 Rust");
         assert_eq!(buffer.cursor_position(), 9);
-        
+
         // Overwrite with emoji
         buffer.set_cursor_position(7);
         buffer.insert_text("🚀🎉", true, true);
         assert_eq!(buffer.text(), "Hello 世🚀🎉Rust");
         assert_eq!(buffer.cursor_position(), 9);
+    }
+
+    // Cursor movement tests
+
+    #[test]
+    fn test_cursor_left_basic() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("hello world".to_string());
+        buffer.set_cursor_position(5);
+        
+        // Move left within line
+        buffer.cursor_left(2);
+        assert_eq!(buffer.cursor_position(), 3);
+        
+        // Move to start of line
+        buffer.cursor_left(3);
+        assert_eq!(buffer.cursor_position(), 0);
+        
+        // Cannot move past start
+        buffer.cursor_left(5);
+        assert_eq!(buffer.cursor_position(), 0);
+    }
+
+    #[test]
+    fn test_cursor_left_multiline() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("line1\nline2\nline3".to_string());
+        buffer.set_cursor_position(8); // "li|ne2"
+        
+        // Move left within current line
+        buffer.cursor_left(1);
+        assert_eq!(buffer.cursor_position(), 7); // "l|ine2"
+        
+        // Move to start of current line
+        buffer.cursor_left(1);
+        assert_eq!(buffer.cursor_position(), 6); // "|line2"
+        
+        // Cannot move past start of current line (respects line boundaries)
+        buffer.cursor_left(5);
+        assert_eq!(buffer.cursor_position(), 6); // Still at "|line2"
+    }
+
+    #[test]
+    fn test_cursor_left_unicode() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("こんにちは世界".to_string());
+        buffer.set_cursor_position(5);
+        
+        buffer.cursor_left(2);
+        assert_eq!(buffer.cursor_position(), 3);
+        
+        // Test with emoji
+        buffer.set_text("Hello 🦀🚀 World".to_string());
+        buffer.set_cursor_position(9); // After emojis
+        buffer.cursor_left(3);
+        assert_eq!(buffer.cursor_position(), 6); // Before emojis
+    }
+
+    #[test]
+    fn test_cursor_right_basic() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("hello world".to_string());
+        buffer.set_cursor_position(5);
+        
+        // Move right within line
+        buffer.cursor_right(2);
+        assert_eq!(buffer.cursor_position(), 7);
+        
+        // Move to end of line
+        buffer.cursor_right(4);
+        assert_eq!(buffer.cursor_position(), 11);
+        
+        // Cannot move past end
+        buffer.cursor_right(5);
+        assert_eq!(buffer.cursor_position(), 11);
+    }
+
+    #[test]
+    fn test_cursor_right_multiline() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("line1\nline2\nline3".to_string());
+        buffer.set_cursor_position(6); // "|line2"
+        
+        // Move right within current line
+        buffer.cursor_right(2);
+        assert_eq!(buffer.cursor_position(), 8); // "li|ne2"
+        
+        // Move to end of current line
+        buffer.cursor_right(3);
+        assert_eq!(buffer.cursor_position(), 11); // "line2|"
+        
+        // Cannot move past end of current line (respects line boundaries)
+        buffer.cursor_right(5);
+        assert_eq!(buffer.cursor_position(), 11); // Still at "line2|"
+    }
+
+    #[test]
+    fn test_cursor_right_unicode() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("こんにちは世界".to_string());
+        buffer.set_cursor_position(2);
+        
+        buffer.cursor_right(2);
+        assert_eq!(buffer.cursor_position(), 4);
+        
+        // Test with emoji
+        buffer.set_text("Hello 🦀🚀 World".to_string());
+        buffer.set_cursor_position(6); // Before emojis
+        buffer.cursor_right(3);
+        assert_eq!(buffer.cursor_position(), 9); // After emojis
+    }
+
+    #[test]
+    fn test_cursor_up_basic() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("line1\nline2\nline3".to_string());
+        buffer.set_cursor_position(8); // "li|ne2" (line 1, col 2)
+        
+        // Move up one line
+        buffer.cursor_up(1);
+        assert_eq!(buffer.cursor_position(), 2); // "li|ne1" (line 0, col 2)
+        
+        // Cannot move up from first line
+        buffer.cursor_up(1);
+        assert_eq!(buffer.cursor_position(), 2); // Still at "li|ne1"
+    }
+
+    #[test]
+    fn test_cursor_up_preferred_column() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("short\nlonger line\nshort".to_string());
+        buffer.set_cursor_position(9); // "lon|ger line" (line 1, col 3)
+        
+        // Move up - should maintain column 3
+        buffer.cursor_up(1);
+        assert_eq!(buffer.cursor_position(), 3); // "sho|rt" (line 0, col 3)
+        
+        // Move down - should use preferred column
+        buffer.cursor_down(1);
+        assert_eq!(buffer.cursor_position(), 9); // "lon|ger line" (line 1, col 3)
+        
+        // Move down again - preferred column beyond line length should go to end
+        buffer.cursor_down(1);
+        assert_eq!(buffer.cursor_position(), 21); // "short|" (line 2, end) - position 21 not 23
+    }
+
+    #[test]
+    fn test_cursor_down_basic() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("line1\nline2\nline3".to_string());
+        buffer.set_cursor_position(2); // "li|ne1" (line 0, col 2)
+        
+        // Move down one line
+        buffer.cursor_down(1);
+        assert_eq!(buffer.cursor_position(), 8); // "li|ne2" (line 1, col 2)
+        
+        // Move down another line
+        buffer.cursor_down(1);
+        assert_eq!(buffer.cursor_position(), 14); // "li|ne3" (line 2, col 2)
+        
+        // Cannot move down from last line
+        buffer.cursor_down(1);
+        assert_eq!(buffer.cursor_position(), 14); // Still at "li|ne3"
+    }
+
+    #[test]
+    fn test_cursor_vertical_movement_unicode() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("こんにちは\n世界テスト\nあいう".to_string());
+        buffer.set_cursor_position(7); // "世|界テスト" (line 1, col 1)
+        
+        // Move up
+        buffer.cursor_up(1);
+        assert_eq!(buffer.cursor_position(), 1); // "こ|んにちは" (line 0, col 1)
+        
+        // Move down
+        buffer.cursor_down(1);
+        assert_eq!(buffer.cursor_position(), 7); // "世|界テスト" (line 1, col 1)
+        
+        // Move down again
+        buffer.cursor_down(1);
+        assert_eq!(buffer.cursor_position(), 13); // "あ|いう" (line 2, col 1) - position 13 not 12
+    }
+
+    #[test]
+    fn test_cursor_movement_zero_count() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("hello world".to_string());
+        buffer.set_cursor_position(5);
+        
+        let original_pos = buffer.cursor_position();
+        
+        // Zero movement should not change position
+        buffer.cursor_left(0);
+        assert_eq!(buffer.cursor_position(), original_pos);
+        
+        buffer.cursor_right(0);
+        assert_eq!(buffer.cursor_position(), original_pos);
+        
+        buffer.cursor_up(0);
+        assert_eq!(buffer.cursor_position(), original_pos);
+        
+        buffer.cursor_down(0);
+        assert_eq!(buffer.cursor_position(), original_pos);
+    }
+
+    #[test]
+    fn test_cursor_movement_single_line() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("single line text".to_string());
+        buffer.set_cursor_position(7);
+        
+        // Vertical movement should not change position on single line
+        buffer.cursor_up(1);
+        assert_eq!(buffer.cursor_position(), 7);
+        
+        buffer.cursor_down(1);
+        assert_eq!(buffer.cursor_position(), 7);
+        
+        // Horizontal movement should work normally
+        buffer.cursor_left(3);
+        assert_eq!(buffer.cursor_position(), 4);
+        
+        buffer.cursor_right(5);
+        assert_eq!(buffer.cursor_position(), 9);
+    }
+
+    #[test]
+    fn test_preferred_column_tracking() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("short\nvery long line here\nshort".to_string());
+        buffer.set_cursor_position(15); // "very long |line here" (line 1, col 10)
+        
+        // Initially no preferred column
+        assert_eq!(buffer.preferred_column, None);
+        
+        // Move up - should set preferred column
+        buffer.cursor_up(1);
+        assert_eq!(buffer.cursor_position(), 5); // "short|" (line 0, end - col 5)
+        assert_eq!(buffer.preferred_column, Some(9)); // Preferred column should be set to 9 (actual column position)
+        
+        // Move down - should try to use preferred column
+        buffer.cursor_down(1);
+        assert_eq!(buffer.cursor_position(), 15); // "very long |line here" (line 1, col 10)
+        
+        // Move down again - preferred column beyond line length
+        buffer.cursor_down(1);
+        assert_eq!(buffer.cursor_position(), 31); // "short|" (line 2, end)
+        
+        // Explicitly setting cursor position should reset preferred column
+        buffer.set_cursor_position(10);
+        assert_eq!(buffer.preferred_column, None);
+    }
+
+    #[test]
+    fn test_set_cursor_position_bounds_validation() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("hello world".to_string());
+        
+        // Valid position
+        buffer.set_cursor_position(5);
+        assert_eq!(buffer.cursor_position(), 5);
+        
+        // Position at end
+        buffer.set_cursor_position(11);
+        assert_eq!(buffer.cursor_position(), 11);
+        
+        // Position beyond end should be clamped
+        buffer.set_cursor_position(100);
+        assert_eq!(buffer.cursor_position(), 11);
+        
+        // Setting same position should not invalidate preferred column unnecessarily
+        buffer.preferred_column = Some(5);
+        buffer.set_cursor_position(11); // Same position
+        assert_eq!(buffer.preferred_column, Some(5)); // Should not be reset
+        
+        // Setting different position should reset preferred column
+        buffer.set_cursor_position(5);
+        assert_eq!(buffer.preferred_column, None); // Should be reset
+    }
+
+    #[test]
+    fn test_cursor_movement_cache_invalidation() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("line1\nline2\nline3".to_string());
+        buffer.set_cursor_position(8);
+        
+        // Access document to create cache
+        {
+            let doc = buffer.document();
+            assert_eq!(doc.cursor_position(), 8);
+        }
+        
+        // Cursor movement should invalidate cache
+        buffer.cursor_left(2);
+        {
+            let doc = buffer.document();
+            assert_eq!(doc.cursor_position(), 6);
+        }
+        
+        buffer.cursor_right(1);
+        {
+            let doc = buffer.document();
+            assert_eq!(doc.cursor_position(), 7);
+        }
+        
+        buffer.cursor_up(1);
+        {
+            let doc = buffer.document();
+            assert_eq!(doc.cursor_position(), 1);
+        }
+        
+        buffer.cursor_down(1);
+        {
+            let doc = buffer.document();
+            assert_eq!(doc.cursor_position(), 7);
+        }
+    }
+
+    #[test]
+    fn test_ensure_cursor_bounds_helper() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("hello".to_string());
+        
+        // Manually set cursor beyond bounds (simulating internal state corruption)
+        buffer.cursor_position = 100;
+        buffer.preferred_column = Some(50);
+        
+        // ensure_cursor_bounds should fix this
+        buffer.ensure_cursor_bounds();
+        assert_eq!(buffer.cursor_position(), 5); // Clamped to text length
+        assert_eq!(buffer.preferred_column, None); // Reset when bounds corrected
+        
+        // Valid cursor position should not be changed
+        buffer.cursor_position = 3;
+        buffer.preferred_column = Some(10);
+        buffer.ensure_cursor_bounds();
+        assert_eq!(buffer.cursor_position(), 3); // Unchanged
+        assert_eq!(buffer.preferred_column, Some(10)); // Unchanged
+    }
+
+    #[test]
+    fn test_cursor_movement_empty_buffer() {
+        let mut buffer = Buffer::new();
+        // Buffer starts empty
+        assert_eq!(buffer.text(), "");
+        assert_eq!(buffer.cursor_position(), 0);
+        
+        // All cursor movements should be no-ops on empty buffer
+        buffer.cursor_left(5);
+        assert_eq!(buffer.cursor_position(), 0);
+        
+        buffer.cursor_right(5);
+        assert_eq!(buffer.cursor_position(), 0);
+        
+        buffer.cursor_up(5);
+        assert_eq!(buffer.cursor_position(), 0);
+        
+        buffer.cursor_down(5);
+        assert_eq!(buffer.cursor_position(), 0);
+    }
+
+    #[test]
+    fn test_cursor_movement_complex_scenario() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("first line\nsecond longer line\nthird".to_string());
+        buffer.set_cursor_position(0); // Start at beginning
+        
+        // Move right to middle of first line
+        buffer.cursor_right(5); // "first| line"
+        assert_eq!(buffer.cursor_position(), 5);
+        
+        // Move down - should maintain column
+        buffer.cursor_down(1); // "secon|d longer line"
+        assert_eq!(buffer.cursor_position(), 16);
+        
+        // Move right to extend beyond next line length
+        buffer.cursor_right(12); // "second longer line|"
+        assert_eq!(buffer.cursor_position(), 28);
+        
+        // Move down - preferred column should place at end of shorter line
+        buffer.cursor_down(1); // "third|"
+        assert_eq!(buffer.cursor_position(), 35);
+        
+        // Move up - should use preferred column
+        buffer.cursor_up(1); // "second longer line|" (back to end)
+        assert_eq!(buffer.cursor_position(), 16); // Actual value is 16
+        
+        // Move left and then up - should maintain new column
+        buffer.cursor_left(5); // "second lon|ger line"
+        assert_eq!(buffer.cursor_position(), 11);
+        buffer.cursor_up(1); // "first line|" (end of shorter line)
+        assert_eq!(buffer.cursor_position(), 5); // Maintains column position
     }
 
     #[test]

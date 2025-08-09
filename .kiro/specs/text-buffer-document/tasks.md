@@ -71,7 +71,7 @@
   - Write comprehensive tests for text modification with Unicode content
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 6.1, 6.2_
 
-- [ ] 9. Implement Buffer cursor movement operations
+- [x] 9. Implement Buffer cursor movement operations
   - Add cursor_left(), cursor_right(), cursor_up(), cursor_down() methods
   - Implement preferred column tracking for vertical movement consistency
   - Add set_cursor_position() with bounds validation and cache invalidation
