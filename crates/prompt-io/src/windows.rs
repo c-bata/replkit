@@ -2,7 +2,7 @@
 mod imp {
     use std::ffi::c_void;
     use std::io;
-    use std::mem::{size_of, zeroed};
+    use std::mem::zeroed;
     use std::ptr::{null, null_mut};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
@@ -68,12 +68,14 @@ mod imp {
     struct WINDOW_BUFFER_SIZE_RECORD { dwSize: COORD }
 
     #[repr(C)]
+    #[derive(Copy, Clone)]
     union INPUT_EVENT {
         KeyEvent: KEY_EVENT_RECORD,
         WindowBufferSizeEvent: WINDOW_BUFFER_SIZE_RECORD,
     }
 
     #[repr(C)]
+    #[derive(Copy, Clone)]
     struct INPUT_RECORD { EventType: WORD, Event: INPUT_EVENT }
 
     extern "system" {
@@ -147,15 +149,26 @@ mod imp {
 
         fn translate_key(ev: &KEY_EVENT_RECORD) -> Option<KeyEvent> {
             if ev.bKeyDown == 0 { return None; }
+            
             let ch = ev.UnicodeChar as u32;
-            if ch != 0 {
-                // Printable path
-                if let Some(c) = char::from_u32(ch) {
-                    return Some(KeyEvent::with_text(Key::NotDefined, vec![], c.to_string()));
-                }
-            }
-            // Fallback on virtual key code mappings
             let vk = ev.wVirtualKeyCode;
+            
+            // Handle control characters first (Ctrl+A..Z)
+            if ch >= 1 && ch <= 26 {
+                let idx = (ch - 1) as u8;
+                let key = match idx {
+                    0 => Key::ControlA, 1 => Key::ControlB, 2 => Key::ControlC, 3 => Key::ControlD,
+                    4 => Key::ControlE, 5 => Key::ControlF, 6 => Key::ControlG, 7 => Key::ControlH,
+                    8 => Key::ControlI, 9 => Key::ControlJ, 10 => Key::ControlK, 11 => Key::ControlL,
+                    12 => Key::ControlM,13 => Key::ControlN,14 => Key::ControlO,15 => Key::ControlP,
+                    16 => Key::ControlQ,17 => Key::ControlR,18 => Key::ControlS,19 => Key::ControlT,
+                    20 => Key::ControlU,21 => Key::ControlV,22 => Key::ControlW,23 => Key::ControlX,
+                    24 => Key::ControlY,25 => Key::ControlZ, _ => Key::NotDefined
+                };
+                return Some(KeyEvent::simple(key, vec![ch as u8]));
+            }
+            
+            // Handle special keys by virtual key code
             let key = match vk {
                 0x08 => Key::Backspace, // VK_BACK
                 0x0D => Key::Enter,     // VK_RETURN
@@ -163,27 +176,37 @@ mod imp {
                 0x26 => Key::Up,        // VK_UP
                 0x27 => Key::Right,     // VK_RIGHT
                 0x28 => Key::Down,      // VK_DOWN
+                0x21 => Key::PageUp,    // VK_PRIOR
+                0x22 => Key::PageDown,  // VK_NEXT
+                0x23 => Key::End,       // VK_END
+                0x24 => Key::Home,      // VK_HOME
+                0x2E => Key::Delete,    // VK_DELETE
+                0x09 => Key::Tab,       // VK_TAB
+                0x1B => Key::Escape,    // VK_ESCAPE
                 _ => {
-                    // Handle Ctrl+A..Z when UnicodeChar is control code 1..26
-                    match ev.UnicodeChar {
-                        1..=26 => {
-                            let idx = (ev.UnicodeChar - 1) as u8;
-                            let key = match idx {
-                                0 => Key::ControlA, 1 => Key::ControlB, 2 => Key::ControlC, 3 => Key::ControlD,
-                                4 => Key::ControlE, 5 => Key::ControlF, 6 => Key::ControlG, 7 => Key::ControlH,
-                                8 => Key::ControlI, 9 => Key::ControlJ, 10 => Key::ControlK, 11 => Key::ControlL,
-                                12 => Key::ControlM,13 => Key::ControlN,14 => Key::ControlO,15 => Key::ControlP,
-                                16 => Key::ControlQ,17 => Key::ControlR,18 => Key::ControlS,19 => Key::ControlT,
-                                20 => Key::ControlU,21 => Key::ControlV,22 => Key::ControlW,23 => Key::ControlX,
-                                24 => Key::ControlY,25 => Key::ControlZ, _ => Key::NotDefined
-                            };
-                            key
+                    // Handle printable characters
+                    if ch != 0 && ch >= 32 { // Printable ASCII and above
+                        if let Some(c) = char::from_u32(ch) {
+                            // Create raw bytes from the character
+                            let mut raw_bytes = Vec::new();
+                            let mut buf = [0u8; 4];
+                            let encoded = c.encode_utf8(&mut buf);
+                            raw_bytes.extend_from_slice(encoded.as_bytes());
+                            return Some(KeyEvent::with_text(Key::NotDefined, raw_bytes, c.to_string()));
                         }
-                        _ => Key::NotDefined
                     }
+                    Key::NotDefined
                 }
             };
-            Some(KeyEvent::simple(key, vec![]))
+            
+            // For special keys, create appropriate raw bytes
+            let raw_bytes = if key != Key::NotDefined {
+                vec![vk as u8] // Simple representation
+            } else {
+                vec![]
+            };
+            
+            Some(KeyEvent::simple(key, raw_bytes))
         }
     }
 
@@ -208,13 +231,14 @@ mod imp {
         fn enable_raw_mode(&mut self) -> ConsoleResult<()> {
             unsafe {
                 // Enable window + mouse input, disable quick-edit, line and echo to reduce buffering
+                // Also disable ENABLE_PROCESSED_INPUT to prevent Windows from handling Ctrl+C
                 let mut mode: DWORD = 0;
                 if GetConsoleMode(self.h_input, &mut mode as *mut DWORD) == 0 {
                     return Err(ConsoleError::Io(io::Error::new(io::ErrorKind::Other, "GetConsoleMode failed")));
                 }
                 let mut new_mode = mode | ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT | ENABLE_EXTENDED_FLAGS;
                 new_mode &= !ENABLE_QUICK_EDIT_MODE; // disable quick edit to avoid input freezing
-                new_mode &= !(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT);
+                new_mode &= !(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT); // disable processed input to handle Ctrl+C ourselves
                 if SetConsoleMode(self.h_input, new_mode) == 0 {
                     return Err(ConsoleError::Io(io::Error::new(io::ErrorKind::Other, "SetConsoleMode failed")));
                 }
@@ -242,9 +266,6 @@ mod imp {
             let resize_cb = self.resize_cb.clone();
             let key_cb = self.key_cb.clone();
             self.thread = Some(thread::spawn(move || unsafe {
-                // Emit initial size
-                // We can't call self methods here; minimal omission.
-                let mut rec: INPUT_RECORD = zeroed();
                 let mut nread: DWORD = 0;
                 let handles = [h_input, h_stop];
                 loop {

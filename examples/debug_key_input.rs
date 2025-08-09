@@ -9,6 +9,51 @@ use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+/// Wrapper to ensure proper cleanup of console input
+struct ConsoleInputGuard {
+    input: Box<dyn ConsoleInput>,
+    running: bool,
+}
+
+impl ConsoleInputGuard {
+    fn new(mut input: Box<dyn ConsoleInput>) -> io::Result<Self> {
+        input.enable_raw_mode().map_err(|e| io::Error::new(io::ErrorKind::Other, format!("raw mode error: {}", e)))?;
+        Ok(Self { input, running: false })
+    }
+
+    fn start_event_loop(&mut self) -> io::Result<()> {
+        self.input.start_event_loop().map_err(|e| io::Error::new(io::ErrorKind::Other, format!("start error: {}", e)))?;
+        self.running = true;
+        Ok(())
+    }
+
+    fn stop_event_loop(&mut self) -> io::Result<()> {
+        if self.running {
+            if let Err(e) = self.input.stop_event_loop() {
+                eprintln!("Warning: Failed to stop event loop: {}", e);
+            }
+            self.running = false;
+        }
+        Ok(())
+    }
+
+    fn set_key_event_callback(&mut self, callback: Box<dyn FnMut(KeyEvent) + Send>) {
+        self.input.set_key_event_callback(callback);
+    }
+
+    fn set_resize_callback(&mut self, callback: Box<dyn FnMut(u16, u16) + Send>) {
+        self.input.set_resize_callback(callback);
+    }
+}
+
+impl Drop for ConsoleInputGuard {
+    fn drop(&mut self) {
+        let _ = self.stop_event_loop();
+        // Give a moment for cleanup to complete
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
 /// Format raw bytes for display
 fn format_bytes(bytes: &[u8]) -> String {
     let hex: String = bytes.iter()
@@ -70,30 +115,37 @@ fn main() -> io::Result<()> {
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_flag = shutdown.clone();
 
-    let mut input = make_input().map_err(|e| io::Error::new(io::ErrorKind::Other, format!("init error: {}", e)))?;
-    input.enable_raw_mode().map_err(|e| io::Error::new(io::ErrorKind::Other, format!("raw mode error: {}", e)))?;
+    let input_impl = make_input().map_err(|e| io::Error::new(io::ErrorKind::Other, format!("init error: {}", e)))?;
+    let mut input = ConsoleInputGuard::new(input_impl)?;
 
     input.set_key_event_callback(Box::new(move |ev: KeyEvent| {
         display_key_event(&ev);
-        if ev.key == Key::ControlC { shutdown_flag.store(true, Ordering::Relaxed); }
+        if ev.key == Key::ControlC { 
+            println!("\r\nReceived Ctrl+C, shutting down...\r\n");
+            io::stdout().flush().unwrap();
+            shutdown_flag.store(true, Ordering::Relaxed); 
+        }
     }));
 
     input.set_resize_callback(Box::new(|cols, rows| {
-        println!("[resize] cols={}, rows={}", cols, rows);
+        println!("[resize] cols={}, rows={}\r", cols, rows);
         let _ = io::stdout().flush();
     }));
 
-    input.start_event_loop().map_err(|e| io::Error::new(io::ErrorKind::Other, format!("start error: {}", e)))?;
+    input.start_event_loop()?;
 
     print!("Ready for input...\r\n");
     io::stdout().flush()?;
 
+    // Main loop - check for shutdown signal
     while !shutdown.load(Ordering::Relaxed) {
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 
-    println!("\nReceived Ctrl+C, shutting down...");
-    let _ = input.stop_event_loop();
+    // Explicit cleanup - the Drop impl will also handle this as a fallback
+    println!("Stopping event loop...");
+    input.stop_event_loop()?;
+    
     println!("Done. Goodbye!");
     Ok(())
 }
