@@ -1,10 +1,10 @@
 # Implementation Plan
 
 - [x] 1. Set up crate structure and dependencies
-  - Create `crates/prompt-core/src/buffer.rs` and `crates/prompt-core/src/document.rs` modules
+  - Create `crates/replkit-core/src/buffer.rs` and `crates/replkit-core/src/document.rs` modules
   - Add Unicode dependencies (unicode-width) and serde to Cargo.toml
-  - Create `crates/prompt-core/src/unicode.rs` utility module
-  - Create `crates/prompt-core/src/error.rs` with BufferError enum and proper error handling
+  - Create `crates/replkit-core/src/unicode.rs` utility module
+  - Create `crates/replkit-core/src/error.rs` with BufferError enum and proper error handling
   - Update lib.rs to export new modules and maintain compatibility with existing key parser
   - _Requirements: 8.1, 9.1, 9.2, 9.3_
 
@@ -120,7 +120,7 @@
   - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5_
 
 - [ ] 15. Create Python bindings with PyO3
-  - Extend `crates/prompt-pyo3/` to include Buffer and Document classes
+  - Extend `crates/replkit-pyo3/` to include Buffer and Document classes
   - Implement Python-native error handling with proper exception types
   - Add Python methods that match the Rust API with Pythonic naming
   - Create Python example demonstrating text buffer operations

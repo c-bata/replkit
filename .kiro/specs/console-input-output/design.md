@@ -24,12 +24,12 @@ The system includes both ConsoleInput for handling keyboard input and events, an
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                 ConsoleInput Trait                          │
-│                 (prompt-core)                               │
+│                 (replkit-core)                               │
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │              Platform Implementations                       │
-│                    (prompt-io)                              │
+│                    (replkit-io)                              │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
 │  │ Unix I/O    │  │ Windows VT  │  │ Windows Legacy      │ │
 │  │ (termios)   │  │ (VT seq)    │  │ (Win32 Console)     │ │
@@ -58,7 +58,7 @@ The system includes both ConsoleInput for handling keyboard input and events, an
 ### Core Trait Definitions
 
 ```rust
-// In prompt-core/src/console.rs
+// In replkit-core/src/console.rs
 use crate::{Key, KeyEvent, KeyModifiers};
 use std::sync::{Arc, Mutex};
 
@@ -435,7 +435,7 @@ enum FilterAction {
 ### Error Handling
 
 ```rust
-// In prompt-core/src/console.rs
+// In replkit-core/src/console.rs
 #[derive(Debug, Clone)]
 pub enum ConsoleError {
     /// Platform-specific I/O error
@@ -487,8 +487,8 @@ pub type ConsoleResult<T> = Result<T, ConsoleError>;
 ### Platform Factory
 
 ```rust
-// In prompt-io/src/lib.rs
-use prompt_core::console::{ConsoleInput, ConsoleOutput, ConsoleResult};
+// In replkit-io/src/lib.rs
+use replkit_core::console::{ConsoleInput, ConsoleOutput, ConsoleResult};
 
 pub fn create_console_io() -> ConsoleResult<(Box<dyn ConsoleInput>, Box<dyn ConsoleOutput>)> {
     let input = create_console_input()?;
@@ -567,9 +567,9 @@ pub fn create_mock_console_io() -> (Box<dyn ConsoleInput>, Box<dyn ConsoleOutput
 ### Unix Implementation
 
 ```rust
-// In prompt-io/src/unix.rs
-use prompt_core::console::*;
-use prompt_core::{KeyParser, KeyEvent};
+// In replkit-io/src/unix.rs
+use replkit_core::console::*;
+use replkit_core::{KeyParser, KeyEvent};
 use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use std::thread::{self, JoinHandle};
 use std::os::unix::io::RawFd;
@@ -1485,7 +1485,7 @@ The bridge operates via a single, command-based function exported from WASM. The
                │ 2. Call exported WASM function
                ▼
 ┌──────────────────────────────────┐
-│  WASM Module (from prompt-core)  │
+│  WASM Module (from replkit-core)  │
 │                                  │
 │  ┌───────────────────────────┐   │
 │  │ `wasm_output_command`     │   │
@@ -1511,7 +1511,7 @@ The bridge operates via a single, command-based function exported from WASM. The
 A single function is exported from the WASM module to handle all output operations. This simplifies the foreign function interface (FFI) boundary.
 
 ```rust
-// In prompt-wasm/src/lib.rs
+// In replkit-wasm/src/lib.rs
 
 #[no_mangle]
 pub extern "C" fn wasm_output_command(command_ptr: *const u8, command_len: usize) -> i32 {
@@ -1601,10 +1601,10 @@ This design provides a clean, extensible, and serializable interface between the
 The Python binding is implemented using **PyO3**. This provides a thin, efficient wrapper around the native Rust implementation, exposing the `ConsoleInput` and `ConsoleOutput` traits directly to Python. This allows Python applications to benefit from the near-native performance of the Rust core.
 
 ```python
-# crates/prompt-pyo3/src/console.rs
+# crates/replkit-pyo3/src/console.rs
 use pyo3::prelude::*;
 use pyo3::types::PyFunction;
-use prompt_core::console::*;
+use replkit_core::console::*;
 use std::sync::{Arc, Mutex};
 
 #[pyclass]
@@ -1618,7 +1618,7 @@ pub struct PyConsoleInput {
 impl PyConsoleInput {
     #[new]
     fn new() -> PyResult<Self> {
-        let console_input = prompt_terminal::create_console_input()
+        let console_input = replkit_terminal::create_console_input()
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
         
         Ok(PyConsoleInput {
@@ -1943,7 +1943,7 @@ mod property_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use prompt_terminal::create_mock_console_input;
+    use replkit_terminal::create_mock_console_input;
     
     #[test]
     fn test_mock_console_basic_functionality() {
@@ -2032,7 +2032,7 @@ mod integration_tests {
     
     #[test]
     fn test_platform_detection() {
-        let (console, _) = prompt_io::create_console_io().unwrap();
+        let (console, _) = replkit_io::create_console_io().unwrap();
         let capabilities = console.get_capabilities();
         
         #[cfg(unix)]
@@ -2068,14 +2068,14 @@ mod integration_tests {
 ### External Dependencies
 
 ```toml
-# prompt-core/Cargo.toml
+# replkit-core/Cargo.toml
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# prompt-io/Cargo.toml
+# replkit-io/Cargo.toml
 [dependencies]
-prompt-core = { path = "../prompt-core" }
+replkit-core = { path = "../replkit-core" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
@@ -2106,7 +2106,7 @@ wasm = []
 
 ```
 crates/
-├── prompt-core/src/
+├── replkit-core/src/
 │   ├── lib.rs                    # Public API exports
 │   ├── key.rs                    # Key definitions (existing)
 │   ├── buffer.rs                 # Buffer implementation (existing)
@@ -2116,7 +2116,7 @@ crates/
 │   ├── console.rs                # ConsoleInput trait and types
 │   └── wasm.rs                   # WASM bindings (existing, extended)
 │
-├── prompt-io/src/
+├── replkit-io/src/
 │   ├── lib.rs                    # Platform factory and exports
 │   ├── unix.rs                   # Unix I/O implementation
 │   ├── windows/
@@ -2126,7 +2126,7 @@ crates/
 │   ├── wasm.rs                   # WASM bridge implementation
 │   └── mock.rs                   # Mock implementation for testing
 │
-└── prompt-pyo3/src/
+└── replkit-pyo3/src/
     ├── lib.rs                    # Python module exports
     ├── console.rs                # Python console bindings
     └── ... (existing files)

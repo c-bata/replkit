@@ -17,7 +17,17 @@
 
 ## Common Commands
 
-### `crates/replkit_pyo3`
+### Rust
+
+```bash
+cargo test
+
+cargo fmt
+
+cargo clippy --fix
+```
+
+### Python Binding (`crates/replkit_pyo3`)
 
 `replkit_pyo3` is built using [maturin](https://github.com/PyO3/maturin) and [PyO3](https://github.com/PyO3/pyo3), with `uv` for dependency management.
 
@@ -51,7 +61,7 @@ uv run maturin build
 ```
 
 
-### `bindings/go`
+### Go Binding (`bindings/go`)
 
 Run the test suite:
 

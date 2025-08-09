@@ -699,7 +699,7 @@ wasm = []
 ### Module Structure
 
 ```
-crates/prompt-core/src/
+crates/replkit-core/src/
 ├── lib.rs              # Public API exports
 ├── key.rs              # Key definitions (already exists)
 ├── buffer.rs           # Buffer implementation

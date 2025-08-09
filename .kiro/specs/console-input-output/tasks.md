@@ -1,19 +1,19 @@
 # Implementation Plan
 
-- [x] 1. Fix architectural issue: Move console traits to prompt-core
-  - Create `crates/prompt-core/src/console.rs` with ConsoleInput and ConsoleOutput traits from design document
+- [x] 1. Fix architectural issue: Move console traits to replkit-core
+  - Create `crates/replkit-core/src/console.rs` with ConsoleInput and ConsoleOutput traits from design document
   - Add ConsoleError, ConsoleResult, and related error types as specified in design
   - Define ConsoleCapabilities, OutputCapabilities, BackendType, TextStyle, Color, ClearType, and RawModeGuard types
-  - Update `crates/prompt-core/src/lib.rs` to export new console module
-  - Update `crates/prompt-io/src/lib.rs` to import traits from prompt-core instead of defining them locally
-  - Update all platform implementations (unix.rs, windows.rs) to use traits from prompt-core
-  - Update examples/debug_key_input.rs to import ConsoleInput from prompt-core
-  - Update Cargo.toml dependencies: prompt-io should depend on prompt-core
-  - **REASON**: Design specifies traits in prompt-core for proper architectural separation
+  - Update `crates/replkit-core/src/lib.rs` to export new console module
+  - Update `crates/replkit-io/src/lib.rs` to import traits from replkit-core instead of defining them locally
+  - Update all platform implementations (unix.rs, windows.rs) to use traits from replkit-core
+  - Update examples/debug_key_input.rs to import ConsoleInput from replkit-core
+  - Update Cargo.toml dependencies: replkit-io should depend on replkit-core
+  - **REASON**: Design specifies traits in replkit-core for proper architectural separation
   - _Requirements: 1.1, 1.2, 1.3, 9.1, 9.2_
 
-- [x] 2. Update prompt-io crate structure to match design
-  - ~~Create `crates/prompt-io/` directory with Cargo.toml~~ ✓
+- [x] 2. Update replkit-io crate structure to match design
+  - ~~Create `crates/replkit-io/` directory with Cargo.toml~~ ✓
   - ~~Set up platform-specific dependencies (libc for Unix, winapi for Windows, wasm-bindgen for WASM)~~ ✓
   - ~~Create basic module structure: lib.rs, unix.rs, windows/, wasm.rs, mock.rs~~ ✓ (partial)
   - Update trait signatures to match design document (enable_raw_mode should return RawModeGuard, not mutate self)
@@ -23,7 +23,7 @@
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6_
 
 - [x] 3. Implement mock console input for testing
-  - Create `crates/prompt-io/src/mock.rs` with MockConsoleInput implementation
+  - Create `crates/replkit-io/src/mock.rs` with MockConsoleInput implementation
   - Add input queue management with VecDeque for simulating key sequences
   - Implement ConsoleInput trait methods with proper state tracking
   - Add test helper methods: queue_key_event(), queue_text_input(), process_queued_events()
@@ -32,7 +32,7 @@
   - _Requirements: 8.1, 8.2, 8.3, 12.1, 12.2_
 
 - [x] 4. Implement mock console output for testing
-  - Extend `crates/prompt-io/src/mock.rs` with MockConsoleOutput implementation
+  - Extend `crates/replkit-io/src/mock.rs` with MockConsoleOutput implementation
   - Add output capture with Vec<u8> buffer and styled output tracking
   - Implement ConsoleOutput trait methods with state simulation
   - Add test helper methods: get_output(), get_styled_output(), clear_output()
@@ -41,7 +41,7 @@
   - _Requirements: 8.1, 8.2, 8.3, 12.1, 12.2_
 
 - [x] 5. Implement Unix console input
-  - ~~Create `crates/prompt-io/src/unix.rs` with UnixConsoleInput implementation~~
+  - ~~Create `crates/replkit-io/src/unix.rs` with UnixConsoleInput implementation~~
   - ~~Set up termios-based raw mode configuration with proper error handling~~
   - ~~Implement non-blocking input reading using poll() system call~~
   - ~~Create self-pipe for clean event loop shutdown signaling~~
@@ -52,7 +52,7 @@
   - _Requirements: 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 3.1, 3.2, 3.3, 4.1, 4.2, 4.3_
 
 - [x] 6. Implement Unix console output
-  - Extend `crates/prompt-io/src/unix.rs` with UnixConsoleOutput implementation
+  - Extend `crates/replkit-io/src/unix.rs` with UnixConsoleOutput implementation
   - Add ANSI escape sequence generation for cursor control and styling
   - Implement color support (16-color, 256-color, and true color)
   - Add text styling support (bold, italic, underline, etc.)
@@ -81,7 +81,7 @@
   - _Requirements: 1.1, 1.2, 1.3, 12.1, 12.2_
 
 - [x] 9. Implement Windows VT console input
-  - Create `crates/prompt-io/src/windows/vt.rs` with WindowsVtConsoleInput implementation
+  - Create `crates/replkit-io/src/windows/vt.rs` with WindowsVtConsoleInput implementation
   - Enable VT input mode using SetConsoleMode with ENABLE_VIRTUAL_TERMINAL_INPUT
   - Implement non-blocking input reading using WaitForMultipleObjects
   - Integrate with KeyParser for VT sequence processing
@@ -91,7 +91,7 @@
   - _Requirements: 1.1, 1.2, 1.3, 6.1, 6.2, 6.3, 6.4_
 
 - [ ] 10. Implement Windows VT console output
-  - Extend `crates/prompt-io/src/windows/vt.rs` with WindowsVtConsoleOutput implementation
+  - Extend `crates/replkit-io/src/windows/vt.rs` with WindowsVtConsoleOutput implementation
   - Enable VT output mode using ENABLE_VIRTUAL_TERMINAL_PROCESSING
   - Reuse Unix ANSI sequence generation for VT-compatible output
   - Add Windows-specific cursor position querying if available
@@ -108,7 +108,7 @@
   - _Requirements: 6.1, 6.2, 6.3, 12.1, 12.2_
 
 - [x] 12. Implement Windows Legacy console input
-  - ~~Create `crates/prompt-io/src/windows.rs` with WindowsLegacyConsoleInput implementation~~
+  - ~~Create `crates/replkit-io/src/windows.rs` with WindowsLegacyConsoleInput implementation~~
   - ~~Use ReadConsoleInputW to receive KEY_EVENT_RECORD and WINDOW_BUFFER_SIZE_EVENT~~
   - ~~Implement direct key mapping from virtual keys to Key enum values~~
   - ~~Handle modifier keys (Ctrl, Alt, Shift) and special key combinations~~
@@ -119,7 +119,7 @@
   - _Requirements: 1.1, 1.2, 1.3, 6.1, 6.2, 6.3, 6.4, 6.5_
 
 - [ ] 13. Implement Windows Legacy console output
-  - Extend `crates/prompt-io/src/windows/legacy.rs` with WindowsLegacyConsoleOutput implementation
+  - Extend `crates/replkit-io/src/windows/legacy.rs` with WindowsLegacyConsoleOutput implementation
   - Use Win32 Console API functions for cursor control and text output
   - Implement color support using SetConsoleTextAttribute
   - Add screen buffer manipulation for clearing and scrolling
@@ -129,7 +129,7 @@
   - _Requirements: 1.1, 1.2, 1.3, 6.1, 6.2, 6.3, 6.4, 6.5_
 
 - [ ] 14. Implement WASM Bridge for ConsoleOutput
-  - Create `crates/prompt-wasm` to house the WASM-specific logic.
+  - Create `crates/replkit-wasm` to house the WASM-specific logic.
   - Expose a single `wasm_output_command` function to the host.
   - Implement a JSON-based command protocol for all `ConsoleOutput` methods (e.g., `WriteText`, `SetStyle`, `Flush`).
   - The function will deserialize the JSON command and dispatch it to a global `ConsoleOutput` instance (e.g., `UnixConsoleOutput`).
@@ -205,7 +205,7 @@
   - This task is superseded by task #15, which details the new hybrid implementation strategy.
 
 - [ ] 20. Create Python bindings and replace Python vt100_debug example
-  - Extend `crates/prompt-pyo3/` with PyConsoleInput and PyConsoleOutput classes
+  - Extend `crates/replkit-pyo3/` with PyConsoleInput and PyConsoleOutput classes
   - Implement Python-native callback handling with proper GIL management
   - Add Python exception handling for console errors
   - Create Pythonic interfaces for styling and color management

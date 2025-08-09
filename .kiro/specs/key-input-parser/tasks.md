@@ -1,13 +1,13 @@
 # Implementation Plan
 
 - [x] 1. Set up Rust core library structure and key definitions
-  - Create `crates/prompt-core/src/key.rs` with comprehensive Key enum matching go-prompt
+  - Create `crates/replkit-core/src/key.rs` with comprehensive Key enum matching go-prompt
   - Define KeyEvent struct with key, raw_bytes, and text fields
-  - Add basic Cargo.toml configuration for the prompt-core crate
+  - Add basic Cargo.toml configuration for the replkit-core crate
   - _Requirements: 1.4, 1.5, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6_
 
 - [x] 2. Implement Trie-based sequence matcher
-  - Create `crates/prompt-core/src/sequence_matcher.rs` with TrieNode structure
+  - Create `crates/replkit-core/src/sequence_matcher.rs` with TrieNode structure
   - Implement MatchResult enum and LongestMatchResult struct
   - Build static sequence mapping table covering control chars, arrows, function keys
   - Implement match_sequence() and find_longest_match() methods with single-pass efficiency
@@ -15,7 +15,7 @@
   - _Requirements: 1.1, 1.3, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6_
 
 - [x] 3. Create state machine parser engine
-  - Implement `crates/prompt-core/src/key_parser.rs` with ParserState enum
+  - Implement `crates/replkit-core/src/key_parser.rs` with ParserState enum
   - Create KeyParser struct with state, buffer, and sequence_matcher fields
   - Implement feed() method with proper state transitions and partial sequence handling
   - Add flush() method to handle incomplete sequences gracefully
@@ -44,7 +44,7 @@
   - Create `bindings/go/` directory structure with proper Go module setup
   - Configure Rust crate to compile to WASM target (wasm32-unknown-unknown)
   - Set up wazero runtime integration in Go for WASM module loading
-  - Create WASM-compatible interface functions in `crates/prompt-core/src/wasm.rs`
+  - Create WASM-compatible interface functions in `crates/replkit-core/src/wasm.rs`
   - _Requirements: 2.1, 2.4_
 
 - [x] 7. Implement Go binding API with WASM
@@ -64,13 +64,13 @@
   - _Requirements: 4.2, 4.4, 4.5_
 
 - [x] 9. Set up Python binding infrastructure
-  - Create `crates/prompt-pyo3/` directory with PyO3 project structure
-  - Configure `crates/prompt-pyo3/Cargo.toml` for PyO3 and maturin build
+  - Create `crates/replkit-pyo3/` directory with PyO3 project structure
+  - Configure `crates/replkit-pyo3/Cargo.toml` for PyO3 and maturin build
   - Set up proper Python package configuration with pyproject.toml
   - _Requirements: 3.1, 3.4_
 
 - [x] 10. Implement Python binding API
-  - Create `crates/prompt-pyo3/src/lib.rs` with PyO3-based KeyParser and KeyEvent classes
+  - Create `crates/replkit-pyo3/src/lib.rs` with PyO3-based KeyParser and KeyEvent classes
   - Implement feed(), flush(), and reset() methods with proper error handling
   - Add Python-native Key enum with proper string representations
   - Convert Rust panics to appropriate Python exceptions

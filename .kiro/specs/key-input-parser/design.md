@@ -36,7 +36,7 @@ graph TB
 
 ## Components and Interfaces
 
-### Core Parser Engine (`prompt-core/src/key_parser.rs`)
+### Core Parser Engine (`replkit-core/src/key_parser.rs`)
 
 The main parser component that implements the state machine logic:
 
@@ -63,7 +63,7 @@ enum ParserState {
 }
 ```
 
-### Key Definitions (`prompt-core/src/key.rs`)
+### Key Definitions (`replkit-core/src/key.rs`)
 
 Comprehensive key type definitions matching go-prompt's structure:
 
@@ -101,7 +101,7 @@ pub struct KeyEvent {
 }
 ```
 
-### Sequence Matcher (`prompt-core/src/sequence_matcher.rs`)
+### Sequence Matcher (`replkit-core/src/sequence_matcher.rs`)
 
 The SequenceMatcher is responsible for mapping byte sequences to key events and determining if partial sequences could be prefixes of longer valid sequences. This is crucial for the state machine to know whether to wait for more bytes or process what it has.
 
@@ -173,15 +173,15 @@ matcher.insert(b"\x1b[1;5C", Key::CtrlRight);  // Ctrl + Right Arrow
 matcher.insert(b"gg", Key::VimGoTop);          // Vim-style "go to top"
 ```
 
-These sequences can be loaded from user preferences, dotfiles, or application-specific config files, enabling a flexible and extensible prompt experience.
+These sequences can be loaded from user preferences, dotfiles, or application-specific config files, enabling a flexible and extensible replkit experience.
 
-### Go Binding (`bindings/go/` + `crates/prompt-wasm/`)
+### Go Binding (`bindings/go/` + `crates/replkit-wasm/`)
 
-The Go binding leverages a WebAssembly (WASM) approach instead of CGO. The Rust core parser is compiled into a WASM module located in `crates/prompt-wasm`, which exports functions for key parsing.
+The Go binding leverages a WebAssembly (WASM) approach instead of CGO. The Rust core parser is compiled into a WASM module located in `crates/replkit-wasm`, which exports functions for key parsing.
 
 The Go code in `bindings/go/` loads and interacts with this WASM module using the [wazero](https://github.com/tetratelabs/wazero) runtime, providing a Go-idiomatic API while avoiding native dependencies.
 
-#### Rust WASM Export (`crates/prompt-wasm/src/lib.rs`)
+#### Rust WASM Export (`crates/replkit-wasm/src/lib.rs`)
 
 - Implements `wasm_bindgen` or `wasmtime`-compatible exports exposing the key parsing API
 - Functions include creating a parser instance, feeding input bytes, flushing buffers, and resetting state
@@ -191,14 +191,14 @@ The Go code in `bindings/go/` loads and interacts with this WASM module using th
 // Example using wasm_bindgen (or similar)
 #[wasm_bindgen]
 pub struct WasmKeyParser {
-    inner: prompt_core::KeyParser,
+    inner: replkit_core::KeyParser,
 }
 
 #[wasm_bindgen]
 impl WasmKeyParser {
     #[wasm_bindgen(constructor)]
     pub fn new() -> WasmKeyParser {
-        WasmKeyParser { inner: prompt_core::KeyParser::new() }
+        WasmKeyParser { inner: replkit_core::KeyParser::new() }
     }
 
     pub fn feed(&mut self, data: &[u8]) -> JsValue {
@@ -258,7 +258,7 @@ func (p *KeyParser) Close() error {
 }
 ```
 
-### Python Binding (`crates/prompt-pyo3`)
+### Python Binding (`crates/replkit-pyo3`)
 
 PyO3-based Python binding:
 
@@ -267,7 +267,7 @@ use pyo3::prelude::*;
 
 #[pyclass]
 pub struct KeyParser {
-    inner: prompt_core::KeyParser,
+    inner: replkit_core::KeyParser,
 }
 
 #[pymethods]

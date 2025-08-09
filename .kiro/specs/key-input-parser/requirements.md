@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This feature implements a cross-language key input parser that can handle raw terminal input and convert byte sequences to structured key events. The parser will be implemented in Rust as the core engine, with bindings for Go and Python. It includes a state machine to handle partial byte sequences correctly, similar to prompt_toolkit's VT100 parser.
+This feature implements a cross-language key input parser that can handle raw terminal input and convert byte sequences to structured key events. The parser will be implemented in Rust as the core engine, with bindings for Go and Python. It includes a state machine to handle partial byte sequences correctly, similar to python_prompt_toolkit's VT100 parser.
 
 ## Requirements
 
