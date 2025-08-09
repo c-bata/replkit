@@ -1,14 +1,10 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! Prompt Core Library
+//!
+//! This crate provides the core functionality for parsing terminal input and handling
+//! key events in interactive prompt applications. It includes comprehensive key definitions
+//! and parsing logic that can be used across multiple language bindings.
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub mod key;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+// Re-export commonly used types for convenience
+pub use key::{Key, KeyEvent};

@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. Set up Rust core library structure and key definitions
+- [x] 1. Set up Rust core library structure and key definitions
   - Create `crates/prompt-core/src/key.rs` with comprehensive Key enum matching go-prompt
   - Define KeyEvent struct with key, raw_bytes, and text fields
   - Add basic Cargo.toml configuration for the prompt-core crate

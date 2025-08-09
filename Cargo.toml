@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "crates/prompt-core", "prompt-buffer",
+    "crates/prompt-core",
 ]
 resolver = "2"
 
