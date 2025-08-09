@@ -111,7 +111,7 @@
   - Test WASM compilation and serialization roundtrip
   - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5_
 
-- [ ] 14. Create Go binding wrapper
+- [x] 14. Create Go binding wrapper
   - Build Go package in `bindings/go/text_buffer/` with WASM integration
   - Implement Go Buffer and Document structs wrapping WASM calls
   - Add proper Go error handling and type conversions
