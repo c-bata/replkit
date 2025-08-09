@@ -114,6 +114,185 @@ impl Buffer {
         self.invalidate_cache();
     }
 
+    /// Insert text at the current cursor position.
+    ///
+    /// # Arguments
+    ///
+    /// * `text` - The text to insert
+    /// * `overwrite` - If true, overwrite existing text; if false, insert text
+    /// * `move_cursor` - If true, move cursor after the inserted text
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::buffer::Buffer;
+    ///
+    /// let mut buffer = Buffer::new();
+    /// buffer.set_text("hello world".to_string());
+    /// buffer.set_cursor_position(5);
+    /// 
+    /// // Insert text
+    /// buffer.insert_text(" beautiful", false, true);
+    /// assert_eq!(buffer.text(), "hello beautiful world");
+    /// assert_eq!(buffer.cursor_position(), 15);
+    /// ```
+    pub fn insert_text(&mut self, text: &str, overwrite: bool, move_cursor: bool) {
+        let current_text = self.text().to_string();
+        let cursor_pos = self.cursor_position;
+        let text_rune_count = unicode::rune_count(&current_text);
+        
+        // Ensure cursor is within bounds
+        let safe_cursor_pos = cursor_pos.min(text_rune_count);
+        
+        let new_text = if overwrite {
+            // Overwrite mode: replace characters starting at cursor position
+            let before_cursor = unicode::rune_slice(&current_text, 0, safe_cursor_pos);
+            let insert_rune_count = unicode::rune_count(text);
+            let after_overwrite_pos = (safe_cursor_pos + insert_rune_count).min(text_rune_count);
+            let after_cursor = unicode::rune_slice(&current_text, after_overwrite_pos, text_rune_count);
+            
+            format!("{}{}{}", before_cursor, text, after_cursor)
+        } else {
+            // Insert mode: insert text at cursor position
+            let before_cursor = unicode::rune_slice(&current_text, 0, safe_cursor_pos);
+            let after_cursor = unicode::rune_slice(&current_text, safe_cursor_pos, text_rune_count);
+            
+            format!("{}{}{}", before_cursor, text, after_cursor)
+        };
+        
+        self.working_lines[self.working_index] = new_text;
+        
+        if move_cursor {
+            self.cursor_position = safe_cursor_pos + unicode::rune_count(text);
+        } else {
+            self.cursor_position = safe_cursor_pos;
+        }
+        
+        self.invalidate_cache();
+    }
+
+    /// Delete text before the cursor.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - Number of characters to delete
+    ///
+    /// # Returns
+    ///
+    /// The deleted text as a string
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::buffer::Buffer;
+    ///
+    /// let mut buffer = Buffer::new();
+    /// buffer.set_text("hello world".to_string());
+    /// buffer.set_cursor_position(5);
+    /// 
+    /// let deleted = buffer.delete_before_cursor(2);
+    /// assert_eq!(deleted, "lo");
+    /// assert_eq!(buffer.text(), "hel world");
+    /// assert_eq!(buffer.cursor_position(), 3);
+    /// ```
+    pub fn delete_before_cursor(&mut self, count: usize) -> String {
+        if count == 0 {
+            return String::new();
+        }
+        
+        let current_text = self.text().to_string();
+        let cursor_pos = self.cursor_position;
+        let text_rune_count = unicode::rune_count(&current_text);
+        
+        // Ensure cursor is within bounds
+        let safe_cursor_pos = cursor_pos.min(text_rune_count);
+        
+        // Calculate how many characters we can actually delete
+        let actual_delete_count = count.min(safe_cursor_pos);
+        
+        if actual_delete_count == 0 {
+            return String::new();
+        }
+        
+        let delete_start = safe_cursor_pos - actual_delete_count;
+        
+        // Get the text that will be deleted
+        let deleted_text = unicode::rune_slice(&current_text, delete_start, safe_cursor_pos).to_string();
+        
+        // Create new text without the deleted portion
+        let before_delete = unicode::rune_slice(&current_text, 0, delete_start);
+        let after_cursor = unicode::rune_slice(&current_text, safe_cursor_pos, text_rune_count);
+        let new_text = format!("{}{}", before_delete, after_cursor);
+        
+        self.working_lines[self.working_index] = new_text;
+        self.cursor_position = delete_start;
+        self.invalidate_cache();
+        
+        deleted_text
+    }
+
+    /// Delete text after the cursor.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - Number of characters to delete
+    ///
+    /// # Returns
+    ///
+    /// The deleted text as a string
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::buffer::Buffer;
+    ///
+    /// let mut buffer = Buffer::new();
+    /// buffer.set_text("hello world".to_string());
+    /// buffer.set_cursor_position(5);
+    /// 
+    /// let deleted = buffer.delete(2);
+    /// assert_eq!(deleted, " w");
+    /// assert_eq!(buffer.text(), "helloorld");
+    /// assert_eq!(buffer.cursor_position(), 5);
+    /// ```
+    pub fn delete(&mut self, count: usize) -> String {
+        if count == 0 {
+            return String::new();
+        }
+        
+        let current_text = self.text().to_string();
+        let cursor_pos = self.cursor_position;
+        let text_rune_count = unicode::rune_count(&current_text);
+        
+        // Ensure cursor is within bounds
+        let safe_cursor_pos = cursor_pos.min(text_rune_count);
+        
+        // Calculate how many characters we can actually delete
+        let remaining_chars = text_rune_count - safe_cursor_pos;
+        let actual_delete_count = count.min(remaining_chars);
+        
+        if actual_delete_count == 0 {
+            return String::new();
+        }
+        
+        let delete_end = safe_cursor_pos + actual_delete_count;
+        
+        // Get the text that will be deleted
+        let deleted_text = unicode::rune_slice(&current_text, safe_cursor_pos, delete_end).to_string();
+        
+        // Create new text without the deleted portion
+        let before_cursor = unicode::rune_slice(&current_text, 0, safe_cursor_pos);
+        let after_delete = unicode::rune_slice(&current_text, delete_end, text_rune_count);
+        let new_text = format!("{}{}", before_cursor, after_delete);
+        
+        self.working_lines[self.working_index] = new_text;
+        // Update cursor position to be within bounds of new text
+        self.cursor_position = safe_cursor_pos;
+        self.invalidate_cache();
+        
+        deleted_text
+    }
+
     /// Set the working index to switch between working lines.
     ///
     /// The index will be clamped to valid bounds within the working lines.
@@ -414,5 +593,385 @@ mod tests {
         assert_eq!(buffer.cursor_position(), 0);
         assert_eq!(buffer.working_index(), 0);
         assert_eq!(buffer.working_lines_count(), 1);
+    }
+
+    // Text modification tests
+    
+    #[test]
+    fn test_insert_text_basic() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("hello world".to_string());
+        buffer.set_cursor_position(5);
+        
+        // Insert text with cursor movement
+        buffer.insert_text(" beautiful", false, true);
+        assert_eq!(buffer.text(), "hello beautiful world");
+        assert_eq!(buffer.cursor_position(), 15);
+        
+        // Insert text without cursor movement
+        buffer.set_cursor_position(5);
+        buffer.insert_text(" amazing", false, false);
+        assert_eq!(buffer.text(), "hello amazing beautiful world");
+        assert_eq!(buffer.cursor_position(), 5);
+    }
+
+    #[test]
+    fn test_insert_text_overwrite_mode() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("hello world".to_string());
+        buffer.set_cursor_position(6);
+        
+        // Overwrite mode
+        buffer.insert_text("RUST", true, true);
+        assert_eq!(buffer.text(), "hello RUSTd");
+        assert_eq!(buffer.cursor_position(), 10);
+        
+        // Overwrite at end of text
+        buffer.set_cursor_position(11);
+        buffer.insert_text("!!!", true, true);
+        assert_eq!(buffer.text(), "hello RUSTd!!!");
+        assert_eq!(buffer.cursor_position(), 14);
+    }
+
+    #[test]
+    fn test_insert_text_unicode() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("こんにちは".to_string());
+        buffer.set_cursor_position(2);
+        
+        // Insert Japanese text
+        buffer.insert_text("素晴らしい", false, true);
+        assert_eq!(buffer.text(), "こん素晴らしいにちは");
+        assert_eq!(buffer.cursor_position(), 7);
+        
+        // Insert emoji
+        buffer.set_cursor_position(0);
+        buffer.insert_text("🦀", false, true);
+        assert_eq!(buffer.text(), "🦀こん素晴らしいにちは");
+        assert_eq!(buffer.cursor_position(), 1);
+    }
+
+    #[test]
+    fn test_insert_text_mixed_unicode() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("Hello 世界".to_string());
+        buffer.set_cursor_position(6);
+        
+        // Insert mixed content
+        buffer.insert_text("beautiful ", false, true);
+        assert_eq!(buffer.text(), "Hello beautiful 世界");
+        assert_eq!(buffer.cursor_position(), 16);
+        
+        // Insert at various positions
+        buffer.set_cursor_position(0);
+        buffer.insert_text("🚀 ", false, true);
+        assert_eq!(buffer.text(), "🚀 Hello beautiful 世界");
+        assert_eq!(buffer.cursor_position(), 2);
+    }
+
+    #[test]
+    fn test_insert_text_edge_cases() {
+        let mut buffer = Buffer::new();
+        
+        // Insert into empty buffer
+        buffer.insert_text("hello", false, true);
+        assert_eq!(buffer.text(), "hello");
+        assert_eq!(buffer.cursor_position(), 5);
+        
+        // Insert empty string
+        buffer.insert_text("", false, true);
+        assert_eq!(buffer.text(), "hello");
+        assert_eq!(buffer.cursor_position(), 5);
+        
+        // Insert at out-of-bounds cursor position
+        buffer.set_cursor_position(100);
+        buffer.insert_text(" world", false, true);
+        assert_eq!(buffer.text(), "hello world");
+        assert_eq!(buffer.cursor_position(), 11);
+    }
+
+    #[test]
+    fn test_delete_before_cursor_basic() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("hello world".to_string());
+        buffer.set_cursor_position(5);
+        
+        // Delete 2 characters before cursor
+        let deleted = buffer.delete_before_cursor(2);
+        assert_eq!(deleted, "lo");
+        assert_eq!(buffer.text(), "hel world");
+        assert_eq!(buffer.cursor_position(), 3);
+        
+        // Delete more characters
+        let deleted = buffer.delete_before_cursor(2);
+        assert_eq!(deleted, "el");
+        assert_eq!(buffer.text(), "h world");
+        assert_eq!(buffer.cursor_position(), 1);
+    }
+
+    #[test]
+    fn test_delete_before_cursor_unicode() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("こんにちは世界".to_string());
+        buffer.set_cursor_position(5);
+        
+        // Delete Japanese characters
+        let deleted = buffer.delete_before_cursor(2);
+        assert_eq!(deleted, "ちは");
+        assert_eq!(buffer.text(), "こんに世界");
+        assert_eq!(buffer.cursor_position(), 3);
+        
+        // Delete with emoji
+        buffer.set_text("Hello 🦀🚀 World".to_string());
+        buffer.set_cursor_position(9);
+        let deleted = buffer.delete_before_cursor(3);
+        assert_eq!(deleted, "🦀🚀 ");
+        assert_eq!(buffer.text(), "Hello World");
+        assert_eq!(buffer.cursor_position(), 6);
+    }
+
+    #[test]
+    fn test_delete_before_cursor_edge_cases() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("hello".to_string());
+        
+        // Delete from beginning (cursor at 0)
+        buffer.set_cursor_position(0);
+        let deleted = buffer.delete_before_cursor(5);
+        assert_eq!(deleted, "");
+        assert_eq!(buffer.text(), "hello");
+        assert_eq!(buffer.cursor_position(), 0);
+        
+        // Delete more than available
+        buffer.set_cursor_position(3);
+        let deleted = buffer.delete_before_cursor(10);
+        assert_eq!(deleted, "hel");
+        assert_eq!(buffer.text(), "lo");
+        assert_eq!(buffer.cursor_position(), 0);
+        
+        // Delete zero characters
+        buffer.set_text("hello".to_string());
+        buffer.set_cursor_position(3);
+        let deleted = buffer.delete_before_cursor(0);
+        assert_eq!(deleted, "");
+        assert_eq!(buffer.text(), "hello");
+        assert_eq!(buffer.cursor_position(), 3);
+        
+        // Delete from out-of-bounds cursor
+        buffer.set_cursor_position(100);
+        let deleted = buffer.delete_before_cursor(2);
+        assert_eq!(deleted, "lo");
+        assert_eq!(buffer.text(), "hel");
+        assert_eq!(buffer.cursor_position(), 3);
+    }
+
+    #[test]
+    fn test_delete_after_cursor_basic() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("hello world".to_string());
+        buffer.set_cursor_position(5);
+        
+        // Delete 2 characters after cursor
+        let deleted = buffer.delete(2);
+        assert_eq!(deleted, " w");
+        assert_eq!(buffer.text(), "helloorld");
+        assert_eq!(buffer.cursor_position(), 5);
+        
+        // Delete more characters
+        let deleted = buffer.delete(3);
+        assert_eq!(deleted, "orl");
+        assert_eq!(buffer.text(), "hellod");
+        assert_eq!(buffer.cursor_position(), 5);
+    }
+
+    #[test]
+    fn test_delete_after_cursor_unicode() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("こんにちは世界".to_string());
+        buffer.set_cursor_position(2);
+        
+        // Delete Japanese characters
+        let deleted = buffer.delete(2);
+        assert_eq!(deleted, "にち");
+        assert_eq!(buffer.text(), "こんは世界");
+        assert_eq!(buffer.cursor_position(), 2);
+        
+        // Delete with emoji
+        buffer.set_text("Hello 🦀🚀 World".to_string());
+        buffer.set_cursor_position(6);
+        let deleted = buffer.delete(3);
+        assert_eq!(deleted, "🦀🚀 ");
+        assert_eq!(buffer.text(), "Hello World");
+        assert_eq!(buffer.cursor_position(), 6);
+    }
+
+    #[test]
+    fn test_delete_after_cursor_edge_cases() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("hello".to_string());
+        
+        // Delete from end (cursor at end)
+        buffer.set_cursor_position(5);
+        let deleted = buffer.delete(5);
+        assert_eq!(deleted, "");
+        assert_eq!(buffer.text(), "hello");
+        assert_eq!(buffer.cursor_position(), 5);
+        
+        // Delete more than available
+        buffer.set_cursor_position(2);
+        let deleted = buffer.delete(10);
+        assert_eq!(deleted, "llo");
+        assert_eq!(buffer.text(), "he");
+        assert_eq!(buffer.cursor_position(), 2);
+        
+        // Delete zero characters
+        buffer.set_text("hello".to_string());
+        buffer.set_cursor_position(2);
+        let deleted = buffer.delete(0);
+        assert_eq!(deleted, "");
+        assert_eq!(buffer.text(), "hello");
+        assert_eq!(buffer.cursor_position(), 2);
+        
+        // Delete from out-of-bounds cursor
+        buffer.set_cursor_position(100);
+        let deleted = buffer.delete(2);
+        assert_eq!(deleted, "");
+        assert_eq!(buffer.text(), "hello");
+        assert_eq!(buffer.cursor_position(), 5); // Cursor position clamped to bounds
+    }
+
+    #[test]
+    fn test_text_modification_cache_invalidation() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("hello world".to_string());
+        
+        // Access document to create cache
+        {
+            let doc = buffer.document();
+            assert_eq!(doc.text(), "hello world");
+        }
+        
+        // Insert text should invalidate cache
+        buffer.set_cursor_position(5);
+        buffer.insert_text(" beautiful", false, true);
+        {
+            let doc = buffer.document();
+            assert_eq!(doc.text(), "hello beautiful world");
+            assert_eq!(doc.cursor_position(), 15);
+        }
+        
+        // Delete before cursor should invalidate cache
+        let deleted = buffer.delete_before_cursor(10);
+        assert_eq!(deleted, " beautiful");
+        {
+            let doc = buffer.document();
+            assert_eq!(doc.text(), "hello world");
+            assert_eq!(doc.cursor_position(), 5);
+        }
+        
+        // Delete after cursor should invalidate cache
+        let deleted = buffer.delete(6);
+        assert_eq!(deleted, " world");
+        {
+            let doc = buffer.document();
+            assert_eq!(doc.text(), "hello");
+            assert_eq!(doc.cursor_position(), 5);
+        }
+    }
+
+    #[test]
+    fn test_complex_unicode_editing() {
+        let mut buffer = Buffer::new();
+        
+        // Start with mixed Unicode content
+        buffer.set_text("Hello 世界 🦀 Rust".to_string());
+        buffer.set_cursor_position(6);
+        
+        // Insert more Unicode
+        buffer.insert_text("美しい", false, true);
+        assert_eq!(buffer.text(), "Hello 美しい世界 🦀 Rust");
+        assert_eq!(buffer.cursor_position(), 9);
+        
+        // Delete some Unicode characters
+        let deleted = buffer.delete_before_cursor(3);
+        assert_eq!(deleted, "美しい");
+        assert_eq!(buffer.text(), "Hello 世界 🦀 Rust");
+        assert_eq!(buffer.cursor_position(), 6);
+        
+        // Delete emoji
+        buffer.set_cursor_position(9);
+        let deleted = buffer.delete(2);
+        assert_eq!(deleted, "🦀 ");
+        assert_eq!(buffer.text(), "Hello 世界 Rust");
+        assert_eq!(buffer.cursor_position(), 9);
+        
+        // Overwrite with emoji
+        buffer.set_cursor_position(7);
+        buffer.insert_text("🚀🎉", true, true);
+        assert_eq!(buffer.text(), "Hello 世🚀🎉Rust");
+        assert_eq!(buffer.cursor_position(), 9);
+    }
+
+    #[test]
+    fn test_combining_characters() {
+        let mut buffer = Buffer::new();
+        
+        // Text with combining characters (e + combining acute accent)
+        buffer.set_text("cafe\u{0301}".to_string()); // café with combining accent
+        buffer.set_cursor_position(4);
+        
+        // Insert text before combining character
+        buffer.insert_text(" au lait", false, true);
+        assert_eq!(buffer.text(), "cafe au lait\u{0301}");
+        assert_eq!(buffer.cursor_position(), 12);
+        
+        // Delete combining character
+        let deleted = buffer.delete(1);
+        assert_eq!(deleted, "\u{0301}");
+        assert_eq!(buffer.text(), "cafe au lait");
+        assert_eq!(buffer.cursor_position(), 12);
+    }
+
+    #[test]
+    fn test_zero_width_characters() {
+        let mut buffer = Buffer::new();
+        
+        // Text with zero-width space
+        buffer.set_text("hello\u{200B}world".to_string());
+        buffer.set_cursor_position(5);
+        
+        // Delete zero-width character
+        let deleted = buffer.delete(1);
+        assert_eq!(deleted, "\u{200B}");
+        assert_eq!(buffer.text(), "helloworld");
+        assert_eq!(buffer.cursor_position(), 5);
+        
+        // Insert zero-width character
+        buffer.insert_text("\u{200B}", false, true);
+        assert_eq!(buffer.text(), "hello\u{200B}world");
+        assert_eq!(buffer.cursor_position(), 6);
+    }
+
+    #[test]
+    fn test_text_modification_bounds_safety() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("test".to_string());
+        
+        // Test various out-of-bounds scenarios
+        buffer.set_cursor_position(1000);
+        buffer.insert_text("!", false, true);
+        assert_eq!(buffer.text(), "test!");
+        assert_eq!(buffer.cursor_position(), 5);
+        
+        buffer.set_cursor_position(1000);
+        let deleted = buffer.delete_before_cursor(2);
+        assert_eq!(deleted, "t!");
+        assert_eq!(buffer.text(), "tes");
+        assert_eq!(buffer.cursor_position(), 3);
+        
+        buffer.set_cursor_position(1000);
+        let deleted = buffer.delete(5);
+        assert_eq!(deleted, "");
+        assert_eq!(buffer.text(), "tes");
     }
 }

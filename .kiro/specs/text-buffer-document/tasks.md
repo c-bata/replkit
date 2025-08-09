@@ -62,7 +62,7 @@
   - Write unit tests for Buffer initialization and basic state management
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6_
 
-- [ ] 8. Implement Buffer text modification operations
+- [x] 8. Implement Buffer text modification operations
   - Add insert_text() method with insert/overwrite modes and cursor movement options
   - Implement set_text() with proper cursor position validation
   - Add delete_before_cursor() and delete() methods with bounds checking
