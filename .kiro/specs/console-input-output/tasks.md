@@ -80,7 +80,7 @@
   - (skipped) Create baseline for Windows testing once Windows implementation is complete
   - _Requirements: 1.1, 1.2, 1.3, 12.1, 12.2_
 
-- [ ] 9. Implement Windows VT console input
+- [x] 9. Implement Windows VT console input
   - Create `crates/prompt-io/src/windows/vt.rs` with WindowsVtConsoleInput implementation
   - Enable VT input mode using SetConsoleMode with ENABLE_VIRTUAL_TERMINAL_INPUT
   - Implement non-blocking input reading using WaitForMultipleObjects

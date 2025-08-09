@@ -1,4 +1,7 @@
 #[cfg(windows)]
+pub mod vt;
+
+#[cfg(windows)]
 mod imp {
     use std::ffi::c_void;
     use std::io;
@@ -90,7 +93,7 @@ mod imp {
         fn WaitForMultipleObjects(nCount: DWORD, lpHandles: *const HANDLE, bWaitAll: BOOL, dwMilliseconds: DWORD) -> DWORD;
     }
 
-    pub struct WindowsVtConsoleInput; // TODO
+    pub use super::vt::WindowsVtConsoleInput;
     pub struct WindowsVtConsoleOutput; // TODO
 
     pub struct WindowsLegacyConsoleInput {
@@ -107,9 +110,7 @@ mod imp {
         h_output: HANDLE,
     }
 
-    impl WindowsVtConsoleInput {
-        pub fn new() -> io::Result<Self> { Ok(Self) }
-    }
+
     
     impl WindowsVtConsoleOutput {
         pub fn new() -> io::Result<Self> { Ok(Self) }
@@ -240,51 +241,7 @@ mod imp {
         }
     }
 
-    impl AsAny for WindowsVtConsoleInput {
-        fn as_any(&self) -> &dyn std::any::Any { self }
-        fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
-    }
 
-    impl ConsoleInput for WindowsVtConsoleInput {
-        fn enable_raw_mode(&self) -> Result<RawModeGuard, ConsoleError> { 
-            Err(ConsoleError::UnsupportedFeature { 
-                feature: "Windows VT".to_string(), 
-                platform: "Windows".to_string() 
-            }) 
-        }
-        fn get_window_size(&self) -> ConsoleResult<(u16, u16)> { 
-            Err(ConsoleError::UnsupportedFeature { 
-                feature: "Windows VT".to_string(), 
-                platform: "Windows".to_string() 
-            }) 
-        }
-        fn start_event_loop(&self) -> ConsoleResult<()> { 
-            Err(ConsoleError::UnsupportedFeature { 
-                feature: "Windows VT".to_string(), 
-                platform: "Windows".to_string() 
-            }) 
-        }
-        fn stop_event_loop(&self) -> ConsoleResult<()> { 
-            Err(ConsoleError::UnsupportedFeature { 
-                feature: "Windows VT".to_string(), 
-                platform: "Windows".to_string() 
-            }) 
-        }
-        fn on_window_resize(&self, _callback: Box<dyn FnMut(u16, u16) + Send>) {}
-        fn on_key_pressed(&self, _callback: Box<dyn FnMut(KeyEvent) + Send>) {}
-        fn is_running(&self) -> bool { false }
-        fn get_capabilities(&self) -> ConsoleCapabilities {
-            ConsoleCapabilities {
-                supports_raw_mode: false,
-                supports_resize_events: false,
-                supports_bracketed_paste: false,
-                supports_mouse_events: false,
-                supports_unicode: false,
-                platform_name: "Windows VT (not implemented)".to_string(),
-                backend_type: BackendType::WindowsVt,
-            }
-        }
-    }
 
     impl AsAny for WindowsLegacyConsoleInput {
         fn as_any(&self) -> &dyn std::any::Any { self }
