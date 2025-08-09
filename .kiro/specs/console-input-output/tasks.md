@@ -51,7 +51,7 @@
   - Write platform-specific tests for Unix input functionality (TODO)
   - _Requirements: 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 3.1, 3.2, 3.3, 4.1, 4.2, 4.3_
 
-- [ ] 6. Implement Unix console output
+- [x] 6. Implement Unix console output
   - Extend `crates/prompt-io/src/unix.rs` with UnixConsoleOutput implementation
   - Add ANSI escape sequence generation for cursor control and styling
   - Implement color support (16-color, 256-color, and true color)
