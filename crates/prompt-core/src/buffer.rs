@@ -196,8 +196,8 @@ impl Buffer {
     /// 
     /// // Create new line with indentation copying
     /// buffer.new_line(true);
-    /// assert_eq!(buffer.text(), "    indented line\n    ");
-    /// assert_eq!(buffer.cursor_position(), 22);
+    /// assert_eq!(buffer.text(), "    indented lin\n    e");
+    /// assert_eq!(buffer.cursor_position(), 21);
     /// ```
     pub fn new_line(&mut self, copy_margin: bool) {
         let newline_text = if copy_margin {

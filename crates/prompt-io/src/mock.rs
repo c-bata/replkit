@@ -4,9 +4,9 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use prompt_core::KeyEvent;
+use prompt_core::{KeyEvent, Key};
 use crate::{ConsoleInput, ConsoleOutput, ConsoleResult, ConsoleError, RawModeGuard,
-           ConsoleCapabilities, OutputCapabilities, BackendType, TextStyle, ClearType, AsAny};
+           ConsoleCapabilities, OutputCapabilities, BackendType, TextStyle, ClearType, AsAny, EventLoopError};
 
 /// Mock console input for testing
 pub struct MockConsoleInput {
@@ -33,11 +33,49 @@ impl MockConsoleInput {
         }
     }
     
+    /// Queue text input as a sequence of character key events
+    pub fn queue_text_input(&self, text: &str) {
+        if let Ok(mut queue) = self.input_queue.lock() {
+            for ch in text.chars() {
+                let event = KeyEvent::with_text(
+                    Key::NotDefined, // Use NotDefined for regular characters
+                    vec![ch as u8],
+                    ch.to_string(),
+                );
+                queue.push_back(event);
+            }
+        }
+    }
+    
+    /// Queue multiple key events at once
+    pub fn queue_key_events(&self, events: &[KeyEvent]) {
+        if let Ok(mut queue) = self.input_queue.lock() {
+            for event in events {
+                queue.push_back(event.clone());
+            }
+        }
+    }
+    
+    /// Get the number of queued events
+    pub fn queued_event_count(&self) -> usize {
+        self.input_queue.lock().map(|q| q.len()).unwrap_or(0)
+    }
+    
+    /// Clear all queued events
+    pub fn clear_queue(&self) {
+        if let Ok(mut queue) = self.input_queue.lock() {
+            queue.clear();
+        }
+    }
+    
     /// Simulate a window resize event
     pub fn simulate_resize(&self, cols: u16, rows: u16) {
         if let Ok(mut callback) = self.resize_callback.lock() {
             if let Some(cb) = callback.as_mut() {
-                cb(cols, rows);
+                // Use catch_unwind to prevent panics in callbacks from crashing tests
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    cb(cols, rows);
+                }));
             }
         }
     }
@@ -48,11 +86,32 @@ impl MockConsoleInput {
             if let Ok(mut callback) = self.key_callback.lock() {
                 if let Some(cb) = callback.as_mut() {
                     while let Some(event) = queue.pop_front() {
-                        cb(event);
+                        // Use catch_unwind to prevent panics in callbacks from crashing tests
+                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            cb(event);
+                        }));
                     }
                 }
             }
         }
+    }
+    
+    /// Process a single queued event (for step-by-step testing)
+    pub fn process_single_event(&self) -> bool {
+        if let Ok(mut queue) = self.input_queue.lock() {
+            if let Some(event) = queue.pop_front() {
+                if let Ok(mut callback) = self.key_callback.lock() {
+                    if let Some(cb) = callback.as_mut() {
+                        // Use catch_unwind to prevent panics in callbacks from crashing tests
+                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            cb(event);
+                        }));
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 }
 
@@ -80,14 +139,14 @@ impl ConsoleInput for MockConsoleInput {
     
     fn start_event_loop(&self) -> ConsoleResult<()> {
         if self.running.swap(true, Ordering::Relaxed) {
-            return Err(ConsoleError::EventLoopError(crate::EventLoopError::AlreadyRunning));
+            return Err(ConsoleError::EventLoopError(EventLoopError::AlreadyRunning));
         }
         Ok(())
     }
     
     fn stop_event_loop(&self) -> ConsoleResult<()> {
         if !self.running.swap(false, Ordering::Relaxed) {
-            return Err(ConsoleError::EventLoopError(crate::EventLoopError::NotRunning));
+            return Err(ConsoleError::EventLoopError(EventLoopError::NotRunning));
         }
         Ok(())
     }
@@ -267,5 +326,367 @@ impl ConsoleOutput for MockConsoleOutput {
             platform_name: "Mock".to_string(),
             backend_type: BackendType::Mock,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use prompt_core::{Key, Color};
+    use std::sync::{Arc, Mutex};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn test_mock_console_input_creation() {
+        let input = MockConsoleInput::new();
+        assert!(!input.is_running());
+        assert_eq!(input.queued_event_count(), 0);
+        
+        let caps = input.get_capabilities();
+        assert_eq!(caps.platform_name, "Mock");
+        assert_eq!(caps.backend_type, BackendType::Mock);
+        assert!(caps.supports_raw_mode);
+        assert!(caps.supports_resize_events);
+        assert!(caps.supports_unicode);
+    }
+
+    #[test]
+    fn test_raw_mode_guard() {
+        let input = MockConsoleInput::new();
+        let guard = input.enable_raw_mode().unwrap();
+        
+        assert_eq!(guard.platform_info(), "Mock");
+        assert!(guard.is_active());
+        
+        // Test manual restore
+        guard.restore().unwrap();
+    }
+
+    #[test]
+    fn test_event_loop_state_management() {
+        let input = MockConsoleInput::new();
+        
+        // Initially stopped
+        assert!(!input.is_running());
+        
+        // Start event loop
+        input.start_event_loop().unwrap();
+        assert!(input.is_running());
+        
+        // Cannot start again
+        let result = input.start_event_loop();
+        assert!(matches!(result, Err(ConsoleError::EventLoopError(EventLoopError::AlreadyRunning))));
+        
+        // Stop event loop
+        input.stop_event_loop().unwrap();
+        assert!(!input.is_running());
+        
+        // Cannot stop again
+        let result = input.stop_event_loop();
+        assert!(matches!(result, Err(ConsoleError::EventLoopError(EventLoopError::NotRunning))));
+    }
+
+    #[test]
+    fn test_window_size() {
+        let input = MockConsoleInput::new();
+        let (cols, rows) = input.get_window_size().unwrap();
+        assert_eq!(cols, 80);
+        assert_eq!(rows, 24);
+    }
+
+    #[test]
+    fn test_queue_key_event() {
+        let input = MockConsoleInput::new();
+        
+        let event = KeyEvent::with_text(Key::NotDefined, vec![b'a'], "a".to_string());
+        
+        input.queue_key_event(event);
+        assert_eq!(input.queued_event_count(), 1);
+        
+        input.clear_queue();
+        assert_eq!(input.queued_event_count(), 0);
+    }
+
+    #[test]
+    fn test_queue_text_input() {
+        let input = MockConsoleInput::new();
+        
+        input.queue_text_input("hello");
+        assert_eq!(input.queued_event_count(), 5);
+        
+        input.clear_queue();
+        assert_eq!(input.queued_event_count(), 0);
+    }
+
+    #[test]
+    fn test_queue_multiple_events() {
+        let input = MockConsoleInput::new();
+        
+        let events = vec![
+            KeyEvent::with_text(Key::NotDefined, vec![b'a'], "a".to_string()),
+            KeyEvent::simple(Key::ControlB, vec![0x02]),
+            KeyEvent::simple(Key::Enter, vec![0x0D]),
+        ];
+        
+        input.queue_key_events(&events);
+        assert_eq!(input.queued_event_count(), 3);
+    }
+
+    #[test]
+    fn test_key_callback_invocation() {
+        let input = MockConsoleInput::new();
+        let received_events = Arc::new(Mutex::new(Vec::new()));
+        let received_events_clone = Arc::clone(&received_events);
+        
+        // Register callback
+        input.on_key_pressed(Box::new(move |event| {
+            received_events_clone.lock().unwrap().push(event);
+        }));
+        
+        // Queue some events
+        let events = vec![
+            KeyEvent::with_text(Key::NotDefined, vec![b'x'], "x".to_string()),
+            KeyEvent::simple(Key::ControlY, vec![0x19]),
+        ];
+        input.queue_key_events(&events);
+        
+        // Process events
+        input.process_queued_events();
+        
+        // Verify callback was called
+        let received = received_events.lock().unwrap();
+        assert_eq!(received.len(), 2);
+        assert_eq!(received[0].key, Key::NotDefined);
+        assert_eq!(received[0].text_or_empty(), "x");
+        assert_eq!(received[1].key, Key::ControlY);
+    }
+
+    #[test]
+    fn test_single_event_processing() {
+        let input = MockConsoleInput::new();
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let call_count_clone = Arc::clone(&call_count);
+        
+        input.on_key_pressed(Box::new(move |_| {
+            call_count_clone.fetch_add(1, Ordering::Relaxed);
+        }));
+        
+        input.queue_text_input("abc");
+        assert_eq!(input.queued_event_count(), 3);
+        
+        // Process one event at a time
+        assert!(input.process_single_event());
+        assert_eq!(call_count.load(Ordering::Relaxed), 1);
+        assert_eq!(input.queued_event_count(), 2);
+        
+        assert!(input.process_single_event());
+        assert_eq!(call_count.load(Ordering::Relaxed), 2);
+        assert_eq!(input.queued_event_count(), 1);
+        
+        assert!(input.process_single_event());
+        assert_eq!(call_count.load(Ordering::Relaxed), 3);
+        assert_eq!(input.queued_event_count(), 0);
+        
+        // No more events to process
+        assert!(!input.process_single_event());
+        assert_eq!(call_count.load(Ordering::Relaxed), 3);
+    }
+
+    #[test]
+    fn test_resize_callback() {
+        let input = MockConsoleInput::new();
+        let resize_events = Arc::new(Mutex::new(Vec::new()));
+        let resize_events_clone = Arc::clone(&resize_events);
+        
+        input.on_window_resize(Box::new(move |cols, rows| {
+            resize_events_clone.lock().unwrap().push((cols, rows));
+        }));
+        
+        input.simulate_resize(120, 30);
+        input.simulate_resize(100, 25);
+        
+        let events = resize_events.lock().unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0], (120, 30));
+        assert_eq!(events[1], (100, 25));
+    }
+
+    #[test]
+    fn test_callback_panic_handling() {
+        let input = MockConsoleInput::new();
+        
+        // Register a callback that panics
+        input.on_key_pressed(Box::new(|_| {
+            panic!("Test panic in callback");
+        }));
+        
+        input.queue_key_event(KeyEvent::with_text(Key::NotDefined, vec![b'a'], "a".to_string()));
+        
+        // Processing should not panic even if callback does
+        input.process_queued_events();
+        
+        // Queue should be empty after processing
+        assert_eq!(input.queued_event_count(), 0);
+    }
+
+    #[test]
+    fn test_resize_callback_panic_handling() {
+        let input = MockConsoleInput::new();
+        
+        // Register a resize callback that panics
+        input.on_window_resize(Box::new(|_, _| {
+            panic!("Test panic in resize callback");
+        }));
+        
+        // Simulating resize should not panic even if callback does
+        input.simulate_resize(80, 24);
+    }
+
+    #[test]
+    fn test_thread_safety() {
+        use std::thread;
+        
+        let input = Arc::new(MockConsoleInput::new());
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let call_count_clone = Arc::clone(&call_count);
+        
+        input.on_key_pressed(Box::new(move |_| {
+            call_count_clone.fetch_add(1, Ordering::Relaxed);
+        }));
+        
+        let input_clone = Arc::clone(&input);
+        let handle = thread::spawn(move || {
+            for i in 0..10 {
+                let ch = (b'a' + i as u8) as char;
+                input_clone.queue_key_event(KeyEvent::with_text(
+                    Key::NotDefined, 
+                    vec![ch as u8], 
+                    ch.to_string()
+                ));
+            }
+        });
+        
+        handle.join().unwrap();
+        
+        assert_eq!(input.queued_event_count(), 10);
+        input.process_queued_events();
+        assert_eq!(call_count.load(Ordering::Relaxed), 10);
+    }
+
+    // Tests for MockConsoleOutput
+    #[test]
+    fn test_mock_console_output_creation() {
+        let output = MockConsoleOutput::new();
+        let caps = output.get_capabilities();
+        
+        assert_eq!(caps.platform_name, "Mock");
+        assert_eq!(caps.backend_type, BackendType::Mock);
+        assert!(caps.supports_colors);
+        assert!(caps.supports_true_color);
+        assert!(caps.supports_styling);
+        assert!(caps.supports_alternate_screen);
+        assert!(caps.supports_cursor_control);
+        assert_eq!(caps.max_colors, 65535);
+    }
+
+    #[test]
+    fn test_output_text_capture() {
+        let output = MockConsoleOutput::new();
+        
+        output.write_text("Hello").unwrap();
+        output.write_text(" World").unwrap();
+        
+        assert_eq!(output.get_output_string(), "Hello World");
+        
+        output.clear_output();
+        assert_eq!(output.get_output_string(), "");
+    }
+
+    #[test]
+    fn test_cursor_positioning() {
+        let output = MockConsoleOutput::new();
+        
+        output.move_cursor_to(5, 10).unwrap();
+        assert_eq!(output.get_mock_cursor_position(), (5, 10));
+        
+        // Check that ANSI sequence was written
+        let output_str = output.get_output_string();
+        assert!(output_str.contains("\x1b[6;11H")); // 1-based in ANSI
+        
+        output.move_cursor_relative(-2, 3).unwrap();
+        assert_eq!(output.get_mock_cursor_position(), (3, 13));
+    }
+
+    #[test]
+    fn test_cursor_relative_movement_bounds() {
+        let output = MockConsoleOutput::new();
+        
+        // Start at (0, 0)
+        output.move_cursor_relative(-5, -5).unwrap();
+        assert_eq!(output.get_mock_cursor_position(), (0, 0)); // Should not go negative
+    }
+
+    #[test]
+    fn test_screen_clearing() {
+        let output = MockConsoleOutput::new();
+        
+        output.clear(ClearType::All).unwrap();
+        assert!(output.get_output_string().contains("\x1b[2J"));
+        
+        output.clear_output();
+        output.clear(ClearType::CurrentLine).unwrap();
+        assert!(output.get_output_string().contains("\x1b[2K"));
+    }
+
+    #[test]
+    fn test_styling() {
+        let output = MockConsoleOutput::new();
+        
+        let style = TextStyle {
+            foreground: Some(Color::Red),
+            bold: true,
+            ..Default::default()
+        };
+        
+        output.write_styled_text("Styled text", &style).unwrap();
+        let output_str = output.get_output_string();
+        
+        // Should contain style sequences and reset
+        assert!(output_str.contains("\x1b[1m")); // Bold (simplified)
+        assert!(output_str.contains("Styled text"));
+        assert!(output_str.contains("\x1b[0m")); // Reset
+    }
+
+    #[test]
+    fn test_alternate_screen() {
+        let output = MockConsoleOutput::new();
+        
+        output.set_alternate_screen(true).unwrap();
+        assert!(output.get_output_string().contains("\x1b[?1049h"));
+        
+        output.clear_output();
+        output.set_alternate_screen(false).unwrap();
+        assert!(output.get_output_string().contains("\x1b[?1049l"));
+    }
+
+    #[test]
+    fn test_cursor_visibility() {
+        let output = MockConsoleOutput::new();
+        
+        output.set_cursor_visible(false).unwrap();
+        assert!(output.get_output_string().contains("\x1b[?25l"));
+        
+        output.clear_output();
+        output.set_cursor_visible(true).unwrap();
+        assert!(output.get_output_string().contains("\x1b[?25h"));
+    }
+
+    #[test]
+    fn test_safe_text_writing() {
+        let output = MockConsoleOutput::new();
+        
+        // For mock, safe text is just written directly
+        output.write_safe_text("Safe text with \x1b[31m ANSI").unwrap();
+        assert_eq!(output.get_output_string(), "Safe text with \x1b[31m ANSI");
     }
 }

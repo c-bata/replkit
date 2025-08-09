@@ -1230,7 +1230,7 @@ impl Document {
     /// use prompt_core::document::Document;
     ///
     /// let doc = Document::with_text("line1\nline2\nline3".to_string(), 8); // "li|ne2"
-    /// assert_eq!(doc.get_cursor_up_position(1, None), -2); // Move to same column in line1
+    /// assert_eq!(doc.get_cursor_up_position(1, None), -6); // Move to same column in line1
     /// assert_eq!(doc.get_cursor_up_position(1, Some(10)), -3); // Preferred column beyond line length
     /// ```
     pub fn get_cursor_up_position(&self, count: usize, preferred_column: Option<usize>) -> i32 {
@@ -1272,8 +1272,8 @@ impl Document {
     /// use prompt_core::document::Document;
     ///
     /// let doc = Document::with_text("line1\nline2\nline3".to_string(), 2); // "li|ne1"
-    /// assert_eq!(doc.get_cursor_down_position(1, None), 4); // Move to same column in line2
-    /// assert_eq!(doc.get_cursor_down_position(2, Some(1)), 10); // Move to column 1 in line3
+    /// assert_eq!(doc.get_cursor_down_position(1, None), 6); // Move to same column in line2
+    /// assert_eq!(doc.get_cursor_down_position(2, Some(1)), 11); // Move to column 1 in line3
     /// ```
     pub fn get_cursor_down_position(&self, count: usize, preferred_column: Option<usize>) -> i32 {
         if count == 0 {

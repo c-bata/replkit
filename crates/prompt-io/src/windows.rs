@@ -400,10 +400,6 @@ mod imp {
             }
         }
     }
-}
-
-#[cfg(windows)]
-pub use imp::*;
     impl AsAny for WindowsVtConsoleOutput {
         fn as_any(&self) -> &dyn std::any::Any { self }
         fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
@@ -592,4 +588,45 @@ pub use imp::*;
                 backend_type: BackendType::WindowsLegacy,
             }
         }
+    }}
+
+
+#[cfg(windows)]
+pub use imp::*;
+
+#[cfg(not(windows))]
+pub struct WindowsVtConsoleInput;
+#[cfg(not(windows))]
+pub struct WindowsVtConsoleOutput;
+#[cfg(not(windows))]
+pub struct WindowsLegacyConsoleInput;
+#[cfg(not(windows))]
+pub struct WindowsLegacyConsoleOutput;
+
+#[cfg(not(windows))]
+impl WindowsVtConsoleInput {
+    pub fn new() -> std::io::Result<Self> {
+        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "Windows not supported"))
     }
+}
+
+#[cfg(not(windows))]
+impl WindowsVtConsoleOutput {
+    pub fn new() -> std::io::Result<Self> {
+        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "Windows not supported"))
+    }
+}
+
+#[cfg(not(windows))]
+impl WindowsLegacyConsoleInput {
+    pub fn new() -> std::io::Result<Self> {
+        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "Windows not supported"))
+    }
+}
+
+#[cfg(not(windows))]
+impl WindowsLegacyConsoleOutput {
+    pub fn new() -> std::io::Result<Self> {
+        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "Windows not supported"))
+    }
+}

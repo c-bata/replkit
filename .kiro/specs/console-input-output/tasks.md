@@ -12,7 +12,7 @@
   - **REASON**: Design specifies traits in prompt-core for proper architectural separation
   - _Requirements: 1.1, 1.2, 1.3, 9.1, 9.2_
 
-- [ ] 2. Update prompt-io crate structure to match design
+- [x] 2. Update prompt-io crate structure to match design
   - ~~Create `crates/prompt-io/` directory with Cargo.toml~~ ✓
   - ~~Set up platform-specific dependencies (libc for Unix, winapi for Windows, wasm-bindgen for WASM)~~ ✓
   - ~~Create basic module structure: lib.rs, unix.rs, windows/, wasm.rs, mock.rs~~ ✓ (partial)
@@ -22,7 +22,7 @@
   - Update method signatures to match design (remove &mut self requirements)
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6_
 
-- [ ] 3. Implement mock console input for testing
+- [x] 3. Implement mock console input for testing
   - Create `crates/prompt-io/src/mock.rs` with MockConsoleInput implementation
   - Add input queue management with VecDeque for simulating key sequences
   - Implement ConsoleInput trait methods with proper state tracking
