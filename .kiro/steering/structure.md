@@ -12,15 +12,19 @@
 /
 ├── crates/                     # Workspace crates
 │   ├── prompt-core/            # Core REPL engine logic (editor, history, prompt loop)
+│   ├── prompt-buffer/          # Text buffer
 │   ├── prompt-render/          # Terminal rendering (styling, ANSI control)
-│   ├── prompt-bindings/        # FFI-safe interface shared across bindings
-│   └── prompt-macros/          # Optional procedural macros (e.g. for keybindings)
+│   ├── prompt-keybind/         # Key bindings (emacs)
+│   ├── prompt-wasm/            # 
+│   └── prompt-pyo3/            # PyO3-based Python binding (build with maturin)
 ├── bindings/                   # Language-specific bindings
 │   ├── python/                 # PyO3-based Python binding (build with maturin)
 │   │   ├── src/                # Python module implementation
 │   │   └── tests/              # Tests for Python bindings (pytest)
 │   └── go/                     # Go binding via Wasm and wazero runtime
 │       └── wasm/               # Wasm-compiled binaries and helpers
+├── references/                 # Language-specific bindings
+│   └── go-prompt/              # The source code of https://github.com/c-bata/go-prompt/
 ├── docs/                       # Developer and user documentation
 ├── scripts/                    # Dev tooling and automation scripts
 └── .kiro/                      # Kiro-specific files

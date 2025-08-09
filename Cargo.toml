@@ -1,0 +1,16 @@
+[workspace]
+members = [
+    "crates/prompt-core", "prompt-buffer",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+description = "Library for building powerful interactive prompts"
+repository = "https://github.com/c-bata/prompt"
+keywords = ["terminal"]
+license = "MIT"
+
+[workspace.dependencies]
+

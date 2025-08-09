@@ -1,0 +1,10 @@
+[package]
+name = "prompt-core"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+repository.workspace = true
+keywords.workspace = true
+license.workspace = true
+
+[dependencies]
