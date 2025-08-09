@@ -18,7 +18,7 @@ The system includes both ConsoleInput for handling keyboard input and events, an
 ┌─────────────────────────────────────────────────────────────┐
 │                  Language Bindings                         │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
-│  │ Rust Native │  │ Go (WASM)   │  │ Python (PyO3)       │ │
+│  │ Rust Native │  │ Go Bindings │  │ Python (PyO3)       │ │
 │  └─────────────┘  └─────────────┘  └─────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -1154,6 +1154,7 @@ impl Drop for UnixConsoleInput {
 }
 ```
 
+```rust
 // Unix Console Output Implementation
 pub struct UnixConsoleOutput {
     stdout_fd: RawFd,
@@ -1422,829 +1423,182 @@ impl ConsoleOutput for UnixConsoleOutput {
         true
     }
 }
-
-### WASM Bridge Implementation
-
-```rust
-// In prompt-io/src/wasm.rs
-use prompt_core::console::*;
-use prompt_core::{KeyEvent, Key};
-use serde::{Serialize, Deserialize};
-use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct WasmConsoleMessage {
-    pub message_type: String,
-    pub data: serde_json::Value,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct WasmKeyEventData {
-    pub key: u32,
-    pub raw_bytes: Vec<u8>,
-    pub text: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct WasmResizeEventData {
-    pub columns: u16,
-    pub rows: u16,
-}
-
-/// Bounded ring buffer for WASM message handling with backpressure
-pub struct BoundedRingBuffer<T> {
-    buffer: Vec<Option<T>>,
-    head: usize,
-    tail: usize,
-    size: usize,
-    capacity: usize,
-    drop_strategy: DropStrategy,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum DropStrategy {
-    /// Drop oldest messages when buffer is full
-    DropOldest,
-    /// Drop newest messages when buffer is full
-    DropNewest,
-    /// Block until space is available (not suitable for WASM)
-    Block,
-}
-
-impl<T> BoundedRingBuffer<T> {
-    pub fn new(capacity: usize, drop_strategy: DropStrategy) -> Self {
-        BoundedRingBuffer {
-            buffer: (0..capacity).map(|_| None).collect(),
-            head: 0,
-            tail: 0,
-            size: 0,
-            capacity,
-            drop_strategy,
-        }
-    }
-    
-    pub fn push(&mut self, item: T) -> bool {
-        if self.size == self.capacity {
-            match self.drop_strategy {
-                DropStrategy::DropOldest => {
-                    // Overwrite oldest item
-                    self.buffer[self.tail] = Some(item);
-                    self.tail = (self.tail + 1) % self.capacity;
-                    self.head = (self.head + 1) % self.capacity;
-                    true
-                }
-                DropStrategy::DropNewest => {
-                    // Drop the new item
-                    false
-                }
-                DropStrategy::Block => {
-                    // Not suitable for WASM, treat as drop newest
-                    false
-                }
-            }
-        } else {
-            self.buffer[self.tail] = Some(item);
-            self.tail = (self.tail + 1) % self.capacity;
-            self.size += 1;
-            true
-        }
-    }
-    
-    pub fn pop(&mut self) -> Option<T> {
-        if self.size == 0 {
-            None
-        } else {
-            let item = self.buffer[self.head].take();
-            self.head = (self.head + 1) % self.capacity;
-            self.size -= 1;
-            item
-        }
-    }
-    
-    pub fn len(&self) -> usize {
-        self.size
-    }
-    
-    pub fn is_full(&self) -> bool {
-        self.size == self.capacity
-    }
-}
-
-pub struct WasmBridgeConsoleInput {
-    // Event loop state
-    event_loop_state: Arc<AtomicU8>,
-    
-    // Callbacks
-    resize_callback: Arc<Mutex<Option<Box<dyn FnMut(u16, u16) + Send>>>>,
-    key_callback: Arc<Mutex<Option<Box<dyn FnMut(KeyEvent) + Send>>>>,
-    
-    // Host communication with backpressure handling
-    message_queue: Arc<Mutex<BoundedRingBuffer<WasmConsoleMessage>>>,
-    current_window_size: Arc<Mutex<Option<(u16, u16)>>>,
-}
-
-impl WasmBridgeConsoleInput {
-    pub fn new() -> ConsoleResult<Self> {
-        Ok(WasmBridgeConsoleInput {
-            event_loop_running: Arc::new(AtomicBool::new(false)),
-            resize_callback: Arc::new(Mutex::new(None)),
-            key_callback: Arc::new(Mutex::new(None)),
-            message_queue: Arc::new(Mutex::new(Vec::new())),
-            current_window_size: Arc::new(Mutex::new(None)),
-        })
-    }
-    
-    /// Called by host environment to deliver messages
-    pub fn receive_message(&mut self, message_json: &str) -> ConsoleResult<()> {
-        let message: WasmConsoleMessage = serde_json::from_str(message_json)
-            .map_err(|e| ConsoleError::WasmBridgeError(format!("Invalid message JSON: {}", e)))?;
-        
-        match message.message_type.as_str() {
-            "key_event" => {
-                let key_data: WasmKeyEventData = serde_json::from_value(message.data)
-                    .map_err(|e| ConsoleError::WasmBridgeError(format!("Invalid key event data: {}", e)))?;
-                
-                let key_event = KeyEvent {
-                    key: self.u32_to_key(key_data.key),
-                    raw_bytes: key_data.raw_bytes,
-                    text: key_data.text,
-                };
-                
-                // Invoke key callback with panic protection
-                let callback = {
-                    let mut callback_guard = self.key_callback.lock().unwrap();
-                    callback_guard.take()
-                };
-                
-                if let Some(mut callback) = callback {
-                    // Catch panics in user callback
-                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        callback(key_event);
-                    }));
-                    
-                    // Restore callback
-                    *self.key_callback.lock().unwrap() = Some(callback);
-                }
-            }
-            "resize_event" => {
-                let resize_data: WasmResizeEventData = serde_json::from_value(message.data)
-                    .map_err(|e| ConsoleError::WasmBridgeError(format!("Invalid resize event data: {}", e)))?;
-                
-                // Update cached size
-                *self.current_window_size.lock().unwrap() = Some((resize_data.columns, resize_data.rows));
-                
-                // Invoke resize callback with panic protection
-                let callback = {
-                    let mut callback_guard = self.resize_callback.lock().unwrap();
-                    callback_guard.take()
-                };
-                
-                if let Some(mut callback) = callback {
-                    // Catch panics in user callback
-                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        callback(resize_data.columns, resize_data.rows);
-                    }));
-                    
-                    // Restore callback
-                    *self.resize_callback.lock().unwrap() = Some(callback);
-                }
-            }
-            "window_size_response" => {
-                let resize_data: WasmResizeEventData = serde_json::from_value(message.data)
-                    .map_err(|e| ConsoleError::WasmBridgeError(format!("Invalid window size data: {}", e)))?;
-                
-                *self.current_window_size.lock().unwrap() = Some((resize_data.columns, resize_data.rows));
-            }
-            _ => {
-                return Err(ConsoleError::WasmBridgeError(
-                    format!("Unknown message type: {}", message.message_type)
-                ));
-            }
-        }
-        
-        Ok(())
-    }
-    
-    /// Send message to host environment
-    pub fn send_message(&self, message: WasmConsoleMessage) -> String {
-        serde_json::to_string(&message).unwrap_or_else(|_| "{}".to_string())
-    }
-    
-    fn u32_to_key(&self, value: u32) -> Key {
-        // Use the same mapping as in the existing wasm.rs
-        match value {
-            0 => Key::Escape,
-            1 => Key::ControlA,
-            2 => Key::ControlB,
-            3 => Key::ControlC,
-            // ... (complete mapping from existing wasm.rs)
-            _ => Key::NotDefined,
-        }
-    }
-    
-    fn key_to_u32(&self, key: Key) -> u32 {
-        // Reverse mapping
-        match key {
-            Key::Escape => 0,
-            Key::ControlA => 1,
-            Key::ControlB => 2,
-            Key::ControlC => 3,
-            // ... (complete reverse mapping)
-            _ => 86, // NotDefined
-        }
-    }
-}
-
-impl ConsoleInput for WasmBridgeConsoleInput {
-    fn enable_raw_mode(&mut self) -> ConsoleResult<RawModeGuard> {
-        // Send raw mode request to host
-        let message = WasmConsoleMessage {
-            message_type: "enable_raw_mode".to_string(),
-            data: serde_json::Value::Null,
-        };
-        
-        // In WASM, we can't directly control terminal mode
-        // The host environment must handle this
-        let restore_fn = || {
-            // Send restore message to host (would need a way to communicate back)
-        };
-        
-        Ok(RawModeGuard::new(
-            restore_fn,
-            "WASM Bridge".to_string(),
-        ))
-    }
-    
-    fn get_window_size(&self) -> ConsoleResult<(u16, u16)> {
-        // Check cached size first
-        if let Some(size) = *self.current_window_size.lock().unwrap() {
-            return Ok(size);
-        }
-        
-        // Request size from host
-        let message = WasmConsoleMessage {
-            message_type: "get_window_size".to_string(),
-            data: serde_json::Value::Null,
-        };
-        
-        // In a real implementation, this would need async communication
-        // For now, return a default size
-        Ok((80, 24))
-    }
-    
-    fn start_event_loop(&mut self) -> ConsoleResult<()> {
-        if self.event_loop_running.load(Ordering::Relaxed) {
-            return Err(ConsoleError::EventLoopError(EventLoopError::AlreadyRunning));
-        }
-        
-        self.event_loop_running.store(true, Ordering::Relaxed);
-        
-        // Send start message to host
-        let message = WasmConsoleMessage {
-            message_type: "start_event_loop".to_string(),
-            data: serde_json::Value::Null,
-        };
-        
-        // Host environment will start sending events via receive_message
-        Ok(())
-    }
-    
-    fn stop_event_loop(&mut self) -> ConsoleResult<()> {
-        if !self.event_loop_running.load(Ordering::Relaxed) {
-            return Err(ConsoleError::EventLoopError(EventLoopError::NotRunning));
-        }
-        
-        self.event_loop_running.store(false, Ordering::Relaxed);
-        
-        // Send stop message to host
-        let message = WasmConsoleMessage {
-            message_type: "stop_event_loop".to_string(),
-            data: serde_json::Value::Null,
-        };
-        
-        Ok(())
-    }
-    
-    fn on_window_resize(&mut self, callback: Box<dyn FnMut(u16, u16) + Send>) {
-        *self.resize_callback.lock().unwrap() = Some(callback);
-    }
-    
-    fn on_key_pressed(&mut self, callback: Box<dyn FnMut(KeyEvent) + Send>) {
-        *self.key_callback.lock().unwrap() = Some(callback);
-    }
-    
-    fn is_running(&self) -> bool {
-        self.event_loop_running.load(Ordering::Relaxed)
-    }
-    
-    fn get_capabilities(&self) -> ConsoleCapabilities {
-        ConsoleCapabilities {
-            supports_raw_mode: true, // Delegated to host
-            supports_resize_events: true,
-            supports_bracketed_paste: false, // Depends on host
-            supports_mouse_events: false, // Depends on host
-            supports_unicode: true,
-            platform_name: "WASM Bridge".to_string(),
-            backend_type: BackendType::WasmBridge,
-        }
-    }
-}
-
-// WASM-exported functions for host communication
-#[cfg(target_arch = "wasm32")]
-mod wasm_exports {
-    use super::*;
-    use std::sync::OnceLock;
-    
-    static CONSOLE_INPUT: OnceLock<Mutex<WasmBridgeConsoleInput>> = OnceLock::new();
-    
-    #[no_mangle]
-    pub extern "C" fn wasm_console_init() -> i32 {
-        match WasmBridgeConsoleInput::new() {
-            Ok(console) => {
-                CONSOLE_INPUT.set(Mutex::new(console)).map_err(|_| -1).unwrap_or(0)
-            }
-            Err(_) => -1,
-        }
-    }
-    
-    #[no_mangle]
-    pub extern "C" fn wasm_console_receive_message(message_ptr: *const u8, message_len: usize) -> i32 {
-        let console_guard = match CONSOLE_INPUT.get() {
-            Some(guard) => guard,
-            None => return -1,
-        };
-        
-        let message_bytes = unsafe {
-            std::slice::from_raw_parts(message_ptr, message_len)
-        };
-        
-        let message_str = match std::str::from_utf8(message_bytes) {
-            Ok(s) => s,
-            Err(_) => return -1,
-        };
-        
-        match console_guard.lock() {
-            Ok(mut console) => {
-                match console.receive_message(message_str) {
-                    Ok(_) => 0,
-                    Err(_) => -1,
-                }
-            }
-            Err(_) => -1,
-        }
-    }
-    
-    #[no_mangle]
-    pub extern "C" fn wasm_console_send_message(buffer_ptr: *mut u8, buffer_len: usize) -> i32 {
-        // Implementation would write outgoing message to buffer
-        // Returns length of message or -1 on error
-        0
-    }
-}
-```
-
-### Mock Implementation for Testing
-
-```rust
-// In prompt-io/src/mock.rs
-use prompt_core::console::*;
-use prompt_core::{KeyEvent, Key};
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
-
-pub struct MockConsoleInput {
-    // Test input queue
-    input_queue: Arc<Mutex<VecDeque<KeyEvent>>>,
-    resize_queue: Arc<Mutex<VecDeque<(u16, u16)>>>,
-    
-    // Event loop state
-    event_loop_running: Arc<AtomicBool>,
-    
-    // Callbacks
-    resize_callback: Arc<Mutex<Option<Box<dyn FnMut(u16, u16) + Send>>>>,
-    key_callback: Arc<Mutex<Option<Box<dyn FnMut(KeyEvent) + Send>>>>,
-    
-    // Configuration
-    window_size: Arc<Mutex<(u16, u16)>>,
-    raw_mode_enabled: Arc<AtomicBool>,
-}
-
-impl MockConsoleInput {
-    pub fn new() -> Self {
-        MockConsoleInput {
-            input_queue: Arc::new(Mutex::new(VecDeque::new())),
-            resize_queue: Arc::new(Mutex::new(VecDeque::new())),
-            event_loop_running: Arc::new(AtomicBool::new(false)),
-            resize_callback: Arc::new(Mutex::new(None)),
-            key_callback: Arc::new(Mutex::new(None)),
-            window_size: Arc::new(Mutex::new((80, 24))),
-            raw_mode_enabled: Arc::new(AtomicBool::new(false)),
-        }
-    }
-    
-    // Test helper methods
-    pub fn queue_key_event(&mut self, event: KeyEvent) {
-        self.input_queue.lock().unwrap().push_back(event);
-    }
-    
-    pub fn queue_key_sequence(&mut self, keys: &[Key]) {
-        let mut queue = self.input_queue.lock().unwrap();
-        for &key in keys {
-            queue.push_back(KeyEvent::simple(key, vec![]));
-        }
-    }
-    
-    pub fn queue_text_input(&mut self, text: &str) {
-        let mut queue = self.input_queue.lock().unwrap();
-        for ch in text.chars() {
-            queue.push_back(KeyEvent::with_text(
-                Key::NotDefined,
-                ch.to_string().into_bytes(),
-                ch.to_string(),
-            ));
-        }
-    }
-    
-    pub fn queue_resize_event(&mut self, cols: u16, rows: u16) {
-        self.resize_queue.lock().unwrap().push_back((cols, rows));
-        *self.window_size.lock().unwrap() = (cols, rows);
-    }
-    
-    pub fn process_queued_events(&self) {
-        // Process key events
-        while let Some(event) = self.input_queue.lock().unwrap().pop_front() {
-            if let Ok(mut callback_guard) = self.key_callback.lock() {
-                if let Some(ref mut callback) = *callback_guard {
-                    callback(event);
-                }
-            }
-        }
-        
-        // Process resize events
-        while let Some((cols, rows)) = self.resize_queue.lock().unwrap().pop_front() {
-            if let Ok(mut callback_guard) = self.resize_callback.lock() {
-                if let Some(ref mut callback) = *callback_guard {
-                    callback(cols, rows);
-                }
-            }
-        }
-    }
-    
-    pub fn is_raw_mode_enabled(&self) -> bool {
-        self.raw_mode_enabled.load(Ordering::Relaxed)
-    }
-}
-
-impl AsAny for MockConsoleInput {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-    
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
-    }
-}
-
-impl ConsoleInput for MockConsoleInput {
-    fn enable_raw_mode(&mut self) -> ConsoleResult<RawModeGuard> {
-        self.raw_mode_enabled.store(true, Ordering::Relaxed);
-        
-        let raw_mode_flag = Arc::clone(&self.raw_mode_enabled);
-        let restore_fn = move || {
-            raw_mode_flag.store(false, Ordering::Relaxed);
-        };
-        
-        Ok(RawModeGuard::new(
-            restore_fn,
-            "Mock Console".to_string(),
-        ))
-    }
-    
-    fn get_window_size(&self) -> ConsoleResult<(u16, u16)> {
-        Ok(*self.window_size.lock().unwrap())
-    }
-    
-    fn start_event_loop(&mut self) -> ConsoleResult<()> {
-        if self.event_loop_running.load(Ordering::Relaxed) {
-            return Err(ConsoleError::EventLoopError(EventLoopError::AlreadyRunning));
-        }
-        
-        self.event_loop_running.store(true, Ordering::Relaxed);
-        Ok(())
-    }
-    
-    fn stop_event_loop(&mut self) -> ConsoleResult<()> {
-        if !self.event_loop_running.load(Ordering::Relaxed) {
-            return Err(ConsoleError::EventLoopError(EventLoopError::NotRunning));
-        }
-        
-        self.event_loop_running.store(false, Ordering::Relaxed);
-        Ok(())
-    }
-    
-    fn on_window_resize(&mut self, callback: Box<dyn FnMut(u16, u16) + Send>) {
-        *self.resize_callback.lock().unwrap() = Some(callback);
-    }
-    
-    fn on_key_pressed(&mut self, callback: Box<dyn FnMut(KeyEvent) + Send>) {
-        *self.key_callback.lock().unwrap() = Some(callback);
-    }
-    
-    fn is_running(&self) -> bool {
-        self.event_loop_running.load(Ordering::Relaxed)
-    }
-    
-    fn get_capabilities(&self) -> ConsoleCapabilities {
-        ConsoleCapabilities {
-            supports_raw_mode: true,
-            supports_resize_events: true,
-            supports_bracketed_paste: true,
-            supports_mouse_events: true,
-            supports_unicode: true,
-            platform_name: "Mock Console".to_string(),
-            backend_type: BackendType::Mock,
-        }
-    }
-}
-
-pub struct MockConsoleOutput {
-    // Output capture
-    output_buffer: Arc<Mutex<Vec<u8>>>,
-    styled_output: Arc<Mutex<Vec<(String, TextStyle)>>>,
-    
-    // State tracking
-    cursor_position: Arc<Mutex<(u16, u16)>>,
-    current_style: Arc<Mutex<TextStyle>>,
-    cursor_visible: Arc<AtomicBool>,
-    alternate_screen: Arc<AtomicBool>,
-    
-    // Configuration
-    window_size: Arc<Mutex<(u16, u16)>>,
-}
-
-impl MockConsoleOutput {
-    pub fn new() -> Self {
-        MockConsoleOutput {
-            output_buffer: Arc::new(Mutex::new(Vec::new())),
-            styled_output: Arc::new(Mutex::new(Vec::new())),
-            cursor_position: Arc::new(Mutex::new((0, 0))),
-            current_style: Arc::new(Mutex::new(TextStyle::default())),
-            cursor_visible: Arc::new(AtomicBool::new(true)),
-            alternate_screen: Arc::new(AtomicBool::new(false)),
-            window_size: Arc::new(Mutex::new((80, 24))),
-        }
-    }
-    
-    // Test helper methods
-    pub fn get_output(&self) -> String {
-        String::from_utf8_lossy(&self.output_buffer.lock().unwrap()).to_string()
-    }
-    
-    pub fn get_styled_output(&self) -> Vec<(String, TextStyle)> {
-        self.styled_output.lock().unwrap().clone()
-    }
-    
-    pub fn clear_output(&mut self) {
-        self.output_buffer.lock().unwrap().clear();
-        self.styled_output.lock().unwrap().clear();
-    }
-    
-    pub fn get_cursor_position_test(&self) -> (u16, u16) {
-        *self.cursor_position.lock().unwrap()
-    }
-    
-    pub fn is_cursor_visible(&self) -> bool {
-        self.cursor_visible.load(Ordering::Relaxed)
-    }
-    
-    pub fn is_alternate_screen_enabled(&self) -> bool {
-        self.alternate_screen.load(Ordering::Relaxed)
-    }
-}
-
-impl AsAny for MockConsoleOutput {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-    
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
-    }
-}
-
-impl ConsoleOutput for MockConsoleOutput {
-    fn write_text(&mut self, text: &str) -> ConsoleResult<()> {
-        self.output_buffer.lock().unwrap().extend_from_slice(text.as_bytes());
-        Ok(())
-    }
-    
-    fn write_styled_text(&mut self, text: &str, style: &TextStyle) -> ConsoleResult<()> {
-        self.styled_output.lock().unwrap().push((text.to_string(), style.clone()));
-        self.output_buffer.lock().unwrap().extend_from_slice(text.as_bytes());
-        Ok(())
-    }
-    
-    fn move_cursor_to(&self, row: u16, col: u16) -> ConsoleResult<()> {
-        *self.cursor_position.lock().unwrap() = (row, col);
-        Ok(())
-    }
-    
-    fn move_cursor_relative(&mut self, col_delta: i16, row_delta: i16) -> ConsoleResult<()> {
-        let mut pos = self.cursor_position.lock().unwrap();
-        pos.0 = (pos.0 as i16 + col_delta).max(0) as u16;
-        pos.1 = (pos.1 as i16 + row_delta).max(0) as u16;
-        Ok(())
-    }
-    
-    fn clear(&mut self, _clear_type: ClearType) -> ConsoleResult<()> {
-        // For mock, just clear the output buffer
-        self.output_buffer.lock().unwrap().clear();
-        Ok(())
-    }
-    
-    fn set_style(&mut self, style: &TextStyle) -> ConsoleResult<()> {
-        *self.current_style.lock().unwrap() = style.clone();
-        Ok(())
-    }
-    
-    fn reset_style(&mut self) -> ConsoleResult<()> {
-        *self.current_style.lock().unwrap() = TextStyle::default();
-        Ok(())
-    }
-    
-    fn flush(&mut self) -> ConsoleResult<()> {
-        // Mock doesn't need to flush
-        Ok(())
-    }
-    
-    fn set_alternate_screen(&mut self, enabled: bool) -> ConsoleResult<()> {
-        self.alternate_screen.store(enabled, Ordering::Relaxed);
-        Ok(())
-    }
-    
-    fn set_cursor_visible(&mut self, visible: bool) -> ConsoleResult<()> {
-        self.cursor_visible.store(visible, Ordering::Relaxed);
-        Ok(())
-    }
-    
-    fn get_cursor_position(&self) -> ConsoleResult<(u16, u16)> {
-        Ok(*self.cursor_position.lock().unwrap())
-    }
-    
-    fn get_capabilities(&self) -> OutputCapabilities {
-        OutputCapabilities {
-            supports_colors: true,
-            supports_true_color: true,
-            supports_styling: true,
-            supports_alternate_screen: true,
-            supports_cursor_control: true,
-            max_colors: 16777216,
-            platform_name: "Mock Console".to_string(),
-            backend_type: BackendType::Mock,
-        }
-    }
-}
 ```
 
 ## Multi-Language Binding Strategy
 
-### Go Binding Architecture
+This section outlines the strategy for providing idiomatic APIs in different programming languages, leveraging the core Rust implementation.
 
-```go
-// bindings/go/console/console.go
-package console
+### Go
 
-import (
-    "context"
-    "encoding/json"
-    "fmt"
-    "sync"
-)
+The Go binding adopts a hybrid approach to balance performance-critical operations with implementation efficiency:
 
-type KeyEvent struct {
-    Key      uint32 `json:"key"`
-    RawBytes []byte `json:"raw_bytes"`
-    Text     string `json:"text,omitempty"`
-}
+*   **ConsoleInput**: Implemented **natively in Go** for direct, low-level access to platform APIs (e.g., `termios`, `select`), ensuring maximum input responsiveness.
+*   **ConsoleOutput**: Implemented by wrapping the Rust core via **WASM**, reusing the robust, cross-platform rendering logic and ensuring consistent output.
 
-type ResizeEvent struct {
-    Columns uint16 `json:"columns"`
-    Rows    uint16 `json:"rows"`
-}
+This diagram illustrates the hybrid strategy for Go bindings:
 
-type ConsoleInput interface {
-    EnableRawMode() (RawModeGuard, error)
-    GetWindowSize() (uint16, uint16, error)
-    StartEventLoop(ctx context.Context) error
-    StopEventLoop() error
-    OnKeyPressed(callback func(KeyEvent))
-    OnWindowResize(callback func(uint16, uint16))
-    IsRunning() bool
-    GetCapabilities() ConsoleCapabilities
-}
+```
+                                  ┌──────────────────────────┐
+                                  │      Go Application      │
+                                  └──────────────────────────┘
+                                               │
+                       ┌───────────────────────┴───────────────────────┐
+                       │                     Go Layer                  │
+                       ├───────────────────────────────────────────────┤
+                       │                                               │
+           ┌───────────┴───────────┐                   ┌───────────────┴───────────────┐
+           │  ConsoleInput (Native)│                   │  ConsoleOutput (WASM Wrapper) │
+           │ (Go implementation of │                   │ (Thin wrapper in Go)          │
+           │  the ConsoleInput     │                   │                               │
+           │  interface)           │                   └───────────────┬───────────────┘
+           └───────────┬───────────┘                                   │ (WASM Call)
+                       │                                               │
+                       │ (Direct system calls)                         │
+                       ▼                                               ▼
+        ┌──────────────────────────┐                   ┌──────────────────────────────────┐
+        │    OS/Platform APIs      │                   │ Rust Core (Compiled to WASM)     │
+        │ (termios, select, Win32) │                   │   - ANSI sequence generation     │
+        └──────────────────────────┘                   │   - Style management             │
+                                                       └──────────────────────────────────┘
+```
 
-type RawModeGuard interface {
-    PlatformInfo() string
-    Close() error
-}
+This architecture provides the "best of both worlds": the performance of native code for time-sensitive input handling and the robustness and development speed of reusing the core Rust logic for complex output rendering.
 
-// WASM-based implementation
-type WasmConsoleInput struct {
-    wasmModule *WasmModule
-    keyCallback func(KeyEvent)
-    resizeCallback func(uint16, uint16)
-    mutex sync.RWMutex
-    running bool
-}
+#### WASM Bridge for ConsoleOutput
 
-func NewConsoleInput() (ConsoleInput, error) {
-    module, err := LoadWasmModule("prompt_core.wasm")
-    if err != nil {
-        return nil, fmt.Errorf("failed to load WASM module: %w", err)
-    }
-    
-    return &WasmConsoleInput{
-        wasmModule: module,
-    }, nil
-}
+This section details the design of the WASM bridge used to expose the Rust `ConsoleOutput` implementation to other language bindings, specifically for the Go binding. The goal is to reuse the complex, cross-platform rendering logic of the Rust core, ensuring consistent terminal output while minimizing reimplementation effort in the host language (Go).
 
-func (w *WasmConsoleInput) EnableRawMode() (RawModeGuard, error) {
-    // Call WASM function to enable raw mode
-    result, err := w.wasmModule.Call("wasm_console_enable_raw_mode")
-    if err != nil {
-        return nil, fmt.Errorf("failed to enable raw mode: %w", err)
-    }
-    
-    if result[0] != 0 {
-        return nil, fmt.Errorf("raw mode setup failed")
-    }
-    
-    return &wasmRawModeGuard{
-        module: w.wasmModule,
-        platformInfo: "WASM Bridge",
-    }, nil
-}
+The bridge operates via a single, command-based function exported from WASM. The Go wrapper serializes output commands into JSON and passes them to this function.
 
-func (w *WasmConsoleInput) StartEventLoop(ctx context.Context) error {
-    w.mutex.Lock()
-    if w.running {
-        w.mutex.Unlock()
-        return fmt.Errorf("event loop already running")
-    }
-    w.running = true
-    w.mutex.Unlock()
-    
-    // Start WASM event loop
-    _, err := w.wasmModule.Call("wasm_console_start_event_loop")
-    if err != nil {
-        w.mutex.Lock()
-        w.running = false
-        w.mutex.Unlock()
-        return fmt.Errorf("failed to start event loop: %w", err)
-    }
-    
-    // Start message processing goroutine
-    go w.messageLoop(ctx)
-    
-    return nil
-}
+##### Architecture
 
-func (w *WasmConsoleInput) messageLoop(ctx context.Context) {
-    for {
-        select {
-        case <-ctx.Done():
-            return
-        default:
-            // Poll for messages from WASM
-            if message := w.pollWasmMessage(); message != nil {
-                w.handleMessage(message)
-            }
-        }
-    }
-}
+```
+┌──────────────────────────────┐
+│     Go ConsoleOutput Wrapper │
+└──────────────┬───────────────┘
+               │ 1. Serialize command to JSON
+               ▼
+┌──────────────────────────────┐
+│      WASM Host Runtime       │
+└──────────────┬��──────────────┘
+               │ 2. Call exported WASM function
+               ▼
+┌──────────────────────────────────┐
+│  WASM Module (from prompt-core)  │
+│                                  │
+│  ┌───────────────────────────┐   │
+│  │ `wasm_output_command`     │   │
+│  │  - Deserialize JSON       │   │
+│  │  - Call Rust method       │   │
+│  └───────────┬───────────────┘   │
+│              │ 3. Execute command│
+│              ▼                   │
+│  ┌───────────────────────────┐   │
+│  │ Rust `ConsoleOutput` Impl │   │
+│  │  - Buffer ANSI codes      │   │
+│  └───────────┬───────────────┘   │
+│              │ 4. On flush       │
+│              ▼                   │
+│  ┌───────────────────��───────┐   │
+│  │          stdout           │   │
+│  └───────────────────────────┘   │
+└──────────────────────────────────┘
+```
 
-func (w *WasmConsoleInput) handleMessage(message *WasmMessage) {
-    switch message.Type {
-    case "key_event":
-        if w.keyCallback != nil {
-            var keyEvent KeyEvent
-            if err := json.Unmarshal(message.Data, &keyEvent); err == nil {
-                w.keyCallback(keyEvent)
-            }
-        }
-    case "resize_event":
-        if w.resizeCallback != nil {
-            var resizeEvent ResizeEvent
-            if err := json.Unmarshal(message.Data, &resizeEvent); err == nil {
-                w.resizeCallback(resizeEvent.Columns, resizeEvent.Rows)
-            }
-        }
+##### Command-based Interface
+
+A single function is exported from the WASM module to handle all output operations. This simplifies the foreign function interface (FFI) boundary.
+
+```rust
+// In prompt-wasm/src/lib.rs
+
+#[no_mangle]
+pub extern "C" fn wasm_output_command(command_ptr: *const u8, command_len: usize) -> i32 {
+    // 1. Reconstruct the JSON string from the pointer and length
+    let command_json = unsafe {
+        let slice = std::slice::from_raw_parts(command_ptr, command_len);
+        std::str::from_utf8(slice).unwrap_or("")
+    };
+
+    // 2. Deserialize the command
+    let command: Result<OutputCommand, _> = serde_json::from_str(command_json);
+
+    // 3. Get the global ConsoleOutput instance
+    let mut output = CONSOLE_OUTPUT.lock().unwrap();
+
+    // 4. Execute the command
+    match command {
+        Ok(cmd) => match output.execute(cmd) {
+            Ok(_) => 0, // Success
+            Err(_) => -1, // Execution error
+        },
+        Err(_) => -2, // Deserialization error
     }
 }
 ```
 
-### Python Binding Architecture
+##### JSON Command Structure
+
+The Go wrapper creates JSON objects representing the desired output operation.
+
+**Enum for commands:**
+```json
+{
+  "command": "<CommandType>",
+  "payload": { ... }
+}
+```
+
+**Example Payloads:**
+
+*   **WriteText**:
+    ```json
+    {
+      "command": "WriteText",
+      "payload": {
+        "text": "Hello, World!"
+      }
+    }
+    ```
+
+*   **SetStyle**:
+    ```json
+    {
+      "command": "SetStyle",
+      "payload": {
+        "foreground": { "type": "Rgb", "r": 100, "g": 200, "b": 50 },
+        "background": null,
+        "bold": true,
+        "italic": false
+      }
+    }
+    ```
+
+*   **MoveCursorTo**:
+    ```json
+    {
+      "command": "MoveCursorTo",
+      "payload": {
+        "row": 10,
+        "col": 5
+      }
+    }
+    ```
+
+*   **Flush**:
+    ```json
+    {
+      "command": "Flush",
+      "payload": {}
+    }
+    ```
+
+This design provides a clean, extensible, and serializable interface between the Go host and the WASM guest, allowing the Go binding to leverage the full power of the Rust `ConsoleOutput` implementation without direct access to low-level Rust objects.
+
+### Python Binding
+
+The Python binding is implemented using **PyO3**. This provides a thin, efficient wrapper around the native Rust implementation, exposing the `ConsoleInput` and `ConsoleOutput` traits directly to Python. This allows Python applications to benefit from the near-native performance of the Rust core.
 
 ```python
 # crates/prompt-pyo3/src/console.rs

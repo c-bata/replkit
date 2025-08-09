@@ -128,25 +128,31 @@
   - Write tests for Windows legacy output functionality
   - _Requirements: 1.1, 1.2, 1.3, 6.1, 6.2, 6.3, 6.4, 6.5_
 
-- [ ] 14. Implement WASM bridge console input
-  - Create `crates/prompt-io/src/wasm.rs` with WasmBridgeConsoleInput implementation
-  - Define serializable message protocol for host communication
-  - Implement receive_message() for processing host-sent key events
-  - Add callback invocation for key events and resize notifications
-  - Create WASM-exported functions for host environment integration
-  - Handle WASM-specific limitations and provide appropriate error messages
-  - Write tests for WASM message serialization and callback handling
-  - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 11.1, 11.2, 11.3_
+- [ ] 14. Implement WASM Bridge for ConsoleOutput
+  - Create `crates/prompt-wasm` to house the WASM-specific logic.
+  - Expose a single `wasm_output_command` function to the host.
+  - Implement a JSON-based command protocol for all `ConsoleOutput` methods (e.g., `WriteText`, `SetStyle`, `Flush`).
+  - The function will deserialize the JSON command and dispatch it to a global `ConsoleOutput` instance (e.g., `UnixConsoleOutput`).
+  - Ensure the Rust `ConsoleOutput` implementation is included in the WASM build.
+  - Write unit tests for the JSON command serialization and deserialization.
+  - _Requirements: 7.1, 7.2, 7.3, 11.1, 11.2, 11.3_
 
-- [ ] 15. Implement WASM bridge console output
-  - Extend `crates/prompt-io/src/wasm.rs` with WasmBridgeConsoleOutput implementation
-  - Add output message generation for host environment rendering
-  - Implement state tracking for cursor position and styling
-  - Create serializable output command protocol
-  - Add WASM-exported functions for host communication
-  - Handle output buffering and efficient host communication
-  - Write tests for WASM output message generation and state tracking
-  - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 11.1, 11.2, 11.3_
+- [ ] 15. Create Go Bindings for Console I/O (Hybrid Approach)
+  - **Sub-task: Native Go ConsoleInput**
+    - In `bindings/go/`, implement a native `ConsoleInput` interface in Go.
+    - Use platform-specific build tags (`_unix.go`, `_windows.go`) for implementation.
+    - **Unix:** Use `termios` for raw mode and `select`/`epoll` for non-blocking I/O.
+    - **Windows:** Use Win32 Console API (`ReadConsoleInput`, `SetConsoleMode`).
+    - Implement an event loop and expose key/resize events via Go channels.
+  - **Sub-task: Go ConsoleOutput Wrapper for WASM**
+    - In `bindings/go/`, implement a `ConsoleOutput` interface that wraps the WASM module.
+    - Create Go structs for the JSON command protocol.
+    - Implement methods (`WriteText`, `SetStyle`, etc.) that serialize the command to JSON and call the `wasm_output_command` function.
+    - Integrate a WASM runtime (e.g., Wasmer, Wasmtime) to load and interact with the WASM module.
+  - **Sub-task: Integration and Example**
+    - Replace the existing Go `vt100_debug` example to use the new native `ConsoleInput` and WASM-based `ConsoleOutput`.
+    - Ensure proper resource management (closing channels, freeing WASM resources).
+  - _Requirements: 11.1, 11.2, 11.4, 11.5, 11.6_
 
 - [ ] 14. Add comprehensive error handling and validation
   - Implement detailed error messages for platform-specific failures
@@ -195,15 +201,8 @@
   - Test WASM compilation and serialization roundtrip
   - _Requirements: 7.1, 7.2, 7.3, 11.1, 11.2, 11.3_
 
-- [ ] 19. Create Go bindings and replace Go vt100_debug example
-  - Extend `bindings/go/` with console input/output Go interfaces
-  - Implement WASM-based Go wrappers for ConsoleInput and ConsoleOutput
-  - Add Go-idiomatic error handling and type conversions
-  - Create channel-based event handling for Go concurrency patterns
-  - Replace existing Go vt100_debug example with ConsoleInput-based implementation
-  - Verify cross-platform compatibility (Unix + Windows) in Go
-  - Implement proper resource management and cleanup in Go bindings
-  - _Requirements: 11.1, 11.2, 11.4, 11.5, 11.6_
+- [x] 19. Create Go bindings and replace Go vt100_debug example (DEPRECATED)
+  - This task is superseded by task #15, which details the new hybrid implementation strategy.
 
 - [ ] 20. Create Python bindings and replace Python vt100_debug example
   - Extend `crates/prompt-pyo3/` with PyConsoleInput and PyConsoleOutput classes
