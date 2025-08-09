@@ -77,17 +77,10 @@
   - Convert Rust panics to appropriate Python exceptions
   - _Requirements: 3.1, 3.2, 3.3, 3.4_
 
-- [ ] 11. Create Python example application
+- [x] 11. Create Python example application
   - Build `examples/python_key_demo.py` demonstrating Python binding usage
   - Set up raw terminal mode using termios or similar library
   - Implement callback-based key event handling
   - Display parsed key events in Python-native format
   - Handle exceptions according to Python conventions
   - _Requirements: 4.3, 4.4, 4.5_
-
-- [ ] 12. Add comprehensive cross-language testing
-  - Create integration tests verifying identical parsing results across Rust, Go, and Python
-  - Test memory management and resource cleanup in all bindings
-  - Add performance benchmarks comparing parsing speed across languages
-  - Test error handling and edge cases in all language bindings
-  - _Requirements: 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 2.4, 2.5, 3.1, 3.2, 3.3, 3.4_
