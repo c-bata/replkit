@@ -12,8 +12,8 @@
 /
 ├── crates/                     # Workspace crates
 │   ├── prompt-core/            # Core REPL engine logic (editor, history, prompt loop)
-│   ├── prompt-buffer/          # Text buffer
 │   ├── prompt-render/          # Terminal rendering (styling, ANSI control)
+│   ├── prompt-io/              # Implementation of ConsoleInput and ConsoleOuptut traits
 │   ├── prompt-keybind/         # Key bindings (emacs)
 │   ├── prompt-wasm/            # WASM interface for Go bindings
 │   └── prompt-pyo3/            # PyO3-based Python binding (build with maturin)

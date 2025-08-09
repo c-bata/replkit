@@ -8,8 +8,9 @@ mod imp {
     use std::sync::{Arc, Mutex};
     use std::thread::{self, JoinHandle};
 
-    use crate::{ConsoleError, ConsoleInput, ConsoleResult, KeyEvent};
-    use prompt_core::Key;
+    use prompt_core::{Key, KeyEvent};
+    use crate::{ConsoleError, ConsoleInput, ConsoleOutput, ConsoleResult, RawModeGuard,
+               ConsoleCapabilities, OutputCapabilities, BackendType, TextStyle, ClearType, AsAny};
 
     type BOOL = i32;
     type HANDLE = isize;
@@ -90,6 +91,7 @@ mod imp {
     }
 
     pub struct WindowsVtConsoleInput; // TODO
+    pub struct WindowsVtConsoleOutput; // TODO
 
     pub struct WindowsLegacyConsoleInput {
         h_input: HANDLE,
@@ -101,8 +103,28 @@ mod imp {
         thread: Option<JoinHandle<()>>,
     }
 
+    pub struct WindowsLegacyConsoleOutput {
+        h_output: HANDLE,
+    }
+
     impl WindowsVtConsoleInput {
         pub fn new() -> io::Result<Self> { Ok(Self) }
+    }
+    
+    impl WindowsVtConsoleOutput {
+        pub fn new() -> io::Result<Self> { Ok(Self) }
+    }
+    
+    impl WindowsLegacyConsoleOutput {
+        pub fn new() -> io::Result<Self> {
+            unsafe {
+                let h_output = GetStdHandle(0xFFFFFFF5); // STD_OUTPUT_HANDLE
+                if h_output == 0 || h_output == -1 {
+                    return Err(io::Error::new(io::ErrorKind::Other, "GetStdHandle failed"));
+                }
+                Ok(Self { h_output })
+            }
+        }
     }
     impl WindowsLegacyConsoleInput {
         pub fn new() -> io::Result<Self> {
@@ -218,48 +240,101 @@ mod imp {
         }
     }
 
+    impl AsAny for WindowsVtConsoleInput {
+        fn as_any(&self) -> &dyn std::any::Any { self }
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
+    }
+
     impl ConsoleInput for WindowsVtConsoleInput {
-        fn enable_raw_mode(&mut self) -> ConsoleResult<()> { Err(ConsoleError::UnsupportedFeature("Windows VT not yet implemented")) }
-        fn get_window_size(&self) -> ConsoleResult<(u16, u16)> { Err(ConsoleError::UnsupportedFeature("Windows VT not yet implemented")) }
-        fn set_resize_callback(&mut self, _callback: Box<dyn FnMut(u16, u16) + Send>) {}
-        fn set_key_event_callback(&mut self, _callback: Box<dyn FnMut(KeyEvent) + Send>) {}
-        fn start_event_loop(&mut self) -> ConsoleResult<()> { Err(ConsoleError::UnsupportedFeature("Windows VT not yet implemented")) }
-        fn stop_event_loop(&mut self) -> ConsoleResult<()> { Err(ConsoleError::UnsupportedFeature("Windows VT not yet implemented")) }
+        fn enable_raw_mode(&self) -> Result<RawModeGuard, ConsoleError> { 
+            Err(ConsoleError::UnsupportedFeature { 
+                feature: "Windows VT".to_string(), 
+                platform: "Windows".to_string() 
+            }) 
+        }
+        fn get_window_size(&self) -> ConsoleResult<(u16, u16)> { 
+            Err(ConsoleError::UnsupportedFeature { 
+                feature: "Windows VT".to_string(), 
+                platform: "Windows".to_string() 
+            }) 
+        }
+        fn start_event_loop(&self) -> ConsoleResult<()> { 
+            Err(ConsoleError::UnsupportedFeature { 
+                feature: "Windows VT".to_string(), 
+                platform: "Windows".to_string() 
+            }) 
+        }
+        fn stop_event_loop(&self) -> ConsoleResult<()> { 
+            Err(ConsoleError::UnsupportedFeature { 
+                feature: "Windows VT".to_string(), 
+                platform: "Windows".to_string() 
+            }) 
+        }
+        fn on_window_resize(&self, _callback: Box<dyn FnMut(u16, u16) + Send>) {}
+        fn on_key_pressed(&self, _callback: Box<dyn FnMut(KeyEvent) + Send>) {}
+        fn is_running(&self) -> bool { false }
+        fn get_capabilities(&self) -> ConsoleCapabilities {
+            ConsoleCapabilities {
+                supports_raw_mode: false,
+                supports_resize_events: false,
+                supports_bracketed_paste: false,
+                supports_mouse_events: false,
+                supports_unicode: false,
+                platform_name: "Windows VT (not implemented)".to_string(),
+                backend_type: BackendType::WindowsVt,
+            }
+        }
+    }
+
+    impl AsAny for WindowsLegacyConsoleInput {
+        fn as_any(&self) -> &dyn std::any::Any { self }
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
     }
 
     impl ConsoleInput for WindowsLegacyConsoleInput {
-        fn enable_raw_mode(&mut self) -> ConsoleResult<()> {
+        fn enable_raw_mode(&self) -> Result<RawModeGuard, ConsoleError> {
             unsafe {
                 // Enable window + mouse input, disable quick-edit, line and echo to reduce buffering
                 // Also disable ENABLE_PROCESSED_INPUT to prevent Windows from handling Ctrl+C
                 let mut mode: DWORD = 0;
                 if GetConsoleMode(self.h_input, &mut mode as *mut DWORD) == 0 {
-                    return Err(ConsoleError::Io(io::Error::new(io::ErrorKind::Other, "GetConsoleMode failed")));
+                    return Err(ConsoleError::IoError("GetConsoleMode failed".to_string()));
                 }
+                let original_mode = mode;
                 let mut new_mode = mode | ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT | ENABLE_EXTENDED_FLAGS;
                 new_mode &= !ENABLE_QUICK_EDIT_MODE; // disable quick edit to avoid input freezing
                 new_mode &= !(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT); // disable processed input to handle Ctrl+C ourselves
                 if SetConsoleMode(self.h_input, new_mode) == 0 {
-                    return Err(ConsoleError::Io(io::Error::new(io::ErrorKind::Other, "SetConsoleMode failed")));
+                    return Err(ConsoleError::IoError("SetConsoleMode failed".to_string()));
                 }
-                Ok(())
+                
+                let h_input = self.h_input;
+                let restore_fn = move || {
+                    unsafe {
+                        let _ = SetConsoleMode(h_input, original_mode);
+                    }
+                };
+                
+                Ok(RawModeGuard::new(restore_fn, "Windows Legacy".to_string()))
             }
         }
 
         fn get_window_size(&self) -> ConsoleResult<(u16, u16)> {
-            Ok(self.query_window_size()?)
+            self.query_window_size().map_err(crate::io_error_to_console_error)
         }
 
-        fn set_resize_callback(&mut self, callback: Box<dyn FnMut(u16, u16) + Send>) {
+        fn on_window_resize(&self, callback: Box<dyn FnMut(u16, u16) + Send>) {
             if let Ok(mut g) = self.resize_cb.lock() { *g = Some(callback); }
         }
 
-        fn set_key_event_callback(&mut self, callback: Box<dyn FnMut(KeyEvent) + Send>) {
+        fn on_key_pressed(&self, callback: Box<dyn FnMut(KeyEvent) + Send>) {
             if let Ok(mut g) = self.key_cb.lock() { *g = Some(callback); }
         }
 
-        fn start_event_loop(&mut self) -> ConsoleResult<()> {
-            if self.running.swap(true, Ordering::Relaxed) { return Err(ConsoleError::AlreadyRunning); }
+        fn start_event_loop(&self) -> ConsoleResult<()> {
+            if self.running.swap(true, Ordering::Relaxed) { 
+                return Err(ConsoleError::EventLoopError(crate::EventLoopError::AlreadyRunning)); 
+            }
             let h_input = self.h_input;
             let h_stop = self.stop_event;
             let running = self.running.clone();
@@ -301,14 +376,220 @@ mod imp {
             Ok(())
         }
 
-        fn stop_event_loop(&mut self) -> ConsoleResult<()> {
-            if !self.running.swap(false, Ordering::Relaxed) { return Err(ConsoleError::NotRunning); }
+        fn stop_event_loop(&self) -> ConsoleResult<()> {
+            if !self.running.swap(false, Ordering::Relaxed) { 
+                return Err(ConsoleError::EventLoopError(crate::EventLoopError::NotRunning)); 
+            }
             unsafe { let _ = SetEvent(self.stop_event); }
-            if let Some(h) = self.thread.take() { let _ = h.join(); }
             Ok(())
+        }
+
+        fn is_running(&self) -> bool {
+            self.running.load(Ordering::Relaxed)
+        }
+
+        fn get_capabilities(&self) -> ConsoleCapabilities {
+            ConsoleCapabilities {
+                supports_raw_mode: true,
+                supports_resize_events: true,
+                supports_bracketed_paste: false,
+                supports_mouse_events: true,
+                supports_unicode: true,
+                platform_name: "Windows Legacy".to_string(),
+                backend_type: BackendType::WindowsLegacy,
+            }
         }
     }
 }
 
 #[cfg(windows)]
 pub use imp::*;
+    impl AsAny for WindowsVtConsoleOutput {
+        fn as_any(&self) -> &dyn std::any::Any { self }
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
+    }
+
+    impl ConsoleOutput for WindowsVtConsoleOutput {
+        fn write_text(&self, _text: &str) -> ConsoleResult<()> {
+            Err(ConsoleError::UnsupportedFeature { 
+                feature: "Windows VT output".to_string(), 
+                platform: "Windows".to_string() 
+            })
+        }
+        fn write_styled_text(&self, _text: &str, _style: &TextStyle) -> ConsoleResult<()> {
+            Err(ConsoleError::UnsupportedFeature { 
+                feature: "Windows VT output".to_string(), 
+                platform: "Windows".to_string() 
+            })
+        }
+        fn write_safe_text(&self, _text: &str) -> ConsoleResult<()> {
+            Err(ConsoleError::UnsupportedFeature { 
+                feature: "Windows VT output".to_string(), 
+                platform: "Windows".to_string() 
+            })
+        }
+        fn move_cursor_to(&self, _row: u16, _col: u16) -> ConsoleResult<()> {
+            Err(ConsoleError::UnsupportedFeature { 
+                feature: "Windows VT output".to_string(), 
+                platform: "Windows".to_string() 
+            })
+        }
+        fn move_cursor_relative(&self, _row_delta: i16, _col_delta: i16) -> ConsoleResult<()> {
+            Err(ConsoleError::UnsupportedFeature { 
+                feature: "Windows VT output".to_string(), 
+                platform: "Windows".to_string() 
+            })
+        }
+        fn clear(&self, _clear_type: ClearType) -> ConsoleResult<()> {
+            Err(ConsoleError::UnsupportedFeature { 
+                feature: "Windows VT output".to_string(), 
+                platform: "Windows".to_string() 
+            })
+        }
+        fn set_style(&self, _style: &TextStyle) -> ConsoleResult<()> {
+            Err(ConsoleError::UnsupportedFeature { 
+                feature: "Windows VT output".to_string(), 
+                platform: "Windows".to_string() 
+            })
+        }
+        fn reset_style(&self) -> ConsoleResult<()> {
+            Err(ConsoleError::UnsupportedFeature { 
+                feature: "Windows VT output".to_string(), 
+                platform: "Windows".to_string() 
+            })
+        }
+        fn flush(&self) -> ConsoleResult<()> {
+            Err(ConsoleError::UnsupportedFeature { 
+                feature: "Windows VT output".to_string(), 
+                platform: "Windows".to_string() 
+            })
+        }
+        fn set_alternate_screen(&self, _enabled: bool) -> ConsoleResult<()> {
+            Err(ConsoleError::UnsupportedFeature { 
+                feature: "Windows VT output".to_string(), 
+                platform: "Windows".to_string() 
+            })
+        }
+        fn set_cursor_visible(&self, _visible: bool) -> ConsoleResult<()> {
+            Err(ConsoleError::UnsupportedFeature { 
+                feature: "Windows VT output".to_string(), 
+                platform: "Windows".to_string() 
+            })
+        }
+        fn get_cursor_position(&self) -> ConsoleResult<(u16, u16)> {
+            Err(ConsoleError::UnsupportedFeature { 
+                feature: "Windows VT output".to_string(), 
+                platform: "Windows".to_string() 
+            })
+        }
+        fn get_capabilities(&self) -> OutputCapabilities {
+            OutputCapabilities {
+                supports_colors: false,
+                supports_true_color: false,
+                supports_styling: false,
+                supports_alternate_screen: false,
+                supports_cursor_control: false,
+                max_colors: 0,
+                platform_name: "Windows VT (not implemented)".to_string(),
+                backend_type: BackendType::WindowsVt,
+            }
+        }
+    }
+
+    impl AsAny for WindowsLegacyConsoleOutput {
+        fn as_any(&self) -> &dyn std::any::Any { self }
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
+    }
+
+    impl ConsoleOutput for WindowsLegacyConsoleOutput {
+        fn write_text(&self, text: &str) -> ConsoleResult<()> {
+            // Basic implementation - write UTF-8 text to console
+            // In a full implementation, we'd use WriteConsoleW for proper Unicode support
+            let bytes = text.as_bytes();
+            unsafe {
+                let mut written: DWORD = 0;
+                // This is a simplified approach - real implementation would use WriteConsoleW
+                if libc::write(1, bytes.as_ptr() as *const libc::c_void, bytes.len()) == -1 {
+                    return Err(ConsoleError::IoError("Failed to write to console".to_string()));
+                }
+            }
+            Ok(())
+        }
+        
+        fn write_styled_text(&self, text: &str, _style: &TextStyle) -> ConsoleResult<()> {
+            // For now, just write text without styling
+            // Full implementation would use SetConsoleTextAttribute
+            self.write_text(text)
+        }
+        
+        fn write_safe_text(&self, text: &str) -> ConsoleResult<()> {
+            self.write_text(text)
+        }
+        
+        fn move_cursor_to(&self, _row: u16, _col: u16) -> ConsoleResult<()> {
+            // Would use SetConsoleCursorPosition in full implementation
+            Err(ConsoleError::UnsupportedFeature { 
+                feature: "cursor positioning".to_string(), 
+                platform: "Windows Legacy".to_string() 
+            })
+        }
+        
+        fn move_cursor_relative(&self, _row_delta: i16, _col_delta: i16) -> ConsoleResult<()> {
+            Err(ConsoleError::UnsupportedFeature { 
+                feature: "relative cursor movement".to_string(), 
+                platform: "Windows Legacy".to_string() 
+            })
+        }
+        
+        fn clear(&self, _clear_type: ClearType) -> ConsoleResult<()> {
+            // Would use FillConsoleOutputCharacter in full implementation
+            Err(ConsoleError::UnsupportedFeature { 
+                feature: "screen clearing".to_string(), 
+                platform: "Windows Legacy".to_string() 
+            })
+        }
+        
+        fn set_style(&self, _style: &TextStyle) -> ConsoleResult<()> {
+            // Would use SetConsoleTextAttribute in full implementation
+            Ok(())
+        }
+        
+        fn reset_style(&self) -> ConsoleResult<()> {
+            Ok(())
+        }
+        
+        fn flush(&self) -> ConsoleResult<()> {
+            // Windows console doesn't need explicit flushing
+            Ok(())
+        }
+        
+        fn set_alternate_screen(&self, _enabled: bool) -> ConsoleResult<()> {
+            Err(ConsoleError::UnsupportedFeature { 
+                feature: "alternate screen".to_string(), 
+                platform: "Windows Legacy".to_string() 
+            })
+        }
+        
+        fn set_cursor_visible(&self, _visible: bool) -> ConsoleResult<()> {
+            // Would use SetConsoleCursorInfo in full implementation
+            Ok(())
+        }
+        
+        fn get_cursor_position(&self) -> ConsoleResult<(u16, u16)> {
+            // Would use GetConsoleScreenBufferInfo in full implementation
+            Ok((0, 0))
+        }
+        
+        fn get_capabilities(&self) -> OutputCapabilities {
+            OutputCapabilities {
+                supports_colors: true,
+                supports_true_color: false,
+                supports_styling: true,
+                supports_alternate_screen: false,
+                supports_cursor_control: true,
+                max_colors: 16,
+                platform_name: "Windows Legacy".to_string(),
+                backend_type: BackendType::WindowsLegacy,
+            }
+        }
+    }

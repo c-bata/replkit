@@ -3,8 +3,7 @@
 //! Usage: cargo run --example vt100_debug
 //! Press Ctrl+C (or Enter + Ctrl+C on some shells) to exit.
 
-use prompt_core::{Key, KeyEvent};
-use prompt_io::ConsoleInput;
+use prompt_core::{Key, KeyEvent, ConsoleInput};
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -12,13 +11,14 @@ use std::sync::Arc;
 /// Wrapper to ensure proper cleanup of console input
 struct ConsoleInputGuard {
     input: Box<dyn ConsoleInput>,
+    _raw_guard: Option<prompt_core::RawModeGuard>,
     running: bool,
 }
 
 impl ConsoleInputGuard {
-    fn new(mut input: Box<dyn ConsoleInput>) -> io::Result<Self> {
-        input.enable_raw_mode().map_err(|e| io::Error::new(io::ErrorKind::Other, format!("raw mode error: {}", e)))?;
-        Ok(Self { input, running: false })
+    fn new(input: Box<dyn ConsoleInput>) -> io::Result<Self> {
+        let raw_guard = input.enable_raw_mode().map_err(|e| io::Error::new(io::ErrorKind::Other, format!("raw mode error: {}", e)))?;
+        Ok(Self { input, _raw_guard: Some(raw_guard), running: false })
     }
 
     fn start_event_loop(&mut self) -> io::Result<()> {
@@ -38,11 +38,11 @@ impl ConsoleInputGuard {
     }
 
     fn set_key_event_callback(&mut self, callback: Box<dyn FnMut(KeyEvent) + Send>) {
-        self.input.set_key_event_callback(callback);
+        self.input.on_key_pressed(callback);
     }
 
     fn set_resize_callback(&mut self, callback: Box<dyn FnMut(u16, u16) + Send>) {
-        self.input.set_resize_callback(callback);
+        self.input.on_window_resize(callback);
     }
 }
 
@@ -97,7 +97,7 @@ fn display_key_event(event: &prompt_core::KeyEvent) {
 
 #[cfg(unix)]
 fn make_input() -> io::Result<Box<dyn ConsoleInput>> {
-    Ok(Box::new(prompt_io::UnixVtConsoleInput::new()?))
+    Ok(Box::new(prompt_io::UnixConsoleInput::new()?))
 }
 
 #[cfg(windows)]

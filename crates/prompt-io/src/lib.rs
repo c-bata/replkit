@@ -1,71 +1,129 @@
-//! Cross-platform console input abstraction and backends.
+//! Cross-platform console input/output abstraction and backends.
 //!
-//! Defines the `ConsoleInput` trait and provides platform implementations:
+//! Provides platform implementations for console I/O:
 //! - UnixVtConsoleInput (POSIX/VT)
 //! - WindowsVtConsoleInput (VT in Windows Terminal/PowerShell) [stubbed here]
 //! - WindowsLegacyConsoleInput (cmd.exe events) [stubbed here]
 
-use std::fmt;
 use std::io;
 
-pub use prompt_core::{KeyEvent, KeyParser};
+// Re-export core types and traits
+pub use prompt_core::{
+    KeyEvent, KeyParser,
+    ConsoleInput, ConsoleOutput, ConsoleError, ConsoleResult, EventLoopError,
+    RawModeGuard, ConsoleCapabilities, OutputCapabilities, BackendType,
+    TextStyle, Color, ClearType, SanitizationPolicy, SafeTextFilter, AsAny
+};
 
-/// Result type for console input operations.
-pub type ConsoleResult<T> = Result<T, ConsoleError>;
-
-/// Errors that can occur in console input handling.
-#[derive(Debug)]
-pub enum ConsoleError {
-    Io(io::Error),
-    UnsupportedFeature(&'static str),
-    AlreadyRunning,
-    NotRunning,
+// Helper function to convert io::Error to ConsoleError
+pub fn io_error_to_console_error(e: io::Error) -> ConsoleError {
+    ConsoleError::IoError(e.to_string())
 }
 
-impl fmt::Display for ConsoleError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ConsoleError::Io(e) => write!(f, "I/O error: {}", e),
-            ConsoleError::UnsupportedFeature(s) => write!(f, "Unsupported feature: {}", s),
-            ConsoleError::AlreadyRunning => write!(f, "Event loop already running"),
-            ConsoleError::NotRunning => write!(f, "Event loop is not running"),
+/// Create both console input and output for the current platform
+pub fn create_console_io() -> ConsoleResult<(Box<dyn ConsoleInput>, Box<dyn ConsoleOutput>)> {
+    let input = create_console_input()?;
+    let output = create_console_output()?;
+    Ok((input, output))
+}
+
+/// Create console input for the current platform
+pub fn create_console_input() -> ConsoleResult<Box<dyn ConsoleInput>> {
+    #[cfg(unix)]
+    {
+        let input = unix::UnixConsoleInput::new().map_err(io_error_to_console_error)?;
+        Ok(Box::new(input))
+    }
+    
+    #[cfg(windows)]
+    {
+        // Try VT mode first, fall back to legacy
+        match windows::WindowsVtConsoleInput::new() {
+            Ok(vt_input) => Ok(Box::new(vt_input)),
+            Err(_) => {
+                let legacy_input = windows::WindowsLegacyConsoleInput::new().map_err(io_error_to_console_error)?;
+                Ok(Box::new(legacy_input))
+            }
         }
+    }
+    
+    #[cfg(target_arch = "wasm32")]
+    {
+        let input = wasm::WasmBridgeConsoleInput::new().map_err(io_error_to_console_error)?;
+        Ok(Box::new(input))
+    }
+    
+    #[cfg(not(any(unix, windows, target_arch = "wasm32")))]
+    {
+        Err(ConsoleError::UnsupportedFeature {
+            feature: "console input".to_string(),
+            platform: std::env::consts::OS.to_string(),
+        })
     }
 }
 
-impl From<io::Error> for ConsoleError {
-    fn from(e: io::Error) -> Self { ConsoleError::Io(e) }
+/// Create console output for the current platform
+pub fn create_console_output() -> ConsoleResult<Box<dyn ConsoleOutput>> {
+    #[cfg(unix)]
+    {
+        let output = unix::UnixConsoleOutput::new()?;
+        Ok(Box::new(output))
+    }
+    
+    #[cfg(windows)]
+    {
+        // Try VT mode first, fall back to legacy
+        match windows::WindowsVtConsoleOutput::new() {
+            Ok(vt_output) => Ok(Box::new(vt_output)),
+            Err(_) => {
+                let legacy_output = windows::WindowsLegacyConsoleOutput::new().map_err(io_error_to_console_error)?;
+                Ok(Box::new(legacy_output))
+            }
+        }
+    }
+    
+    #[cfg(target_arch = "wasm32")]
+    {
+        let output = wasm::WasmBridgeConsoleOutput::new().map_err(io_error_to_console_error)?;
+        Ok(Box::new(output))
+    }
+    
+    #[cfg(not(any(unix, windows, target_arch = "wasm32")))]
+    {
+        Err(ConsoleError::UnsupportedFeature {
+            feature: "console output".to_string(),
+            platform: std::env::consts::OS.to_string(),
+        })
+    }
 }
 
-/// Cross-platform console input interface.
-pub trait ConsoleInput: Send {
-    /// ターミナルをraw modeにする（元に戻すハンドルはDropに実装）
-    fn enable_raw_mode(&mut self) -> ConsoleResult<()>;
-
-    /// 現在のウィンドウサイズ（columns, rows）を取得
-    fn get_window_size(&self) -> ConsoleResult<(u16, u16)>;
-
-    /// ウィンドウサイズが変更されたらコールバックを呼ぶ
-    fn set_resize_callback(&mut self, callback: Box<dyn FnMut(u16, u16) + Send>);
-
-    /// キー入力があればイベントを通知
-    fn set_key_event_callback(&mut self, callback: Box<dyn FnMut(KeyEvent) + Send>);
-
-    /// イベントループを開始する
-    fn start_event_loop(&mut self) -> ConsoleResult<()>;
-
-    /// イベントループを停止する
-    fn stop_event_loop(&mut self) -> ConsoleResult<()>;
+/// Create mock console I/O for testing
+pub fn create_mock_console_io() -> (Box<dyn ConsoleInput>, Box<dyn ConsoleOutput>) {
+    (
+        Box::new(mock::MockConsoleInput::new()),
+        Box::new(mock::MockConsoleOutput::new()),
+    )
 }
 
+// Platform-specific modules
 #[cfg(unix)]
 mod unix;
 
 #[cfg(windows)]
 mod windows;
 
+#[cfg(target_arch = "wasm32")]
+mod wasm;
+
+// Mock implementation for testing
+pub mod mock;
+
+// Re-export platform implementations
 #[cfg(unix)]
-pub use unix::UnixVtConsoleInput;
+pub use unix::{UnixConsoleInput, UnixConsoleOutput};
 
 #[cfg(windows)]
-pub use windows::{WindowsLegacyConsoleInput, WindowsVtConsoleInput};
+pub use windows::{WindowsLegacyConsoleInput, WindowsVtConsoleInput, WindowsLegacyConsoleOutput, WindowsVtConsoleOutput};
+
+#[cfg(target_arch = "wasm32")]
+pub use wasm::{WasmBridgeConsoleInput, WasmBridgeConsoleOutput};

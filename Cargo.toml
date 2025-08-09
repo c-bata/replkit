@@ -34,5 +34,5 @@ libc = { workspace = true }
 prompt-io = { path = "crates/prompt-io" }
 
 [[example]]
-name = "vt100_debug"
-path = "examples/vt100_debug.rs"
+name = "debug_key_input"
+path = "examples/debug_key_input.rs"

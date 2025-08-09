@@ -16,6 +16,9 @@ pub mod document;
 pub mod error;
 pub mod unicode;
 
+// Console I/O abstraction
+pub mod console;
+
 // Re-export commonly used types for convenience
 pub use key::{Key, KeyEvent};
 pub use key_parser::{KeyParser, ParserState};
@@ -31,3 +34,10 @@ pub use buffer::Buffer;
 pub use document::Document;
 pub use error::{BufferError, BufferResult};
 pub use unicode::{rune_count, display_width, rune_slice, char_at_rune_index, byte_index_from_rune_index};
+
+// Re-export console types
+pub use console::{
+    ConsoleInput, ConsoleOutput, ConsoleError, ConsoleResult, EventLoopError,
+    RawModeGuard, ConsoleCapabilities, OutputCapabilities, BackendType,
+    TextStyle, Color, ClearType, SanitizationPolicy, SafeTextFilter, AsAny
+};

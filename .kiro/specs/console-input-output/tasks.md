@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. Fix architectural issue: Move console traits to prompt-core
+- [x] 1. Fix architectural issue: Move console traits to prompt-core
   - Create `crates/prompt-core/src/console.rs` with ConsoleInput and ConsoleOutput traits from design document
   - Add ConsoleError, ConsoleResult, and related error types as specified in design
   - Define ConsoleCapabilities, OutputCapabilities, BackendType, TextStyle, Color, ClearType, and RawModeGuard types
