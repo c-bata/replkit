@@ -107,6 +107,148 @@ impl Buffer {
         self.invalidate_cache();
     }
 
+    /// Create a new line at the current cursor position.
+    ///
+    /// This method inserts a newline character and optionally copies the indentation
+    /// (leading whitespace) from the current line to the new line.
+    ///
+    /// # Arguments
+    ///
+    /// * `copy_margin` - If true, copy leading whitespace from current line to new line
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::buffer::Buffer;
+    ///
+    /// let mut buffer = Buffer::new();
+    /// buffer.set_text("    indented line".to_string());
+    /// buffer.set_cursor_position(16);
+    /// 
+    /// // Create new line with indentation copying
+    /// buffer.new_line(true);
+    /// assert_eq!(buffer.text(), "    indented line\n    ");
+    /// assert_eq!(buffer.cursor_position(), 22);
+    /// ```
+    pub fn new_line(&mut self, copy_margin: bool) {
+        let newline_text = if copy_margin {
+            // Get the leading whitespace from the current line
+            let doc = self.document();
+            let leading_whitespace = doc.leading_whitespace_in_current_line();
+            format!("\n{}", leading_whitespace)
+        } else {
+            "\n".to_string()
+        };
+        
+        // Insert the newline (and optional indentation) at cursor position
+        self.insert_text(&newline_text, false, true);
+    }
+
+    /// Join the current line with the next line using the specified separator.
+    ///
+    /// This method merges the current line with the following line, removing the
+    /// newline character between them and inserting the specified separator.
+    /// Leading whitespace from the next line is trimmed.
+    /// If there is no next line, this operation has no effect.
+    ///
+    /// # Arguments
+    ///
+    /// * `separator` - The text to insert between the joined lines
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::buffer::Buffer;
+    ///
+    /// let mut buffer = Buffer::new();
+    /// buffer.set_text("first line\nsecond line".to_string());
+    /// buffer.set_cursor_position(5); // Middle of first line
+    /// 
+    /// // Join lines with a space separator
+    /// buffer.join_next_line(" ");
+    /// assert_eq!(buffer.text(), "first line second line");
+    /// assert_eq!(buffer.cursor_position(), 5); // Cursor position unchanged
+    /// ```
+    pub fn join_next_line(&mut self, separator: &str) {
+        let current_text = self.text().to_string();
+        let text_rune_count = unicode::rune_count(&current_text);
+        
+        // Find the next newline character after the cursor
+        let mut newline_pos = None;
+        for (i, ch) in current_text.chars().enumerate().skip(self.cursor_position) {
+            if ch == '\n' {
+                newline_pos = Some(i);
+                break;
+            }
+        }
+        
+        // If no newline found, there's no next line to join
+        if let Some(newline_rune_pos) = newline_pos {
+            // Convert byte position to rune position
+            let newline_rune_index = current_text.chars().take(newline_rune_pos).count();
+            
+            // Get the text before the newline
+            let before_newline = unicode::rune_slice(&current_text, 0, newline_rune_index);
+            
+            // Get the text after the newline and trim leading whitespace
+            let after_newline = unicode::rune_slice(&current_text, newline_rune_index + 1, text_rune_count);
+            let trimmed_after = after_newline.trim_start();
+            
+            let new_text = format!("{}{}{}", before_newline, separator, trimmed_after);
+            self.working_lines[self.working_index] = new_text;
+            self.invalidate_cache();
+        }
+        // If no newline found, do nothing (no next line to join)
+    }
+
+    /// Swap the two characters immediately before the cursor.
+    ///
+    /// This operation exchanges the character immediately before the cursor with
+    /// the character before that. If there are fewer than two characters before
+    /// the cursor, this operation has no effect. The cursor position remains unchanged.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::buffer::Buffer;
+    ///
+    /// let mut buffer = Buffer::new();
+    /// buffer.set_text("hello world".to_string());
+    /// buffer.set_cursor_position(5); // After "hello"
+    /// 
+    /// // Swap 'l' and 'o'
+    /// buffer.swap_characters_before_cursor();
+    /// assert_eq!(buffer.text(), "helol world");
+    /// assert_eq!(buffer.cursor_position(), 5); // Cursor unchanged
+    /// ```
+    pub fn swap_characters_before_cursor(&mut self) {
+        let current_text = self.text().to_string();
+        let cursor_pos = self.cursor_position;
+        
+        // Need at least 2 characters before cursor to swap
+        if cursor_pos < 2 {
+            return;
+        }
+        
+        // Get the two characters before the cursor
+        let char1_pos = cursor_pos - 2;
+        let char2_pos = cursor_pos - 1;
+        
+        // Extract characters safely using Unicode-aware slicing
+        let char1 = unicode::char_at_rune_index(&current_text, char1_pos);
+        let char2 = unicode::char_at_rune_index(&current_text, char2_pos);
+        
+        if let (Some(ch1), Some(ch2)) = (char1, char2) {
+            // Build new text with swapped characters
+            let before_swap = unicode::rune_slice(&current_text, 0, char1_pos);
+            let after_cursor = unicode::rune_slice(&current_text, cursor_pos, unicode::rune_count(&current_text));
+            
+            let new_text = format!("{}{}{}{}", before_swap, ch2, ch1, after_cursor);
+            self.working_lines[self.working_index] = new_text;
+            self.invalidate_cache();
+        }
+    }
+
     /// Insert text at the current cursor position.
     ///
     /// # Arguments
@@ -1568,5 +1710,386 @@ mod tests {
         let deleted = buffer.delete(5);
         assert_eq!(deleted, "");
         assert_eq!(buffer.text(), "tes");
+    }
+
+    // Advanced editing operations tests
+
+    #[test]
+    fn test_new_line_basic() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("hello world".to_string());
+        buffer.set_cursor_position(5);
+        
+        // Create new line without copying margin
+        buffer.new_line(false);
+        assert_eq!(buffer.text(), "hello\n world");
+        assert_eq!(buffer.cursor_position(), 6);
+        
+        // Create another new line
+        buffer.new_line(false);
+        assert_eq!(buffer.text(), "hello\n\n world");
+        assert_eq!(buffer.cursor_position(), 7);
+    }
+
+    #[test]
+    fn test_new_line_with_margin_copying() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("    indented line".to_string());
+        buffer.set_cursor_position(17); // End of line
+        
+        // Create new line with margin copying
+        buffer.new_line(true);
+        assert_eq!(buffer.text(), "    indented line\n    ");
+        assert_eq!(buffer.cursor_position(), 22);
+        
+        // Add text to new line
+        buffer.insert_text("more text", false, true);
+        assert_eq!(buffer.text(), "    indented line\n    more text");
+        assert_eq!(buffer.cursor_position(), 31);
+    }
+
+    #[test]
+    fn test_new_line_mixed_indentation() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("  \t  mixed indentation".to_string());
+        buffer.set_cursor_position(9); // After "mixe" (position 9 is after the 'e')
+        
+        // Create new line with margin copying
+        buffer.new_line(true);
+        assert_eq!(buffer.text(), "  \t  mixe\n  \t  d indentation");
+        assert_eq!(buffer.cursor_position(), 15); // After newline + indentation
+    }
+
+    #[test]
+    fn test_new_line_no_indentation() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("no indentation".to_string());
+        buffer.set_cursor_position(7);
+        
+        // Create new line with margin copying (should not copy anything)
+        buffer.new_line(true);
+        assert_eq!(buffer.text(), "no inde\nntation");
+        assert_eq!(buffer.cursor_position(), 8);
+    }
+
+    #[test]
+    fn test_new_line_empty_buffer() {
+        let mut buffer = Buffer::new();
+        
+        // Create new line in empty buffer
+        buffer.new_line(false);
+        assert_eq!(buffer.text(), "\n");
+        assert_eq!(buffer.cursor_position(), 1);
+        
+        // Create another new line with margin copying (no margin to copy)
+        buffer.new_line(true);
+        assert_eq!(buffer.text(), "\n\n");
+        assert_eq!(buffer.cursor_position(), 2);
+    }
+
+    #[test]
+    fn test_new_line_unicode() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("    こんにちは世界".to_string());
+        buffer.set_cursor_position(7); // After "こんに" (position 7 is after 'に')
+        
+        // Create new line with margin copying
+        buffer.new_line(true);
+        assert_eq!(buffer.text(), "    こんに\n    ちは世界");
+        assert_eq!(buffer.cursor_position(), 12); // After newline + 4 spaces
+    }
+
+    #[test]
+    fn test_join_next_line_basic() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("first line\nsecond line".to_string());
+        buffer.set_cursor_position(5); // Middle of first line
+        
+        // Join lines with space separator
+        buffer.join_next_line(" ");
+        assert_eq!(buffer.text(), "first line second line");
+        assert_eq!(buffer.cursor_position(), 5); // Cursor unchanged
+    }
+
+    #[test]
+    fn test_join_next_line_different_separators() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("line1\nline2".to_string());
+        buffer.set_cursor_position(0);
+        
+        // Join with custom separator
+        buffer.join_next_line(" -> ");
+        assert_eq!(buffer.text(), "line1 -> line2");
+        assert_eq!(buffer.cursor_position(), 0);
+        
+        // Reset for next test
+        buffer.set_text("line1\nline2".to_string());
+        buffer.set_cursor_position(3);
+        
+        // Join with empty separator
+        buffer.join_next_line("");
+        assert_eq!(buffer.text(), "line1line2");
+        assert_eq!(buffer.cursor_position(), 3);
+    }
+
+    #[test]
+    fn test_join_next_line_multiple_lines() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("line1\nline2\nline3".to_string());
+        buffer.set_cursor_position(2); // In first line
+        
+        // Join first and second line
+        buffer.join_next_line(" ");
+        assert_eq!(buffer.text(), "line1 line2\nline3");
+        assert_eq!(buffer.cursor_position(), 2);
+        
+        // Join the result with third line
+        buffer.join_next_line(" ");
+        assert_eq!(buffer.text(), "line1 line2 line3");
+        assert_eq!(buffer.cursor_position(), 2);
+    }
+
+    #[test]
+    fn test_join_next_line_no_next_line() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("single line".to_string());
+        buffer.set_cursor_position(5);
+        
+        // Try to join when there's no next line
+        buffer.join_next_line(" ");
+        assert_eq!(buffer.text(), "single line"); // Unchanged
+        assert_eq!(buffer.cursor_position(), 5); // Unchanged
+    }
+
+    #[test]
+    fn test_join_next_line_cursor_after_newline() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("line1\nline2\nline3".to_string());
+        buffer.set_cursor_position(6); // Start of second line
+        
+        // Join second and third line
+        buffer.join_next_line(" ");
+        assert_eq!(buffer.text(), "line1\nline2 line3");
+        assert_eq!(buffer.cursor_position(), 6);
+    }
+
+    #[test]
+    fn test_join_next_line_empty_lines() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("line1\n\nline3".to_string());
+        buffer.set_cursor_position(3);
+        
+        // Join line1 with empty line (empty line gets trimmed)
+        buffer.join_next_line(" ");
+        assert_eq!(buffer.text(), "line1 line3");
+        assert_eq!(buffer.cursor_position(), 3);
+        
+        // Test with indented empty line
+        buffer.set_text("line1\n    \nline3".to_string());
+        buffer.set_cursor_position(3);
+        buffer.join_next_line(" ");
+        assert_eq!(buffer.text(), "line1 line3");
+        assert_eq!(buffer.cursor_position(), 3);
+    }
+
+    #[test]
+    fn test_join_next_line_unicode() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("こんにちは\n世界です".to_string());
+        buffer.set_cursor_position(2); // After "こん"
+        
+        // Join with Unicode separator
+        buffer.join_next_line("、");
+        assert_eq!(buffer.text(), "こんにちは、世界です");
+        assert_eq!(buffer.cursor_position(), 2);
+    }
+
+    #[test]
+    fn test_swap_characters_before_cursor_basic() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("hello world".to_string());
+        buffer.set_cursor_position(5); // After "hello"
+        
+        // Swap 'l' and 'o'
+        buffer.swap_characters_before_cursor();
+        assert_eq!(buffer.text(), "helol world");
+        assert_eq!(buffer.cursor_position(), 5); // Cursor unchanged
+    }
+
+    #[test]
+    fn test_swap_characters_before_cursor_different_positions() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("abcdef".to_string());
+        
+        // Test swapping at different positions
+        buffer.set_cursor_position(2); // After "ab"
+        buffer.swap_characters_before_cursor();
+        assert_eq!(buffer.text(), "bacdef");
+        assert_eq!(buffer.cursor_position(), 2);
+        
+        // Test swapping at end
+        buffer.set_cursor_position(6); // After "bacdef"
+        buffer.swap_characters_before_cursor();
+        assert_eq!(buffer.text(), "bacdfe");
+        assert_eq!(buffer.cursor_position(), 6);
+    }
+
+    #[test]
+    fn test_swap_characters_before_cursor_insufficient_chars() {
+        let mut buffer = Buffer::new();
+        
+        // Empty buffer
+        buffer.swap_characters_before_cursor();
+        assert_eq!(buffer.text(), "");
+        assert_eq!(buffer.cursor_position(), 0);
+        
+        // Single character
+        buffer.set_text("a".to_string());
+        buffer.set_cursor_position(1);
+        buffer.swap_characters_before_cursor();
+        assert_eq!(buffer.text(), "a"); // Unchanged
+        assert_eq!(buffer.cursor_position(), 1);
+        
+        // Cursor at position 0
+        buffer.set_text("hello".to_string());
+        buffer.set_cursor_position(0);
+        buffer.swap_characters_before_cursor();
+        assert_eq!(buffer.text(), "hello"); // Unchanged
+        assert_eq!(buffer.cursor_position(), 0);
+        
+        // Cursor at position 1 (only one char before)
+        buffer.set_cursor_position(1);
+        buffer.swap_characters_before_cursor();
+        assert_eq!(buffer.text(), "hello"); // Unchanged
+        assert_eq!(buffer.cursor_position(), 1);
+    }
+
+    #[test]
+    fn test_swap_characters_before_cursor_unicode() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("こんにちは".to_string());
+        buffer.set_cursor_position(2); // After "こん"
+        
+        // Swap Japanese characters
+        buffer.swap_characters_before_cursor();
+        assert_eq!(buffer.text(), "んこにちは");
+        assert_eq!(buffer.cursor_position(), 2);
+        
+        // Test with emoji
+        buffer.set_text("🦀🚀hello".to_string());
+        buffer.set_cursor_position(2); // After emojis
+        buffer.swap_characters_before_cursor();
+        assert_eq!(buffer.text(), "🚀🦀hello");
+        assert_eq!(buffer.cursor_position(), 2);
+    }
+
+    #[test]
+    fn test_swap_characters_before_cursor_mixed_unicode() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("a🦀hello".to_string());
+        buffer.set_cursor_position(2); // After "a🦀"
+        
+        // Swap ASCII and emoji
+        buffer.swap_characters_before_cursor();
+        assert_eq!(buffer.text(), "🦀ahello");
+        assert_eq!(buffer.cursor_position(), 2);
+        
+        // Test with combining characters
+        buffer.set_text("cafe\u{0301}".to_string()); // café with combining accent
+        buffer.set_cursor_position(5); // After "cafe\u{0301}"
+        buffer.swap_characters_before_cursor();
+        assert_eq!(buffer.text(), "caf\u{0301}e"); // Swap 'e' and combining accent with 'f'
+        assert_eq!(buffer.cursor_position(), 5);
+    }
+
+    #[test]
+    fn test_advanced_editing_cache_invalidation() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("    indented line\nsecond line".to_string());
+        buffer.set_cursor_position(17);
+        
+        // Access document to create cache
+        {
+            let doc = buffer.document();
+            assert_eq!(doc.text(), "    indented line\nsecond line");
+        }
+        
+        // new_line should invalidate cache
+        buffer.new_line(true);
+        {
+            let doc = buffer.document();
+            assert_eq!(doc.text(), "    indented line\n    \nsecond line");
+            assert_eq!(doc.cursor_position(), 22);
+        }
+        
+        // join_next_line should invalidate cache
+        buffer.join_next_line(" ");
+        {
+            let doc = buffer.document();
+            assert_eq!(doc.text(), "    indented line\n     second line");
+            assert_eq!(doc.cursor_position(), 22);
+        }
+        
+        // swap_characters_before_cursor should invalidate cache
+        buffer.set_cursor_position(6); // After "    in"
+        buffer.swap_characters_before_cursor();
+        {
+            let doc = buffer.document();
+            assert_eq!(doc.text(), "    nidented line\n     second line");
+            assert_eq!(doc.cursor_position(), 6);
+        }
+    }
+
+    #[test]
+    fn test_advanced_editing_complex_scenario() {
+        let mut buffer = Buffer::new();
+        buffer.set_text("  def function():\n    pass".to_string());
+        buffer.set_cursor_position(17); // End of first line
+        
+        // Add new line with indentation
+        buffer.new_line(true);
+        assert_eq!(buffer.text(), "  def function():\n  \n    pass");
+        assert_eq!(buffer.cursor_position(), 20);
+        
+        // Add some code
+        buffer.insert_text("    return True", false, true);
+        assert_eq!(buffer.text(), "  def function():\n      return True\n    pass");
+        assert_eq!(buffer.cursor_position(), 35);
+        
+        // Join the return line with pass line
+        buffer.join_next_line("; ");
+        assert_eq!(buffer.text(), "  def function():\n      return True; pass");
+        assert_eq!(buffer.cursor_position(), 35);
+        
+        // Fix a typo by swapping characters
+        buffer.set_cursor_position(13); // After "functio"
+        buffer.swap_characters_before_cursor();
+        assert_eq!(buffer.text(), "  def functoin():\n      return True; pass");
+        assert_eq!(buffer.cursor_position(), 13);
+    }
+
+    #[test]
+    fn test_advanced_editing_edge_cases() {
+        let mut buffer = Buffer::new();
+        
+        // Test new_line at start of text
+        buffer.set_text("hello".to_string());
+        buffer.set_cursor_position(0);
+        buffer.new_line(false);
+        assert_eq!(buffer.text(), "\nhello");
+        assert_eq!(buffer.cursor_position(), 1);
+        
+        // Test join_next_line with cursor at end
+        buffer.set_text("line1\nline2".to_string());
+        buffer.set_cursor_position(11); // End of text
+        buffer.join_next_line(" ");
+        assert_eq!(buffer.text(), "line1\nline2"); // No change, no next line
+        
+        // Test swap at various edge positions
+        buffer.set_text("ab".to_string());
+        buffer.set_cursor_position(2);
+        buffer.swap_characters_before_cursor();
+        assert_eq!(buffer.text(), "ba");
+        assert_eq!(buffer.cursor_position(), 2);
     }
 }

@@ -79,7 +79,7 @@
   - Write tests for cursor movement with multi-line text and preferred column behavior
   - _Requirements: 4.4, 4.5, 4.6, 5.4, 5.5_
 
-- [ ] 10. Implement advanced Buffer editing operations
+- [x] 10. Implement advanced Buffer editing operations
   - Add new_line() method with optional margin copying for indentation
   - Implement join_next_line() with configurable separator
   - Add swap_characters_before_cursor() with proper Unicode character handling
