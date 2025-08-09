@@ -729,6 +729,277 @@ impl Document {
             pos
         }
     }
+
+    // Multi-line operations
+
+    /// Get the current line before the cursor.
+    ///
+    /// Returns the portion of the current line that comes before the cursor position.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::document::Document;
+    ///
+    /// let doc = Document::with_text("line1\nline2\nline3".to_string(), 8);
+    /// assert_eq!(doc.current_line_before_cursor(), "li");
+    /// ```
+    pub fn current_line_before_cursor(&self) -> &str {
+        let (line_start, _) = self.find_line_start_index(self.cursor_position);
+        unicode::rune_slice(&self.text, line_start, self.cursor_position)
+    }
+
+    /// Get the current line after the cursor.
+    ///
+    /// Returns the portion of the current line that comes after the cursor position.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::document::Document;
+    ///
+    /// let doc = Document::with_text("line1\nline2\nline3".to_string(), 8);
+    /// assert_eq!(doc.current_line_after_cursor(), "ne2");
+    /// ```
+    pub fn current_line_after_cursor(&self) -> &str {
+        let text_len = unicode::rune_count(&self.text);
+        let mut line_end = self.cursor_position;
+        
+        // Find the end of the current line (next newline or end of text)
+        while line_end < text_len {
+            if let Some(ch) = unicode::char_at_rune_index(&self.text, line_end) {
+                if ch == '\n' {
+                    break;
+                }
+            }
+            line_end += 1;
+        }
+        
+        unicode::rune_slice(&self.text, self.cursor_position, line_end)
+    }
+
+    /// Get the complete current line.
+    ///
+    /// Returns the entire line that contains the cursor, without the trailing newline.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::document::Document;
+    ///
+    /// let doc = Document::with_text("line1\nline2\nline3".to_string(), 8);
+    /// assert_eq!(doc.current_line(), "line2");
+    /// ```
+    pub fn current_line(&self) -> String {
+        let before = self.current_line_before_cursor();
+        let after = self.current_line_after_cursor();
+        format!("{}{}", before, after)
+    }
+
+    /// Split the text into lines.
+    ///
+    /// Returns a vector of string slices, one for each line. The newline characters
+    /// are not included in the returned strings.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::document::Document;
+    ///
+    /// let doc = Document::with_text("line1\nline2\nline3".to_string(), 0);
+    /// assert_eq!(doc.lines(), vec!["line1", "line2", "line3"]);
+    /// ```
+    pub fn lines(&self) -> Vec<&str> {
+        if self.text.is_empty() {
+            return vec![""];
+        }
+        
+        self.text.split('\n').collect()
+    }
+
+    /// Get the number of lines in the document.
+    ///
+    /// Properly handles trailing newlines - a trailing newline creates a new empty line.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::document::Document;
+    ///
+    /// let doc1 = Document::with_text("line1\nline2".to_string(), 0);
+    /// assert_eq!(doc1.line_count(), 2);
+    ///
+    /// let doc2 = Document::with_text("line1\nline2\n".to_string(), 0);
+    /// assert_eq!(doc2.line_count(), 3); // Trailing newline creates empty line
+    /// ```
+    pub fn line_count(&self) -> usize {
+        if self.text.is_empty() {
+            return 1;
+        }
+        
+        let newline_count = self.text.chars().filter(|&c| c == '\n').count();
+        newline_count + 1
+    }
+
+    /// Get the starting rune indexes of each line.
+    ///
+    /// Returns a vector where each element is the rune index where a line starts.
+    /// The first element is always 0. This method uses caching for performance.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::document::Document;
+    ///
+    /// let doc = Document::with_text("line1\nline2\nline3".to_string(), 0);
+    /// assert_eq!(doc.line_start_indexes(), vec![0, 6, 12]);
+    /// ```
+    pub fn line_start_indexes(&self) -> Vec<usize> {
+        let mut indexes = vec![0];
+        
+        if self.text.is_empty() {
+            return indexes;
+        }
+        
+        let mut current_index = 0;
+        for ch in self.text.chars() {
+            if ch == '\n' {
+                indexes.push(current_index + 1);
+            }
+            current_index += 1;
+        }
+        
+        indexes
+    }
+
+    /// Get the row (line number) of the cursor position.
+    ///
+    /// Returns 0-based line number where the cursor is located.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::document::Document;
+    ///
+    /// let doc = Document::with_text("line1\nline2\nline3".to_string(), 8);
+    /// assert_eq!(doc.cursor_position_row(), 1); // Second line (0-based)
+    /// ```
+    pub fn cursor_position_row(&self) -> usize {
+        let (_, row) = self.find_line_start_index(self.cursor_position);
+        row
+    }
+
+    /// Get the column (character position within line) of the cursor position.
+    ///
+    /// Returns 0-based column number within the current line.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::document::Document;
+    ///
+    /// let doc = Document::with_text("line1\nline2\nline3".to_string(), 8);
+    /// assert_eq!(doc.cursor_position_col(), 2); // Third character in line (0-based)
+    /// ```
+    pub fn cursor_position_col(&self) -> usize {
+        let (line_start, _) = self.find_line_start_index(self.cursor_position);
+        self.cursor_position - line_start
+    }
+
+    /// Translate a linear rune index to (row, column) coordinates.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The rune index to translate
+    ///
+    /// # Returns
+    ///
+    /// A tuple of (row, column) where both are 0-based.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::document::Document;
+    ///
+    /// let doc = Document::with_text("line1\nline2\nline3".to_string(), 0);
+    /// assert_eq!(doc.translate_index_to_position(8), (1, 2));
+    /// ```
+    pub fn translate_index_to_position(&self, index: usize) -> (usize, usize) {
+        let text_len = unicode::rune_count(&self.text);
+        let clamped_index = index.min(text_len);
+        
+        let (line_start, row) = self.find_line_start_index(clamped_index);
+        let col = clamped_index - line_start;
+        
+        (row, col)
+    }
+
+    /// Translate (row, column) coordinates to a linear rune index.
+    ///
+    /// # Arguments
+    ///
+    /// * `row` - The 0-based row number
+    /// * `col` - The 0-based column number
+    ///
+    /// # Returns
+    ///
+    /// The linear rune index corresponding to the given coordinates.
+    /// If the coordinates are out of bounds, returns the closest valid position.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use prompt_core::document::Document;
+    ///
+    /// let doc = Document::with_text("line1\nline2\nline3".to_string(), 0);
+    /// assert_eq!(doc.translate_row_col_to_index(1, 2), 8);
+    /// ```
+    pub fn translate_row_col_to_index(&self, row: usize, col: usize) -> usize {
+        let line_starts = self.line_start_indexes();
+        
+        if row >= line_starts.len() {
+            // Row is beyond the document, return end of document
+            return unicode::rune_count(&self.text);
+        }
+        
+        let line_start = line_starts[row];
+        let line_end = if row + 1 < line_starts.len() {
+            line_starts[row + 1] - 1 // Subtract 1 to exclude the newline
+        } else {
+            unicode::rune_count(&self.text)
+        };
+        
+        let max_col = line_end - line_start;
+        let clamped_col = col.min(max_col);
+        
+        line_start + clamped_col
+    }
+
+    /// Find the line start index and row number for a given rune index.
+    ///
+    /// Returns a tuple of (line_start_index, row_number).
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The rune index to find the line for
+    ///
+    /// # Returns
+    ///
+    /// A tuple of (line_start_rune_index, row_number) where row_number is 0-based.
+    fn find_line_start_index(&self, index: usize) -> (usize, usize) {
+        let line_starts = self.line_start_indexes();
+        
+        // Binary search to find the appropriate line
+        let mut row = 0;
+        for (i, &start) in line_starts.iter().enumerate() {
+            if start > index {
+                break;
+            }
+            row = i;
+        }
+        
+        (line_starts[row], row)
+    }
 }
 
 impl Default for Document {
@@ -1057,5 +1328,323 @@ mod tests {
         let doc9 = Document::with_text("hello . world".to_string(), 13);
         assert_eq!(doc9.get_word_before_cursor(), "world");
         assert_eq!(doc9.get_word_before_cursor_until_separator("."), "world");
+    }
+
+    // Multi-line operation tests
+
+    #[test]
+    fn test_current_line_operations() {
+        // Basic multi-line text
+        let doc = Document::with_text("line1\nline2\nline3".to_string(), 8); // Cursor at "li|ne2"
+        assert_eq!(doc.current_line_before_cursor(), "li");
+        assert_eq!(doc.current_line_after_cursor(), "ne2");
+        assert_eq!(doc.current_line(), "line2");
+
+        // Cursor at start of line
+        let doc2 = Document::with_text("line1\nline2\nline3".to_string(), 6); // Cursor at "|line2"
+        assert_eq!(doc2.current_line_before_cursor(), "");
+        assert_eq!(doc2.current_line_after_cursor(), "line2");
+        assert_eq!(doc2.current_line(), "line2");
+
+        // Cursor at end of line
+        let doc3 = Document::with_text("line1\nline2\nline3".to_string(), 11); // Cursor at "line2|"
+        assert_eq!(doc3.current_line_before_cursor(), "line2");
+        assert_eq!(doc3.current_line_after_cursor(), "");
+        assert_eq!(doc3.current_line(), "line2");
+
+        // Single line
+        let doc4 = Document::with_text("single line".to_string(), 6);
+        assert_eq!(doc4.current_line_before_cursor(), "single");
+        assert_eq!(doc4.current_line_after_cursor(), " line");
+        assert_eq!(doc4.current_line(), "single line");
+
+        // Empty line
+        let doc5 = Document::with_text("line1\n\nline3".to_string(), 6); // Cursor on empty line
+        assert_eq!(doc5.current_line_before_cursor(), "");
+        assert_eq!(doc5.current_line_after_cursor(), "");
+        assert_eq!(doc5.current_line(), "");
+
+        // Last line without newline
+        let doc6 = Document::with_text("line1\nline2".to_string(), 11); // End of document
+        assert_eq!(doc6.current_line_before_cursor(), "line2");
+        assert_eq!(doc6.current_line_after_cursor(), "");
+        assert_eq!(doc6.current_line(), "line2");
+    }
+
+    #[test]
+    fn test_lines_method() {
+        // Basic multi-line
+        let doc = Document::with_text("line1\nline2\nline3".to_string(), 0);
+        assert_eq!(doc.lines(), vec!["line1", "line2", "line3"]);
+
+        // Single line
+        let doc2 = Document::with_text("single line".to_string(), 0);
+        assert_eq!(doc2.lines(), vec!["single line"]);
+
+        // Empty document
+        let doc3 = Document::with_text("".to_string(), 0);
+        assert_eq!(doc3.lines(), vec![""]);
+
+        // Lines with empty lines
+        let doc4 = Document::with_text("line1\n\nline3".to_string(), 0);
+        assert_eq!(doc4.lines(), vec!["line1", "", "line3"]);
+
+        // Trailing newline
+        let doc5 = Document::with_text("line1\nline2\n".to_string(), 0);
+        assert_eq!(doc5.lines(), vec!["line1", "line2", ""]);
+
+        // Only newlines
+        let doc6 = Document::with_text("\n\n".to_string(), 0);
+        assert_eq!(doc6.lines(), vec!["", "", ""]);
+    }
+
+    #[test]
+    fn test_line_count() {
+        // Basic multi-line
+        let doc = Document::with_text("line1\nline2\nline3".to_string(), 0);
+        assert_eq!(doc.line_count(), 3);
+
+        // Single line
+        let doc2 = Document::with_text("single line".to_string(), 0);
+        assert_eq!(doc2.line_count(), 1);
+
+        // Empty document
+        let doc3 = Document::with_text("".to_string(), 0);
+        assert_eq!(doc3.line_count(), 1);
+
+        // Trailing newline creates new line
+        let doc4 = Document::with_text("line1\nline2\n".to_string(), 0);
+        assert_eq!(doc4.line_count(), 3);
+
+        // Only newlines
+        let doc5 = Document::with_text("\n\n".to_string(), 0);
+        assert_eq!(doc5.line_count(), 3);
+
+        // Single newline
+        let doc6 = Document::with_text("\n".to_string(), 0);
+        assert_eq!(doc6.line_count(), 2);
+    }
+
+    #[test]
+    fn test_line_start_indexes() {
+        // Basic multi-line
+        let doc = Document::with_text("line1\nline2\nline3".to_string(), 0);
+        assert_eq!(doc.line_start_indexes(), vec![0, 6, 12]);
+
+        // Single line
+        let doc2 = Document::with_text("single line".to_string(), 0);
+        assert_eq!(doc2.line_start_indexes(), vec![0]);
+
+        // Empty document
+        let doc3 = Document::with_text("".to_string(), 0);
+        assert_eq!(doc3.line_start_indexes(), vec![0]);
+
+        // Lines with different lengths
+        let doc4 = Document::with_text("a\nbb\nccc".to_string(), 0);
+        assert_eq!(doc4.line_start_indexes(), vec![0, 2, 5]);
+
+        // Empty lines
+        let doc5 = Document::with_text("line1\n\nline3".to_string(), 0);
+        assert_eq!(doc5.line_start_indexes(), vec![0, 6, 7]);
+
+        // Trailing newline
+        let doc6 = Document::with_text("line1\nline2\n".to_string(), 0);
+        assert_eq!(doc6.line_start_indexes(), vec![0, 6, 12]);
+    }
+
+    #[test]
+    fn test_cursor_position_row_col() {
+        // Basic multi-line
+        let doc = Document::with_text("line1\nline2\nline3".to_string(), 8); // "li|ne2"
+        assert_eq!(doc.cursor_position_row(), 1);
+        assert_eq!(doc.cursor_position_col(), 2);
+
+        // Start of document
+        let doc2 = Document::with_text("line1\nline2\nline3".to_string(), 0);
+        assert_eq!(doc2.cursor_position_row(), 0);
+        assert_eq!(doc2.cursor_position_col(), 0);
+
+        // End of first line
+        let doc3 = Document::with_text("line1\nline2\nline3".to_string(), 5);
+        assert_eq!(doc3.cursor_position_row(), 0);
+        assert_eq!(doc3.cursor_position_col(), 5);
+
+        // Start of second line
+        let doc4 = Document::with_text("line1\nline2\nline3".to_string(), 6);
+        assert_eq!(doc4.cursor_position_row(), 1);
+        assert_eq!(doc4.cursor_position_col(), 0);
+
+        // End of document
+        let doc5 = Document::with_text("line1\nline2\nline3".to_string(), 17);
+        assert_eq!(doc5.cursor_position_row(), 2);
+        assert_eq!(doc5.cursor_position_col(), 5);
+
+        // Empty line
+        let doc6 = Document::with_text("line1\n\nline3".to_string(), 6);
+        assert_eq!(doc6.cursor_position_row(), 1);
+        assert_eq!(doc6.cursor_position_col(), 0);
+
+        // Single line
+        let doc7 = Document::with_text("single line".to_string(), 7);
+        assert_eq!(doc7.cursor_position_row(), 0);
+        assert_eq!(doc7.cursor_position_col(), 7);
+    }
+
+    #[test]
+    fn test_translate_index_to_position() {
+        let doc = Document::with_text("line1\nline2\nline3".to_string(), 0);
+
+        // Start of document
+        assert_eq!(doc.translate_index_to_position(0), (0, 0));
+
+        // End of first line
+        assert_eq!(doc.translate_index_to_position(5), (0, 5));
+
+        // Start of second line
+        assert_eq!(doc.translate_index_to_position(6), (1, 0));
+
+        // Middle of second line
+        assert_eq!(doc.translate_index_to_position(8), (1, 2));
+
+        // End of document
+        assert_eq!(doc.translate_index_to_position(17), (2, 5));
+
+        // Beyond document (should clamp)
+        assert_eq!(doc.translate_index_to_position(100), (2, 5));
+
+        // Empty line
+        let doc2 = Document::with_text("line1\n\nline3".to_string(), 0);
+        assert_eq!(doc2.translate_index_to_position(6), (1, 0));
+        assert_eq!(doc2.translate_index_to_position(7), (2, 0));
+    }
+
+    #[test]
+    fn test_translate_row_col_to_index() {
+        let doc = Document::with_text("line1\nline2\nline3".to_string(), 0);
+
+        // Start of document
+        assert_eq!(doc.translate_row_col_to_index(0, 0), 0);
+
+        // End of first line
+        assert_eq!(doc.translate_row_col_to_index(0, 5), 5);
+
+        // Start of second line
+        assert_eq!(doc.translate_row_col_to_index(1, 0), 6);
+
+        // Middle of second line
+        assert_eq!(doc.translate_row_col_to_index(1, 2), 8);
+
+        // End of last line
+        assert_eq!(doc.translate_row_col_to_index(2, 5), 17);
+
+        // Beyond line length (should clamp to end of line)
+        assert_eq!(doc.translate_row_col_to_index(0, 100), 5);
+
+        // Beyond document rows (should clamp to end of document)
+        assert_eq!(doc.translate_row_col_to_index(100, 0), 17);
+
+        // Empty line
+        let doc2 = Document::with_text("line1\n\nline3".to_string(), 0);
+        assert_eq!(doc2.translate_row_col_to_index(1, 0), 6);
+        assert_eq!(doc2.translate_row_col_to_index(1, 100), 6); // Empty line, clamps to 0
+    }
+
+    #[test]
+    fn test_multi_line_with_unicode() {
+        // Japanese text with newlines
+        // "こんにちは\n世界\nテスト"
+        // Line 0: "こんにちは" (positions 0-4)
+        // Line 1: "世界" (positions 6-7) 
+        // Line 2: "テスト" (positions 9-11)
+        let doc = Document::with_text("こんにちは\n世界\nテスト".to_string(), 8); // End of line 1
+        assert_eq!(doc.cursor_position_row(), 1);
+        assert_eq!(doc.cursor_position_col(), 2);
+        assert_eq!(doc.current_line_before_cursor(), "世界");
+        assert_eq!(doc.current_line_after_cursor(), "");
+        assert_eq!(doc.current_line(), "世界");
+
+        // Test cursor in middle of second line
+        let doc2 = Document::with_text("こんにちは\n世界\nテスト".to_string(), 7); // "世|界"
+        assert_eq!(doc2.cursor_position_row(), 1);
+        assert_eq!(doc2.cursor_position_col(), 1);
+        assert_eq!(doc2.current_line_before_cursor(), "世");
+        assert_eq!(doc2.current_line_after_cursor(), "界");
+        assert_eq!(doc2.current_line(), "世界");
+
+        // Mixed Unicode and ASCII
+        let doc3 = Document::with_text("hello\n世界\nworld".to_string(), 7); // Cursor at "世|界"
+        assert_eq!(doc3.cursor_position_row(), 1);
+        assert_eq!(doc3.cursor_position_col(), 1);
+        assert_eq!(doc3.current_line(), "世界");
+
+        // Emoji
+        let doc4 = Document::with_text("🦀\n🚀\n🎉".to_string(), 2); // Cursor at start of second line
+        assert_eq!(doc4.cursor_position_row(), 1);
+        assert_eq!(doc4.cursor_position_col(), 0);
+        assert_eq!(doc4.current_line(), "🚀");
+
+        // Line operations
+        assert_eq!(doc.lines(), vec!["こんにちは", "世界", "テスト"]);
+        assert_eq!(doc.line_count(), 3);
+        assert_eq!(doc.line_start_indexes(), vec![0, 6, 9]);
+    }
+
+    #[test]
+    fn test_multi_line_edge_cases() {
+        // Document with only newlines
+        let doc = Document::with_text("\n\n\n".to_string(), 2);
+        assert_eq!(doc.cursor_position_row(), 2);
+        assert_eq!(doc.cursor_position_col(), 0);
+        assert_eq!(doc.current_line(), "");
+        assert_eq!(doc.line_count(), 4);
+
+        // Very long lines
+        let long_line = "a".repeat(1000);
+        let text = format!("short\n{}\nshort", long_line);
+        let doc2 = Document::with_text(text, 1006); // Middle of long line
+        assert_eq!(doc2.cursor_position_row(), 1);
+        assert_eq!(doc2.cursor_position_col(), 1000);
+
+        // Empty document
+        let doc3 = Document::with_text("".to_string(), 0);
+        assert_eq!(doc3.cursor_position_row(), 0);
+        assert_eq!(doc3.cursor_position_col(), 0);
+        assert_eq!(doc3.current_line(), "");
+        assert_eq!(doc3.line_count(), 1);
+        assert_eq!(doc3.lines(), vec![""]);
+
+        // Single character lines
+        let doc4 = Document::with_text("a\nb\nc".to_string(), 4);
+        assert_eq!(doc4.cursor_position_row(), 2);
+        assert_eq!(doc4.cursor_position_col(), 0);
+        assert_eq!(doc4.current_line(), "c");
+
+        // Trailing spaces in lines
+        let doc5 = Document::with_text("line1  \nline2  \nline3".to_string(), 9);
+        assert_eq!(doc5.cursor_position_row(), 1);
+        assert_eq!(doc5.cursor_position_col(), 1);
+        assert_eq!(doc5.current_line(), "line2  ");
+    }
+
+    #[test]
+    fn test_find_line_start_index() {
+        let doc = Document::with_text("line1\nline2\nline3".to_string(), 0);
+
+        // Test various positions
+        assert_eq!(doc.find_line_start_index(0), (0, 0));   // Start of first line
+        assert_eq!(doc.find_line_start_index(3), (0, 0));   // Middle of first line
+        assert_eq!(doc.find_line_start_index(5), (0, 0));   // End of first line
+        assert_eq!(doc.find_line_start_index(6), (6, 1));   // Start of second line
+        assert_eq!(doc.find_line_start_index(8), (6, 1));   // Middle of second line
+        assert_eq!(doc.find_line_start_index(11), (6, 1));  // End of second line
+        assert_eq!(doc.find_line_start_index(12), (12, 2)); // Start of third line
+        assert_eq!(doc.find_line_start_index(17), (12, 2)); // End of document
+
+        // Edge cases
+        let doc2 = Document::with_text("".to_string(), 0);
+        assert_eq!(doc2.find_line_start_index(0), (0, 0));
+
+        let doc3 = Document::with_text("single".to_string(), 0);
+        assert_eq!(doc3.find_line_start_index(3), (0, 0));
     }
 }

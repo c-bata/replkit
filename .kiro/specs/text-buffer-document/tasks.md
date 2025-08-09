@@ -34,7 +34,7 @@
   - Write comprehensive tests for word operations with various Unicode text
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6_
 
-- [ ] 5. Implement multi-line Document operations
+- [x] 5. Implement multi-line Document operations
   - Add current_line_before_cursor(), current_line_after_cursor(), current_line() methods
   - Implement lines() method to split text into line array
   - Add line_count() with proper handling of trailing newlines
