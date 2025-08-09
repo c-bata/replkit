@@ -6,7 +6,7 @@
   - Add basic Cargo.toml configuration for the prompt-core crate
   - _Requirements: 1.4, 1.5, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6_
 
-- [ ] 2. Implement Trie-based sequence matcher
+- [x] 2. Implement Trie-based sequence matcher
   - Create `crates/prompt-core/src/sequence_matcher.rs` with TrieNode structure
   - Implement MatchResult enum and LongestMatchResult struct
   - Build static sequence mapping table covering control chars, arrows, function keys
