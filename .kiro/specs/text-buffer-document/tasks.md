@@ -25,7 +25,7 @@
   - Write unit tests for basic Document functionality and Unicode handling
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7_
 
-- [ ] 4. Implement Document text analysis methods
+- [x] 4. Implement Document text analysis methods
   - Add get_char_relative_to_cursor() with bounds checking and error handling
   - Implement word finding methods: get_word_before_cursor(), get_word_after_cursor()
   - Add word boundary detection: find_start_of_previous_word(), find_end_of_current_word()
