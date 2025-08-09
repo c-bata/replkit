@@ -15,7 +15,7 @@
   - Please refer to `references/snippets/prompt_toolkit_vt100_debug.py`.
   - _Requirements: 1.1, 1.3, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6_
 
-- [ ] 3. Create state machine parser engine
+- [x] 3. Create state machine parser engine
   - Implement `crates/prompt-core/src/key_parser.rs` with ParserState enum
   - Create KeyParser struct with state, buffer, and sequence_matcher fields
   - Implement feed() method with proper state transitions and partial sequence handling
