@@ -20,6 +20,7 @@ pub use crate::buffer::Buffer;
 
 // Completion system
 pub use crate::suggestion::Suggestion;
+pub use crate::completion::{Completor, StaticCompleter};
 
 // Key input handling
 pub use crate::key::{Key, KeyEvent};
@@ -37,9 +38,6 @@ pub use crate::unicode::{
 
 // Re-export traits and types that will be implemented in future tasks
 // These will be uncommented as they are implemented:
-
-// Completion system (to be implemented in Task 1.3)
-// pub use crate::completion::Completor;
 
 // Prompt system (to be implemented in Phase 2)
 // pub use crate::prompt::{Prompt, PromptBuilder};
@@ -101,5 +99,28 @@ mod tests {
         let doc = Document::with_text("hello world".to_string(), 5);
         assert_eq!(doc.text(), "hello world");
         assert_eq!(doc.cursor_position(), 5);
+    }
+
+    #[test]
+    fn test_completion_from_prelude() {
+        // Test that Completor trait and StaticCompleter are available through prelude
+        let completer = StaticCompleter::from_strings(vec!["hello", "help", "history"]);
+        let doc = Document::with_text("he".to_string(), 2);
+        let suggestions = completer.complete(&doc);
+        assert_eq!(suggestions.len(), 2);
+        
+        // Test function-based completer
+        let func_completer = |document: &Document| -> Vec<Suggestion> {
+            if document.text().starts_with("test") {
+                vec![Suggestion::new("testing", "Run tests")]
+            } else {
+                vec![]
+            }
+        };
+        
+        let test_doc = Document::with_text("test".to_string(), 4);
+        let test_suggestions = func_completer.complete(&test_doc);
+        assert_eq!(test_suggestions.len(), 1);
+        assert_eq!(test_suggestions[0].text, "testing");
     }
 }

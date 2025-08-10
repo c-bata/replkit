@@ -18,6 +18,7 @@ pub mod unicode;
 
 // Completion system
 pub mod suggestion;
+pub mod completion;
 
 // Convenience module for common imports
 pub mod prelude;
@@ -40,6 +41,7 @@ pub use buffer::Buffer;
 pub use document::Document;
 pub use error::{BufferError, BufferResult};
 pub use suggestion::Suggestion;
+pub use completion::{Completor, StaticCompleter};
 pub use unicode::{
     byte_index_from_rune_index, char_at_rune_index, display_width, rune_count, rune_slice,
 };
