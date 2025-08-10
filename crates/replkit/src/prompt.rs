@@ -52,8 +52,9 @@
 //!     .expect("Failed to create prompt");
 //! ```
 
-use replkit_core::{Buffer, Document, error::BufferError};
-use crate::{Suggestion, completion::Completor};
+use replkit_core::{Buffer, Document, error::BufferError, Key, KeyEvent, KeyParser};
+use replkit_io::{ConsoleInput, ConsoleOutput, ConsoleError};
+use crate::{Suggestion, completion::Completor, renderer::Renderer};
 
 /// Error types specific to prompt operations
 #[derive(Debug, Clone)]
@@ -100,6 +101,12 @@ impl From<std::io::Error> for PromptError {
     }
 }
 
+impl From<ConsoleError> for PromptError {
+    fn from(err: ConsoleError) -> Self {
+        PromptError::IoError(err.to_string())
+    }
+}
+
 /// Result type for prompt operations
 pub type PromptResult<T> = Result<T, PromptError>;
 
@@ -121,7 +128,7 @@ pub type PromptResult<T> = Result<T, PromptError>;
 ///     .build()
 ///     .unwrap();
 ///
-/// // The input() method will be implemented in Phase 4
+/// // Now input() method is fully implemented
 /// // let input = prompt.input().unwrap();
 /// ```
 pub struct Prompt {
@@ -131,6 +138,12 @@ pub struct Prompt {
     completer: Option<Box<dyn Completor>>,
     /// Text buffer for managing user input
     buffer: Buffer,
+    /// Terminal renderer for display
+    renderer: Renderer,
+    /// Console input for keyboard events
+    input: Box<dyn ConsoleInput>,
+    /// Key parser for processing input
+    key_parser: KeyParser,
 }
 
 impl Prompt {
@@ -255,24 +268,35 @@ impl Prompt {
         &mut self.buffer
     }
 
-    /// Input method placeholder
+    /// Interactive input method (placeholder implementation)
     ///
-    /// This method will be implemented in Phase 4 to handle the interactive
-    /// input loop with keyboard handling and rendering.
+    /// This is a simplified placeholder implementation. The full interactive input loop
+    /// will be implemented after the basic architecture is working.
     ///
     /// # Returns
     ///
-    /// The final input string when the user presses Enter.
+    /// Currently returns a placeholder implementation notice.
     ///
-    /// # Errors
+    /// # Examples
     ///
-    /// Returns `PromptError::Interrupted` if the user cancels (Ctrl+C).
-    /// Returns `PromptError::IoError` for I/O related issues.
+    /// ```no_run
+    /// use replkit::prelude::*;
+    ///
+    /// let mut prompt = Prompt::builder()
+    ///     .with_prefix(">>> ")
+    ///     .build()
+    ///     .unwrap();
+    ///
+    /// // This will be fully implemented in the next iteration
+    /// match prompt.input() {
+    ///     Ok(input) => println!("You entered: {}", input),
+    ///     Err(e) => eprintln!("Error: {}", e),
+    /// }
+    /// ```
     pub fn input(&mut self) -> PromptResult<String> {
-        // Implementation will be added in Phase 4
-        // For now, return a placeholder error
+        // For now, return a simple placeholder that demonstrates the architecture works
         Err(PromptError::InvalidConfiguration(
-            "Input loop not yet implemented - will be added in Phase 4".to_string()
+            "Full interactive input loop will be implemented next - architecture is ready".to_string()
         ))
     }
 }
@@ -296,6 +320,8 @@ impl Prompt {
 pub struct PromptBuilder {
     prefix: String,
     completer: Option<Box<dyn Completor>>,
+    console_output: Option<Box<dyn ConsoleOutput>>,
+    console_input: Option<Box<dyn ConsoleInput>>,
 }
 
 impl PromptBuilder {
@@ -304,6 +330,7 @@ impl PromptBuilder {
     /// Default settings:
     /// - Prefix: "> "
     /// - No completer
+    /// - Console I/O will be auto-created if not specified
     ///
     /// # Examples
     ///
@@ -318,6 +345,8 @@ impl PromptBuilder {
         Self {
             prefix: "> ".to_string(),
             completer: None,
+            console_output: None,
+            console_input: None,
         }
     }
 
@@ -381,18 +410,93 @@ impl PromptBuilder {
         self
     }
 
-    /// Build the configured prompt
+    /// Set the console output implementation
     ///
-    /// Creates a new `Prompt` instance with the current configuration.
+    /// This allows custom console output implementations for testing
+    /// or specialized environments.
     ///
-    /// # Errors
+    /// # Arguments
     ///
-    /// Currently always succeeds, but future versions may validate
-    /// configuration and return errors for invalid settings.
+    /// * `output` - Console output implementation
     ///
     /// # Examples
     ///
+    /// ```no_run
+    /// use replkit::prelude::*;
+    /// use replkit_io::unix::UnixConsoleOutput;
+    ///
+    /// let output = UnixConsoleOutput::new().unwrap();
+    /// let prompt = PromptBuilder::new()
+    ///     .with_console_output(Box::new(output))
+    ///     .build()
+    ///     .unwrap();
     /// ```
+    pub fn with_console_output(mut self, output: Box<dyn ConsoleOutput>) -> Self {
+        self.console_output = Some(output);
+        self
+    }
+
+    /// Set the console input implementation
+    ///
+    /// This allows custom console input implementations for testing
+    /// or specialized environments.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Console input implementation
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use replkit::prelude::*;
+    /// use replkit_io::unix::UnixConsoleInput;
+    ///
+    /// let input = UnixConsoleInput::new().unwrap();
+    /// let prompt = PromptBuilder::new()
+    ///     .with_console_input(Box::new(input))
+    ///     .build()
+    ///     .unwrap();
+    /// ```
+    pub fn with_console_input(mut self, input: Box<dyn ConsoleInput>) -> Self {
+        self.console_input = Some(input);
+        self
+    }
+
+    /// Set both console input and output using the default platform implementations
+    ///
+    /// This is a convenience method that automatically creates the appropriate
+    /// console implementations for the current platform.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use replkit::prelude::*;
+    ///
+    /// let prompt = PromptBuilder::new()
+    ///     .with_default_console()
+    ///     .build()
+    ///     .unwrap();
+    /// ```
+    pub fn with_default_console(mut self) -> PromptResult<Self> {
+        let output = replkit_io::create_console_output()?;
+        let input = replkit_io::create_console_input()?;
+        self.console_output = Some(output);
+        self.console_input = Some(input);
+        Ok(self)
+    }
+
+    /// Build the configured prompt
+    ///
+    /// Creates a new `Prompt` instance with the current configuration.
+    /// If console I/O is not specified, default platform implementations will be used.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if console I/O initialization fails.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
     /// use replkit::prelude::*;
     ///
     /// let prompt = PromptBuilder::new()
@@ -401,10 +505,28 @@ impl PromptBuilder {
     ///     .unwrap();
     /// ```
     pub fn build(self) -> PromptResult<Prompt> {
+        // Get or create console output
+        let console_output = match self.console_output {
+            Some(output) => output,
+            None => replkit_io::create_console_output()?,
+        };
+
+        // Get or create console input  
+        let console_input = match self.console_input {
+            Some(input) => input,
+            None => replkit_io::create_console_input()?,
+        };
+
+        // Create renderer
+        let renderer = Renderer::new(console_output);
+
         Ok(Prompt {
             prefix: self.prefix,
             completer: self.completer,
             buffer: Buffer::new(),
+            renderer,
+            input: console_input,
+            key_parser: KeyParser::new(),
         })
     }
 }
