@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/replkit",
     "crates/replkit-core",
     "crates/replkit-wasm",
     "crates/replkit-pyo3",

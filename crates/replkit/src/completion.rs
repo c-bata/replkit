@@ -17,7 +17,7 @@ use crate::{Document, Suggestion};
 /// ## Using a function
 ///
 /// ```
-/// use replkit_core::{Document, Suggestion, completion::Completor};
+/// use replkit::{Document, Suggestion, completion::Completor};
 ///
 /// fn my_completer(document: &Document) -> Vec<Suggestion> {
 ///     vec![
@@ -33,7 +33,7 @@ use crate::{Document, Suggestion};
 /// ## Implementing the trait directly
 ///
 /// ```
-/// use replkit_core::{Document, Suggestion, completion::Completor};
+/// use replkit::{Document, Suggestion, completion::Completor};
 ///
 /// struct MyCompleter {
 ///     commands: Vec<(String, String)>,
@@ -73,7 +73,7 @@ pub trait Completor {
 /// # Examples
 ///
 /// ```
-/// use replkit_core::{Document, Suggestion, completion::Completor};
+/// use replkit::{Document, Suggestion, completion::Completor};
 ///
 /// let completer = |document: &Document| -> Vec<Suggestion> {
 ///     vec![Suggestion::new("example", "An example completion")]
@@ -100,7 +100,7 @@ where
 /// # Examples
 ///
 /// ```
-/// use replkit_core::{Document, Suggestion, completion::{Completor, StaticCompleter}};
+/// use replkit::{Document, Suggestion, completion::{Completor, StaticCompleter}};
 ///
 /// let completer = StaticCompleter::new(vec![
 ///     Suggestion::new("users", "Manage users"),
@@ -128,7 +128,7 @@ impl StaticCompleter {
     /// # Examples
     ///
     /// ```
-    /// use replkit_core::completion::StaticCompleter;
+    /// use replkit::completion::StaticCompleter;
     ///
     /// let completer = StaticCompleter::from_pairs(vec![
     ///     ("help", "Show help"),
@@ -152,7 +152,7 @@ impl StaticCompleter {
     /// # Examples
     ///
     /// ```
-    /// use replkit_core::completion::StaticCompleter;
+    /// use replkit::completion::StaticCompleter;
     ///
     /// let completer = StaticCompleter::from_strings(vec![
     ///     "help", "hello", "history"

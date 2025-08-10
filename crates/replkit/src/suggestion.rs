@@ -19,7 +19,7 @@ impl Suggestion {
     /// # Examples
     ///
     /// ```
-    /// use replkit_core::suggestion::Suggestion;
+    /// use replkit::suggestion::Suggestion;
     ///
     /// let suggestion = Suggestion::new("users", "Store the username and age");
     /// assert_eq!(suggestion.text, "users");
@@ -37,7 +37,7 @@ impl Suggestion {
     /// # Examples
     ///
     /// ```
-    /// use replkit_core::suggestion::Suggestion;
+    /// use replkit::suggestion::Suggestion;
     ///
     /// let suggestion = Suggestion::text_only("users");
     /// assert_eq!(suggestion.text, "users");
@@ -57,7 +57,7 @@ impl From<&str> for Suggestion {
     /// # Examples
     ///
     /// ```
-    /// use replkit_core::suggestion::Suggestion;
+    /// use replkit::suggestion::Suggestion;
     ///
     /// let suggestion: Suggestion = "users".into();
     /// assert_eq!(suggestion.text, "users");
@@ -81,7 +81,7 @@ impl From<(String, String)> for Suggestion {
     /// # Examples
     ///
     /// ```
-    /// use replkit_core::suggestion::Suggestion;
+    /// use replkit::suggestion::Suggestion;
     ///
     /// let suggestion: Suggestion = ("users".to_string(), "Store user data".to_string()).into();
     /// assert_eq!(suggestion.text, "users");

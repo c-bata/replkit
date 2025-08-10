@@ -1,26 +1,25 @@
-//! Convenient re-exports for common usage patterns
+//! Convenient re-exports for low-level primitives
 //!
 //! This module provides a prelude that re-exports the most commonly used types
-//! and traits from the replkit-core crate. Users can import everything they need
-//! with a single `use replkit::prelude::*;` statement.
+//! from the replkit-core crate's low-level primitives. For the complete high-level
+//! API, use `replkit::prelude::*` instead.
 //!
 //! # Examples
 //!
 //! ```
 //! use replkit_core::prelude::*;
 //!
-//! // Now you can use Document, Buffer, Suggestion, etc. directly
+//! // Low-level text manipulation
 //! let doc = Document::new();
-//! let suggestion = Suggestion::new("test", "A test suggestion");
+//! let mut buffer = Buffer::new();
+//! 
+//! // Key parsing
+//! let mut parser = KeyParser::new();
 //! ```
 
 // Core text manipulation types
 pub use crate::document::Document;
 pub use crate::buffer::Buffer;
-
-// Completion system
-pub use crate::suggestion::Suggestion;
-pub use crate::completion::{Completor, StaticCompleter};
 
 // Key input handling
 pub use crate::key::{Key, KeyEvent};
@@ -36,16 +35,7 @@ pub use crate::unicode::{
     rune_slice
 };
 
-// Re-export traits and types that will be implemented in future tasks
-// These will be uncommented as they are implemented:
-
-// Prompt system (implemented in Phase 2)
-pub use crate::prompt::{Prompt, PromptBuilder, PromptError, PromptResult};
-
-// Rendering system (to be implemented in Phase 3) 
-// pub use crate::renderer::Renderer;
-
-// Console I/O (available from existing console module)
+// Console I/O trait definitions (implementations are in replkit-io)
 pub use crate::console::{
     ConsoleInput, 
     ConsoleOutput, 
@@ -65,10 +55,9 @@ mod tests {
 
     #[test]
     fn test_prelude_imports() {
-        // Test that key types are available through prelude
+        // Test that low-level types are available through prelude
         let _doc = Document::new();
         let _buffer = Buffer::new();
-        let _suggestion = Suggestion::new("test", "description");
         
         // Test unicode utilities
         let text = "hello";
@@ -86,67 +75,10 @@ mod tests {
     }
 
     #[test]
-    fn test_suggestion_from_prelude() {
-        // Test that Suggestion can be created using types from prelude
-        let suggestion = Suggestion::new("users", "Store user data");
-        assert_eq!(suggestion.text, "users");
-        assert_eq!(suggestion.description, "Store user data");
-    }
-
-    #[test]
     fn test_document_from_prelude() {
         // Test that Document can be used through prelude
         let doc = Document::with_text("hello world".to_string(), 5);
         assert_eq!(doc.text(), "hello world");
         assert_eq!(doc.cursor_position(), 5);
-    }
-
-    #[test]
-    fn test_completion_from_prelude() {
-        // Test that Completor trait and StaticCompleter are available through prelude
-        let completer = StaticCompleter::from_strings(vec!["hello", "help", "history"]);
-        let doc = Document::with_text("he".to_string(), 2);
-        let suggestions = completer.complete(&doc);
-        assert_eq!(suggestions.len(), 2);
-        
-        // Test function-based completer
-        let func_completer = |document: &Document| -> Vec<Suggestion> {
-            if document.text().starts_with("test") {
-                vec![Suggestion::new("testing", "Run tests")]
-            } else {
-                vec![]
-            }
-        };
-        
-        let test_doc = Document::with_text("test".to_string(), 4);
-        let test_suggestions = func_completer.complete(&test_doc);
-        assert_eq!(test_suggestions.len(), 1);
-        assert_eq!(test_suggestions[0].text, "testing");
-    }
-
-    #[test]
-    fn test_prompt_from_prelude() {
-        // Test that Prompt and PromptBuilder are available through prelude
-        let prompt = Prompt::builder()
-            .with_prefix("test> ")
-            .build()
-            .unwrap();
-        
-        assert_eq!(prompt.prefix(), "test> ");
-        
-        // Test with completer
-        let completer = StaticCompleter::from_strings(vec!["hello", "help"]);
-        let mut prompt_with_completer = Prompt::builder()
-            .with_prefix("$ ")
-            .with_completer(completer)
-            .build()
-            .unwrap();
-        
-        prompt_with_completer.insert_text("he").unwrap();
-        let suggestions = prompt_with_completer.get_completions();
-        assert_eq!(suggestions.len(), 2);
-        
-        // Test error types are available
-        let _error: PromptResult<String> = Err(PromptError::Interrupted);
     }
 }

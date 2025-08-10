@@ -9,7 +9,7 @@
 //! ## Basic usage
 //!
 //! ```
-//! use replkit_core::prelude::*;
+//! use replkit::prelude::*;
 //!
 //! let prompt = Prompt::builder()
 //!     .with_prefix(">> ")
@@ -20,7 +20,7 @@
 //! ## With completion
 //!
 //! ```
-//! use replkit_core::prelude::*;
+//! use replkit::prelude::*;
 //!
 //! let completer = StaticCompleter::from_strings(vec!["help", "quit", "status"]);
 //! let prompt = Prompt::builder()
@@ -33,7 +33,7 @@
 //! ## With function-based completer
 //!
 //! ```
-//! use replkit_core::prelude::*;
+//! use replkit::prelude::*;
 //!
 //! let prompt = Prompt::builder()
 //!     .with_prefix("$ ")
@@ -52,7 +52,8 @@
 //!     .expect("Failed to create prompt");
 //! ```
 
-use crate::{Buffer, Document, Suggestion, completion::Completor, error::BufferError};
+use replkit_core::{Buffer, Document, error::BufferError};
+use crate::{Suggestion, completion::Completor};
 
 /// Error types specific to prompt operations
 #[derive(Debug, Clone)]
@@ -113,7 +114,7 @@ pub type PromptResult<T> = Result<T, PromptError>;
 /// # Examples
 ///
 /// ```
-/// use replkit_core::prelude::*;
+/// use replkit::prelude::*;
 ///
 /// let mut prompt = Prompt::builder()
 ///     .with_prefix(">>> ")
@@ -138,7 +139,7 @@ impl Prompt {
     /// # Examples
     ///
     /// ```
-    /// use replkit_core::prelude::*;
+    /// use replkit::prelude::*;
     ///
     /// let prompt = Prompt::builder()
     ///     .with_prefix("$ ")
@@ -168,7 +169,7 @@ impl Prompt {
     /// # Examples
     ///
     /// ```
-    /// use replkit_core::prelude::*;
+    /// use replkit::prelude::*;
     ///
     /// let completer = StaticCompleter::from_strings(vec!["hello", "help"]);
     /// let mut prompt = Prompt::builder()
@@ -200,7 +201,7 @@ impl Prompt {
     /// # Examples
     ///
     /// ```
-    /// use replkit_core::prelude::*;
+    /// use replkit::prelude::*;
     ///
     /// let mut prompt = Prompt::builder().build().unwrap();
     /// prompt.insert_text("hello");
@@ -218,7 +219,7 @@ impl Prompt {
     /// # Examples
     ///
     /// ```
-    /// use replkit_core::prelude::*;
+    /// use replkit::prelude::*;
     ///
     /// let mut prompt = Prompt::builder().build().unwrap();
     /// prompt.insert_text("hello");
@@ -238,7 +239,7 @@ impl Prompt {
     /// # Examples
     ///
     /// ```
-    /// use replkit_core::prelude::*;
+    /// use replkit::prelude::*;
     ///
     /// let mut prompt = Prompt::builder().build().unwrap();
     /// prompt.insert_text("hello world");
@@ -284,7 +285,7 @@ impl Prompt {
 /// # Examples
 ///
 /// ```
-/// use replkit_core::prelude::*;
+/// use replkit::prelude::*;
 ///
 /// let prompt = PromptBuilder::new()
 ///     .with_prefix("myapp> ")
@@ -307,7 +308,7 @@ impl PromptBuilder {
     /// # Examples
     ///
     /// ```
-    /// use replkit_core::prelude::*;
+    /// use replkit::prelude::*;
     ///
     /// let builder = PromptBuilder::new();
     /// let prompt = builder.build().unwrap();
@@ -331,7 +332,7 @@ impl PromptBuilder {
     /// # Examples
     ///
     /// ```
-    /// use replkit_core::prelude::*;
+    /// use replkit::prelude::*;
     ///
     /// let prompt = PromptBuilder::new()
     ///     .with_prefix("$ ")
@@ -356,7 +357,7 @@ impl PromptBuilder {
     /// # Examples
     ///
     /// ```
-    /// use replkit_core::prelude::*;
+    /// use replkit::prelude::*;
     ///
     /// // Using StaticCompleter
     /// let prompt1 = PromptBuilder::new()
@@ -392,7 +393,7 @@ impl PromptBuilder {
     /// # Examples
     ///
     /// ```
-    /// use replkit_core::prelude::*;
+    /// use replkit::prelude::*;
     ///
     /// let prompt = PromptBuilder::new()
     ///     .with_prefix(">> ")
