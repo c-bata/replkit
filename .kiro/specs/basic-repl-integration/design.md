@@ -72,25 +72,41 @@ graph TB
 
 The main orchestrator that manages the REPL lifecycle and coordinates all components.
 
+**Current Implementation Status**: The ReplEngine has a known ownership issue that prevents the full interactive loop from running. Component integration is demonstrated through manual testing.
+
 ```rust
 pub struct ReplEngine {
     config: ReplConfig,
     state: ReplState,
-    console_input: Box<dyn ConsoleInput>,
-    console_output: Box<dyn ConsoleOutput>,
+    console_input: Option<Box<dyn ConsoleInput>>,  // Note: Option due to ownership issues
+    console_output: Option<Box<dyn ConsoleOutput>>, // Note: Option due to ownership issues
     buffer: Buffer,
     key_parser: KeyParser,
-    renderer: Renderer,
-    event_loop: EventLoop,
+    key_handler: Option<KeyHandler>,
+    renderer: Option<Renderer>,
+    event_loop: Option<EventLoop>,
 }
 
 impl ReplEngine {
     pub fn new(config: ReplConfig) -> Result<Self, ReplError>;
-    pub fn run(&mut self) -> Result<(), ReplError>;
+    pub fn set_console_input(&mut self, input: Box<dyn ConsoleInput>);
+    pub fn set_console_output(&mut self, output: Box<dyn ConsoleOutput>);
+    pub fn run(&mut self) -> Result<(), ReplError>; // Currently fails due to ownership issue
     pub fn run_once(&mut self) -> Result<Option<String>, ReplError>;
     pub fn shutdown(&mut self) -> Result<(), ReplError>;
+    
+    // Component access for testing and integration verification
+    pub fn config(&self) -> &ReplConfig;
+    pub fn buffer(&self) -> &Buffer;
+    pub fn buffer_mut(&mut self) -> &mut Buffer;
+    pub fn window_size(&self) -> (u16, u16);
 }
 ```
+
+**Known Limitations**:
+- `run()` method fails with "ConsoleInput not available" due to ownership conflicts
+- Full interactive loop cannot be demonstrated in current implementation
+- Component integration is verified through manual testing and component access methods
 
 ### ReplConfig
 
@@ -275,6 +291,31 @@ impl PlatformFactory for NativePlatformFactory {
 
 ## Error Handling
 
+### Known Design Issues
+
+#### ConsoleInput/Output Ownership Problem
+
+**Issue**: The current ReplEngine design has a fundamental ownership problem in the `initialize_components()` and `run()` methods:
+
+1. `initialize_components()` calls `self.console_input.take()` and `self.console_output.take()`, moving ownership to internal components
+2. `run()` method later tries to access `self.console_input.as_ref()` for raw mode management
+3. This causes a "ConsoleInput not available" error because the field is now `None`
+
+**Root Cause**: The design attempts to use ConsoleInput/Output in two different contexts:
+- As owned components passed to EventLoop and Renderer during initialization
+- As borrowed references for terminal state management during execution
+
+**Current Workaround**: The example implementation demonstrates component integration through manual testing rather than running the full interactive loop.
+
+**Proposed Solutions**:
+
+1. **Reference Counting Approach**: Use `Rc<RefCell<>>` or `Arc<Mutex<>>` to allow shared ownership
+2. **Component Restructuring**: Separate terminal state management from I/O operations
+3. **Factory Pattern**: Create ConsoleInput/Output instances on-demand rather than storing them
+4. **Trait Object Redesign**: Use trait objects that can be cloned or shared
+
+**Implementation Priority**: This issue should be addressed in a future task focused on ReplEngine architecture refinement.
+
 ### Error Recovery Strategy
 
 1. **Console I/O Errors**: Attempt to reinitialize console components and continue
@@ -282,6 +323,7 @@ impl PlatformFactory for NativePlatformFactory {
 3. **Callback Exceptions**: Catch and log errors, continue REPL operation
 4. **Memory Allocation**: Graceful degradation with reduced functionality
 5. **Terminal Disconnection**: Clean shutdown with resource cleanup
+6. **Ownership Errors**: Graceful fallback to component testing mode
 
 ### Error Propagation
 

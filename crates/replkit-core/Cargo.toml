@@ -16,6 +16,7 @@ log = "0.4"
 
 [dev-dependencies]
 serde_json = "1.0"
+replkit-io = { path = "../replkit-io" }
 
 [features]
 default = []
