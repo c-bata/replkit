@@ -61,6 +61,39 @@ impl Renderer {
         }
     }
 
+    /// Initialize the renderer by getting current cursor position
+    pub fn initialize(&mut self) -> io::Result<()> {
+        // Get current cursor position from terminal
+        if let Ok(pos) = self.console.get_cursor_position() {
+            self.cursor_position = pos;
+        }
+        
+        Ok(())
+    }
+
+    /// Reserve space for completion menu by moving cursor down
+    /// Returns the original cursor position
+    pub fn reserve_completion_space(&mut self, lines_needed: u16) -> io::Result<(u16, u16)> {
+        let original_pos = self.cursor_position;
+        
+        // Move cursor down to create space for completion menu
+        for _ in 0..lines_needed {
+            self.console.write_text("\n").map_err(console_error_to_io_error)?;
+        }
+        
+        // Update our tracking of completion lines
+        self.last_completion_lines = lines_needed;
+        
+        Ok(original_pos)
+    }
+
+    /// Return to the original prompt position
+    pub fn return_to_prompt_position(&mut self, original_pos: (u16, u16)) -> io::Result<()> {
+        self.console.move_cursor_to(original_pos.0, original_pos.1).map_err(console_error_to_io_error)?;
+        self.cursor_position = original_pos;
+        Ok(())
+    }
+
     /// Update terminal size cache
     ///
     /// This should be called when the terminal is resized to ensure proper
@@ -97,13 +130,9 @@ impl Renderer {
     /// renderer.render_prompt("$ ", &document).unwrap();
     /// ```
     pub fn render_prompt(&mut self, prefix: &str, document: &Document) -> io::Result<()> {
-        // Clear previous prompt if necessary
-        self.clear_previous_prompt()?;
-
-        // Calculate display positions
-        let prefix_width = display_width(prefix);
-        let text = document.text();
-        let _cursor_pos = document.cursor_position();
+        // Clear the current line only
+        self.console.move_cursor_to(self.cursor_position.0, 0).map_err(console_error_to_io_error)?;
+        self.console.clear(ClearType::CurrentLine).map_err(console_error_to_io_error)?;
 
         // Render prefix with styling
         self.console.set_style(&TextStyle {
@@ -115,26 +144,16 @@ impl Renderer {
         self.console.write_text(prefix).map_err(console_error_to_io_error)?;
         self.console.reset_style().map_err(console_error_to_io_error)?;
 
-        // Render text up to cursor
+        // Render the full text
+        self.console.write_text(document.text()).map_err(console_error_to_io_error)?;
+
+        // Calculate and move to cursor position
+        let prefix_width = display_width(prefix);
         let text_before_cursor = document.text_before_cursor();
-        let text_after_cursor = document.text_after_cursor();
+        let cursor_col = prefix_width + display_width(text_before_cursor);
         
-        self.console.write_text(text_before_cursor).map_err(console_error_to_io_error)?;
-
-        // Calculate cursor position on screen
-        let total_before_cursor = prefix_width + display_width(text_before_cursor);
-        let (cursor_row, cursor_col) = self.calculate_screen_position(total_before_cursor);
-        
-        // Render text after cursor
-        self.console.write_text(text_after_cursor).map_err(console_error_to_io_error)?;
-
-        // Position cursor correctly
-        self.console.move_cursor_to(cursor_row, cursor_col).map_err(console_error_to_io_error)?;
-        self.cursor_position = (cursor_row, cursor_col);
-
-        // Update prompt line count for future cleanup
-        let total_text_width = prefix_width + display_width(text);
-        self.last_prompt_lines = self.calculate_line_count(total_text_width);
+        // Move cursor to correct position
+        self.console.move_cursor_to(self.cursor_position.0, cursor_col as u16).map_err(console_error_to_io_error)?;
 
         self.console.flush().map_err(console_error_to_io_error)?;
         Ok(())
@@ -169,19 +188,21 @@ impl Renderer {
             return Ok(());
         }
 
-        // Clear previous completions
-        self.clear_previous_completions()?;
-
-        // Move to line below prompt
-        let (current_row, _) = self.cursor_position;
-        self.console.move_cursor_to(current_row + self.last_prompt_lines, 0)
-            .map_err(console_error_to_io_error)?;
+        // Save current cursor position
+        let current_row = self.cursor_position.0;
+        
+        // Move to next line for completions
+        self.console.write_text("\n").map_err(console_error_to_io_error)?;
 
         // Render suggestions
-        let max_suggestions = 10; // Limit displayed suggestions
+        let max_suggestions = 10;
         let display_count = suggestions.len().min(max_suggestions);
-        
+
         for (i, suggestion) in suggestions.iter().take(display_count).enumerate() {
+            if i > 0 {
+                self.console.write_text("\n").map_err(console_error_to_io_error)?;
+            }
+
             // Style for suggestion text
             self.console.set_style(&TextStyle {
                 foreground: Some(Color::Cyan),
@@ -204,36 +225,14 @@ impl Renderer {
             }
 
             self.console.reset_style().map_err(console_error_to_io_error)?;
-
-            // Move to next line if not the last suggestion
-            if i < display_count - 1 {
-                self.console.write_text("\r\n").map_err(console_error_to_io_error)?;
-            }
         }
 
-        // Show "more results" indicator if there are more suggestions
-        if suggestions.len() > max_suggestions {
-            self.console.write_text("\r\n").map_err(console_error_to_io_error)?;
-            self.console.set_style(&TextStyle {
-                foreground: Some(Color::Yellow),
-                italic: true,
-                ..Default::default()
-            }).map_err(console_error_to_io_error)?;
-            
-            let more_count = suggestions.len() - max_suggestions;
-            self.console.write_text(&format!("... {} more", more_count))
-                .map_err(console_error_to_io_error)?;
-            self.console.reset_style().map_err(console_error_to_io_error)?;
-        }
-
+        // Return to original prompt position
+        self.console.move_cursor_to(current_row, self.cursor_position.1).map_err(console_error_to_io_error)?;
+        
         // Update completion line count for cleanup
-        self.last_completion_lines = display_count as u16 + 
-            if suggestions.len() > max_suggestions { 1 } else { 0 };
-
-        // Return cursor to prompt position
-        self.console.move_cursor_to(self.cursor_position.0, self.cursor_position.1)
-            .map_err(console_error_to_io_error)?;
-
+        self.last_completion_lines = display_count as u16;
+        
         self.console.flush().map_err(console_error_to_io_error)?;
         Ok(())
     }
@@ -283,6 +282,24 @@ impl Renderer {
         self.last_prompt_lines = 0;
         self.last_completion_lines = 0;
         
+        self.console.flush().map_err(console_error_to_io_error)?;
+        Ok(())
+    }
+
+    /// Move cursor to end of current line
+    pub fn move_cursor_to_end_of_line(&mut self) -> io::Result<()> {
+        // For now, we'll assume cursor is already at the end during normal rendering
+        // This could be enhanced to calculate the actual end position
+        self.console.flush().map_err(console_error_to_io_error)?;
+        Ok(())
+    }
+
+    /// Write a newline character
+    pub fn write_newline(&mut self) -> io::Result<()> {
+        self.console.write_text("\n").map_err(console_error_to_io_error)?;
+        // Update cursor position to next line, column 0
+        self.cursor_position.0 += 1;
+        self.cursor_position.1 = 0;
         self.console.flush().map_err(console_error_to_io_error)?;
         Ok(())
     }

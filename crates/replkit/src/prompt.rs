@@ -52,7 +52,7 @@
 //!     .expect("Failed to create prompt");
 //! ```
 
-use replkit_core::{Buffer, Document, error::BufferError, Key, KeyEvent, KeyParser};
+use replkit_core::{Buffer, Document, error::BufferError, Key, KeyParser};
 use replkit_io::{ConsoleInput, ConsoleOutput, ConsoleError};
 use crate::{Suggestion, completion::Completor, renderer::Renderer};
 
@@ -311,28 +311,90 @@ impl Prompt {
         // Initialize the input session
         self.buffer.set_text(String::new());
         
+        // Enable raw mode first for proper terminal control
+        let _raw_guard = self.input.enable_raw_mode()?;
+        
+        // Update terminal size in renderer
+        if let Ok((cols, rows)) = self.input.get_window_size() {
+            self.renderer.update_terminal_size(cols, rows);
+        }
+        
+        // Initialize renderer with current cursor position
+        self.renderer.initialize().map_err(|e| PromptError::IoError(e.to_string()))?;
+        
         // Render initial prompt
         self.renderer.render_prompt(&self.prefix, &self.document())?;
         
-        // Main input loop using new ConsoleInput API
+        let mut showing_completions = false;
+        
+        // Main input loop
         loop {
             match self.input.read_key_timeout(Some(100)) { // 100ms timeout
                 Ok(Some(key_event)) => {
                     match key_event.key {
                         Key::Enter => {
-                            // TODO: Get the actual buffer text - for now use a placeholder
-                            self.renderer.clear_completions().ok();
-                            self.renderer.clear_prompt().ok();
-                            return Ok("demo_input".to_string());
+                            // Clear completions and move to next line
+                            if showing_completions {
+                                self.renderer.clear_completions().ok();
+                                showing_completions = false;
+                            }
+                            
+                            // Move cursor to end of line and add newline
+                            self.renderer.move_cursor_to_end_of_line()?;
+                            self.renderer.write_newline()?;
+                            
+                            // Return the entered text
+                            return Ok(self.buffer.text().to_string());
                         },
                         Key::ControlC => {
-                            self.renderer.clear_completions().ok();
-                            self.renderer.clear_prompt().ok();
+                            if showing_completions {
+                                self.renderer.clear_completions().ok();
+                            }
                             return Err(PromptError::Interrupted);
                         },
+                        Key::Backspace => {
+                            // Delete character before cursor
+                            if self.buffer.cursor_position() > 0 {
+                                self.buffer.delete_before_cursor(1);
+                                if showing_completions {
+                                    self.renderer.clear_completions().ok();
+                                    showing_completions = false;
+                                }
+                                self.renderer.render_prompt(&self.prefix, &self.document())?;
+                            }
+                        },
+                        Key::Tab => {
+                            // Show completions
+                            let suggestions = self.get_completions();
+                            if !suggestions.is_empty() {
+                                self.renderer.render_completions(&suggestions)?;
+                                showing_completions = true;
+                            }
+                        },
+                        Key::Left => {
+                            // Move cursor left
+                            if self.buffer.cursor_position() > 0 {
+                                self.buffer.cursor_left(1);
+                                self.renderer.render_prompt(&self.prefix, &self.document())?;
+                            }
+                        },
+                        Key::Right => {
+                            // Move cursor right
+                            if self.buffer.cursor_position() < self.buffer.text().len() {
+                                self.buffer.cursor_right(1);
+                                self.renderer.render_prompt(&self.prefix, &self.document())?;
+                            }
+                        },
                         _ => {
-                            // For other keys, continue the loop
-                            // TODO: Implement full key handling (character input, navigation, etc.)
+                            // Handle text input from key events
+                            if let Some(text) = &key_event.text {
+                                self.buffer.insert_text(text, false, true);
+                                if showing_completions {
+                                    self.renderer.clear_completions().ok();
+                                    showing_completions = false;
+                                }
+                                self.renderer.render_prompt(&self.prefix, &self.document())?;
+                            }
                         }
                     }
                 }
@@ -341,8 +403,9 @@ impl Prompt {
                     continue;
                 }
                 Err(e) => {
-                    self.renderer.clear_completions().ok();
-                    self.renderer.clear_prompt().ok();
+                    if showing_completions {
+                        self.renderer.clear_completions().ok();
+                    }
                     return Err(PromptError::IoError(format!("Input error: {}", e)));
                 }
             }
