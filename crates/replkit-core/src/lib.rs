@@ -19,6 +19,21 @@ pub mod unicode;
 // Console I/O abstraction
 pub mod console;
 
+// REPL engine
+pub mod repl;
+
+// Key handling
+pub mod key_handler;
+
+// Rendering
+pub mod renderer;
+
+// Event loop
+pub mod event_loop;
+
+// Platform factory
+pub mod platform;
+
 // Re-export commonly used types for convenience
 pub use key::{Key, KeyEvent};
 pub use key_parser::{KeyParser, ParserState};
@@ -42,4 +57,21 @@ pub use console::{
     AsAny, BackendType, ClearType, Color, ConsoleCapabilities, ConsoleError, ConsoleInput,
     ConsoleOutput, ConsoleResult, EventLoopError, OutputCapabilities, RawModeGuard, SafeTextFilter,
     SanitizationPolicy, TextStyle,
+};
+
+// Re-export REPL types
+pub use repl::{KeyAction, KeyBinding, ReplConfig, ReplEngine, ReplError};
+
+// Re-export key handler types
+pub use key_handler::{KeyHandler, KeyResult};
+
+// Re-export renderer types
+pub use renderer::{RenderConfig, RenderResult, Renderer};
+
+// Re-export event loop types
+pub use event_loop::{EventLoop, ReplEvent};
+
+// Re-export platform factory types
+pub use platform::{
+    create_native_console_io, create_native_factory, NativePlatformFactory, PlatformFactory,
 };
