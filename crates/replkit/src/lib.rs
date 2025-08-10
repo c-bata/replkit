@@ -67,52 +67,20 @@ pub use replkit_io::*;
 pub mod suggestion;
 pub mod completion;
 pub mod prompt;
+pub mod renderer;
+pub mod prelude;
 
 // Re-export high-level components for convenience
 pub use suggestion::Suggestion;
 pub use completion::{Completor, StaticCompleter};
 pub use prompt::{Prompt, PromptBuilder, PromptError, PromptResult};
+pub use renderer::Renderer;
 
 /// Convenient re-exports for common usage patterns
 ///
 /// Import everything you need with `use replkit::prelude::*;`
-pub mod prelude {
-    // Core text manipulation types
-    pub use replkit_core::{Document, Buffer};
-
-    // Completion system
-    pub use crate::{Suggestion, Completor, StaticCompleter};
-
-    // Prompt system
-    pub use crate::{Prompt, PromptBuilder, PromptError, PromptResult};
-
-    // Key input handling
-    pub use replkit_core::{Key, KeyEvent, KeyParser, ParserState};
-
-    // Error handling
-    pub use replkit_core::error::{BufferError, BufferResult};
-
-    // Unicode utilities (commonly used for text processing)
-    pub use replkit_core::unicode::{
-        rune_count, 
-        display_width, 
-        rune_slice
-    };
-
-    // Console I/O (available from replkit-io)
-    pub use replkit_core::console::{
-        ConsoleInput, 
-        ConsoleOutput, 
-        ConsoleError, 
-        ConsoleResult,
-        TextStyle,
-        Color,
-        ClearType
-    };
-
-    // Common result types for ergonomic error handling
-    pub type Result<T> = std::result::Result<T, crate::PromptError>;
-}
+/// 
+/// For implementation, see the prelude module in prelude.rs
 
 /// Convenience functions for common use cases
 pub mod convenience {
@@ -215,7 +183,7 @@ mod tests {
         
         // Test error types
         let _error = BufferError::invalid_cursor_position(10, 5);
-        let _result: Result<String> = Ok("test".to_string());
+        let _result: BufferResult<String> = Ok("test".to_string());
     }
 
     #[test]
