@@ -237,6 +237,123 @@ impl Renderer {
         Ok(())
     }
 
+    /// Render completion suggestions with a selected item highlighted
+    ///
+    /// Displays a list of completion suggestions below the current prompt with the
+    /// selected item highlighted using inverse video (background color).
+    ///
+    /// # Arguments
+    ///
+    /// * `suggestions` - List of completion suggestions to display
+    /// * `selected_index` - Index of the currently selected suggestion to highlight
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use replkit::prelude::*;
+    /// use replkit_io::MockConsoleOutput;
+    /// 
+    /// let console = Box::new(MockConsoleOutput::new());
+    /// let mut renderer = Renderer::new(console);
+    /// let suggestions = vec![
+    ///     Suggestion::new("help", "Show help information"),
+    ///     Suggestion::new("quit", "Exit the application"),
+    /// ];
+    /// 
+    /// renderer.render_completions_with_selection(&suggestions, 0).unwrap();
+    /// ```
+    pub fn render_completions_with_selection(&mut self, suggestions: &[Suggestion], selected_index: usize) -> io::Result<()> {
+        if suggestions.is_empty() {
+            return Ok(());
+        }
+
+        // Save current cursor position
+        let current_row = self.cursor_position.0;
+        
+        // Move to next line for completions
+        self.console.write_text("\n").map_err(console_error_to_io_error)?;
+
+        // Render suggestions
+        let max_suggestions = 10;
+        let display_count = suggestions.len().min(max_suggestions);
+
+        for (i, suggestion) in suggestions.iter().take(display_count).enumerate() {
+            if i > 0 {
+                self.console.write_text("\n").map_err(console_error_to_io_error)?;
+            }
+
+            // Check if this is the selected item
+            let is_selected = i == selected_index;
+
+            if is_selected {
+                // Highlight selected item with background color
+                self.console.set_style(&TextStyle {
+                    foreground: Some(Color::Black),
+                    background: Some(Color::White),
+                    bold: true,
+                    ..Default::default()
+                }).map_err(console_error_to_io_error)?;
+            } else {
+                // Normal style for non-selected items
+                self.console.set_style(&TextStyle {
+                    foreground: Some(Color::Cyan),
+                    bold: false,
+                    ..Default::default()
+                }).map_err(console_error_to_io_error)?;
+            }
+
+            self.console.write_text(&suggestion.text).map_err(console_error_to_io_error)?;
+            
+            // Add description if available
+            if !suggestion.description.is_empty() {
+                if is_selected {
+                    self.console.set_style(&TextStyle {
+                        foreground: Some(Color::Black),
+                        background: Some(Color::White),
+                        bold: false,
+                        ..Default::default()
+                    }).map_err(console_error_to_io_error)?;
+                } else {
+                    self.console.set_style(&TextStyle {
+                        foreground: Some(Color::BrightBlack),
+                        bold: false,
+                        ..Default::default()
+                    }).map_err(console_error_to_io_error)?;
+                }
+
+                self.console.write_text(&format!(" - {}", suggestion.description)).map_err(console_error_to_io_error)?;
+            }
+
+            // Reset style after each line
+            self.console.reset_style().map_err(console_error_to_io_error)?;
+        }
+
+        // Show "more suggestions" indicator if needed
+        if suggestions.len() > max_suggestions {
+            self.console.write_text("\n").map_err(console_error_to_io_error)?;
+            self.console.set_style(&TextStyle {
+                foreground: Some(Color::BrightBlack),
+                bold: false,
+                ..Default::default()
+            }).map_err(console_error_to_io_error)?;
+            
+            let more_count = suggestions.len() - max_suggestions;
+            self.console.write_text(&format!("... {} more suggestions", more_count)).map_err(console_error_to_io_error)?;
+            
+            self.console.reset_style().map_err(console_error_to_io_error)?;
+        }
+
+        // Return to original prompt position
+        self.console.move_cursor_to(current_row, self.cursor_position.1).map_err(console_error_to_io_error)?;
+        
+        // Update completion line count for cleanup
+        let lines_used = display_count as u16 + if suggestions.len() > max_suggestions { 1 } else { 0 };
+        self.last_completion_lines = lines_used;
+        
+        self.console.flush().map_err(console_error_to_io_error)?;
+        Ok(())
+    }
+
     /// Clear completion suggestions from display
     ///
     /// Removes any currently displayed completion suggestions and restores

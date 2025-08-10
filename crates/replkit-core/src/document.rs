@@ -325,6 +325,45 @@ impl Document {
         self.extract_current_word_before_cursor(false, None)
     }
 
+    /// Find the start position of the current word.
+    ///
+    /// A word is defined as a sequence of non-whitespace characters.
+    /// This method returns the position where the current word begins.
+    /// If the cursor is in the middle of a word, it finds the start of that word.
+    /// If the cursor is at whitespace, it finds the start of the previous word.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use replkit_core::document::Document;
+    ///
+    /// let doc = Document::with_text("hello world test".to_string(), 10);
+    /// assert_eq!(doc.find_start_of_word(), 6); // Start of "world"
+    ///
+    /// let doc2 = Document::with_text("hello world".to_string(), 5);
+    /// assert_eq!(doc2.find_start_of_word(), 0); // Start of "hello"
+    /// ```
+    pub fn find_start_of_word(&self) -> usize {
+        let chars: Vec<char> = self.text.chars().collect();
+        let mut pos = if self.cursor_position > 0 {
+            self.cursor_position - 1
+        } else {
+            return 0;
+        };
+
+        // If we're at whitespace, skip backwards to find the previous word
+        while pos > 0 && chars[pos].is_whitespace() {
+            pos -= 1;
+        }
+
+        // Find the start of the current word
+        while pos > 0 && !chars[pos - 1].is_whitespace() {
+            pos -= 1;
+        }
+
+        pos
+    }
+
     /// Get the word after the cursor.
     ///
     /// A word is defined as a sequence of non-whitespace characters.

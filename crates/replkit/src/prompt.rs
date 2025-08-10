@@ -132,6 +132,79 @@ pub type PromptResult<T> = Result<T, PromptError>;
 /// // Now input() method is fully implemented
 /// // let input = prompt.input().unwrap();
 /// ```
+/// Manages completion suggestions and selection state
+#[derive(Debug, Clone)]
+pub struct CompletionManager {
+    /// Currently available suggestions
+    suggestions: Vec<Suggestion>,
+    /// Index of selected suggestion (-1 means no selection)
+    selected_index: i32,
+    /// Whether completion menu is currently visible
+    visible: bool,
+    /// Maximum number of suggestions to display
+    max_suggestions: usize,
+}
+
+impl CompletionManager {
+    pub fn new(max_suggestions: usize) -> Self {
+        Self {
+            suggestions: Vec::new(),
+            selected_index: -1,
+            visible: false,
+            max_suggestions,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.suggestions.clear();
+        self.selected_index = -1;
+        self.visible = false;
+    }
+
+    pub fn update_suggestions(&mut self, suggestions: Vec<Suggestion>) {
+        self.suggestions = suggestions;
+        self.selected_index = if self.suggestions.is_empty() { -1 } else { 0 };
+        self.visible = !self.suggestions.is_empty();
+    }
+
+    pub fn next(&mut self) {
+        if !self.suggestions.is_empty() {
+            self.selected_index = (self.selected_index + 1) % (self.suggestions.len() as i32);
+        }
+    }
+
+    pub fn previous(&mut self) {
+        if !self.suggestions.is_empty() {
+            let len = self.suggestions.len() as i32;
+            self.selected_index = (self.selected_index - 1 + len) % len;
+        }
+    }
+
+    pub fn get_selected(&self) -> Option<&Suggestion> {
+        if self.selected_index >= 0 && (self.selected_index as usize) < self.suggestions.len() {
+            Some(&self.suggestions[self.selected_index as usize])
+        } else {
+            None
+        }
+    }
+
+    pub fn is_visible(&self) -> bool {
+        self.visible
+    }
+
+    pub fn hide(&mut self) {
+        self.visible = false;
+    }
+
+    pub fn suggestions(&self) -> &[Suggestion] {
+        &self.suggestions
+    }
+
+    pub fn selected_index(&self) -> i32 {
+        self.selected_index
+    }
+}
+
 pub struct Prompt {
     /// The prefix string shown before user input
     prefix: String,
@@ -145,6 +218,8 @@ pub struct Prompt {
     input: Box<dyn ConsoleInput>,
     /// Key parser for processing input
     key_parser: KeyParser,
+    /// Completion manager for handling suggestion navigation
+    completion_manager: CompletionManager,
 }
 
 impl Prompt {
@@ -325,8 +400,6 @@ impl Prompt {
         // Render initial prompt
         self.renderer.render_prompt(&self.prefix, &self.document())?;
         
-        let mut showing_completions = false;
-        
         // Main input loop
         loop {
             match self.input.read_key_timeout(Some(100)) { // 100ms timeout
@@ -334,9 +407,9 @@ impl Prompt {
                     match key_event.key {
                         Key::Enter => {
                             // Clear completions and move to next line
-                            if showing_completions {
+                            if self.completion_manager.is_visible() {
+                                self.completion_manager.reset();
                                 self.renderer.clear_completions().ok();
-                                showing_completions = false;
                             }
                             
                             // Move cursor to end of line and add newline
@@ -347,7 +420,8 @@ impl Prompt {
                             return Ok(self.buffer.text().to_string());
                         },
                         Key::ControlC => {
-                            if showing_completions {
+                            if self.completion_manager.is_visible() {
+                                self.completion_manager.reset();
                                 self.renderer.clear_completions().ok();
                             }
                             return Err(PromptError::Interrupted);
@@ -356,22 +430,73 @@ impl Prompt {
                             // Delete character before cursor
                             if self.buffer.cursor_position() > 0 {
                                 self.buffer.delete_before_cursor(1);
-                                if showing_completions {
+                                if self.completion_manager.is_visible() {
+                                    self.completion_manager.reset();
                                     self.renderer.clear_completions().ok();
-                                    showing_completions = false;
                                 }
                                 self.renderer.render_prompt(&self.prefix, &self.document())?;
                             }
                         },
                         Key::Tab => {
-                            // Show completions
-                            let suggestions = self.get_completions();
-                            if !suggestions.is_empty() {
-                                self.renderer.render_completions(&suggestions)?;
-                                showing_completions = true;
+                            if self.completion_manager.is_visible() {
+                                // Tab again: select completion
+                                if let Some(selected) = self.completion_manager.get_selected() {
+                                    // Get the current word to replace
+                                    let doc = self.document();
+                                    let word_start = doc.find_start_of_word();
+                                    let word_len = doc.cursor_position() - word_start;
+                                    
+                                    // Delete current word and insert selected completion
+                                    self.buffer.delete_before_cursor(word_len);
+                                    self.buffer.insert_text(&selected.text, false, true);
+                                }
+                                
+                                // Hide completions
+                                self.completion_manager.hide();
+                                self.renderer.clear_completions().ok();
+                                self.renderer.render_prompt(&self.prefix, &self.document())?;
+                            } else {
+                                // First Tab: show completions
+                                let suggestions = self.get_completions();
+                                if !suggestions.is_empty() {
+                                    self.completion_manager.update_suggestions(suggestions);
+                                    let selected_idx = self.completion_manager.selected_index();
+                                    self.renderer.render_completions_with_selection(
+                                        self.completion_manager.suggestions(), 
+                                        selected_idx as usize
+                                    )?;
+                                }
+                            }
+                        },
+                        Key::Up => {
+                            if self.completion_manager.is_visible() {
+                                // Navigate up in completion menu
+                                self.completion_manager.previous();
+                                let selected_idx = self.completion_manager.selected_index();
+                                self.renderer.render_completions_with_selection(
+                                    self.completion_manager.suggestions(), 
+                                    selected_idx as usize
+                                )?;
+                            }
+                        },
+                        Key::Down => {
+                            if self.completion_manager.is_visible() {
+                                // Navigate down in completion menu
+                                self.completion_manager.next();
+                                let selected_idx = self.completion_manager.selected_index();
+                                self.renderer.render_completions_with_selection(
+                                    self.completion_manager.suggestions(), 
+                                    selected_idx as usize
+                                )?;
                             }
                         },
                         Key::Left => {
+                            if self.completion_manager.is_visible() {
+                                // Hide completions when moving cursor
+                                self.completion_manager.hide();
+                                self.renderer.clear_completions().ok();
+                            }
+                            
                             // Move cursor left
                             if self.buffer.cursor_position() > 0 {
                                 self.buffer.cursor_left(1);
@@ -379,6 +504,12 @@ impl Prompt {
                             }
                         },
                         Key::Right => {
+                            if self.completion_manager.is_visible() {
+                                // Hide completions when moving cursor
+                                self.completion_manager.hide();
+                                self.renderer.clear_completions().ok();
+                            }
+                            
                             // Move cursor right
                             if self.buffer.cursor_position() < self.buffer.text().len() {
                                 self.buffer.cursor_right(1);
@@ -389,9 +520,9 @@ impl Prompt {
                             // Handle text input from key events
                             if let Some(text) = &key_event.text {
                                 self.buffer.insert_text(text, false, true);
-                                if showing_completions {
+                                if self.completion_manager.is_visible() {
+                                    self.completion_manager.reset();
                                     self.renderer.clear_completions().ok();
-                                    showing_completions = false;
                                 }
                                 self.renderer.render_prompt(&self.prefix, &self.document())?;
                             }
@@ -403,7 +534,8 @@ impl Prompt {
                     continue;
                 }
                 Err(e) => {
-                    if showing_completions {
+                    if self.completion_manager.is_visible() {
+                        self.completion_manager.reset();
                         self.renderer.clear_completions().ok();
                     }
                     return Err(PromptError::IoError(format!("Input error: {}", e)));
@@ -639,6 +771,7 @@ impl PromptBuilder {
             renderer,
             input: console_input,
             key_parser: KeyParser::new(),
+            completion_manager: CompletionManager::new(10),
         })
     }
 }
