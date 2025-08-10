@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. Create core REPL engine structure and configuration
+- [x] 1. Create core REPL engine structure and configuration
   - Create `crates/replkit-core/src/repl.rs` with ReplEngine, ReplConfig, and ReplState structs
   - Implement ReplConfig with prompt, executor callback, exit checker, and key bindings
   - Add ReplError enum with proper error handling and conversion from ConsoleError

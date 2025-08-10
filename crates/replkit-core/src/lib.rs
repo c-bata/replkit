@@ -19,6 +19,9 @@ pub mod unicode;
 // Console I/O abstraction
 pub mod console;
 
+// REPL engine
+pub mod repl;
+
 // Re-export commonly used types for convenience
 pub use key::{Key, KeyEvent};
 pub use key_parser::{KeyParser, ParserState};
@@ -43,3 +46,6 @@ pub use console::{
     ConsoleOutput, ConsoleResult, EventLoopError, OutputCapabilities, RawModeGuard, SafeTextFilter,
     SanitizationPolicy, TextStyle,
 };
+
+// Re-export REPL types
+pub use repl::{KeyAction, KeyBinding, ReplConfig, ReplEngine, ReplError};
