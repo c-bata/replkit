@@ -240,13 +240,7 @@ fn setup_console_io(engine: &mut ReplEngine) -> Result<(), Box<dyn Error>> {
 
 /// Run the interactive REPL using the full ReplEngine with ConsoleInput/Output integration.
 fn run_interactive_repl(engine: &mut ReplEngine) -> Result<(), Box<dyn Error>> {
-    println!("Starting integrated REPL with ConsoleInput, Buffer, and ConsoleOutput...");
-    println!("This demonstrates the full component integration:");
-    println!("  • ConsoleInput: Handles key events and raw terminal input");
-    println!("  • Buffer: Manages text editing and cursor position");
-    println!("  • ConsoleOutput: Renders prompt and text to terminal");
-    println!("  • KeyHandler: Processes key bindings and actions");
-    println!("  • Renderer: Manages display updates and formatting");
+    println!("Starting REPL... Type 'help' for commands, 'exit' or Ctrl+C to quit.");
     println!();
     
     // Try to run the actual REPL engine

@@ -14,13 +14,14 @@ use crate::{
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
+use std::sync::{Arc, Mutex};
 
 /// Main REPL engine that orchestrates all components.
 pub struct ReplEngine {
     config: ReplConfig,
     state: ReplState,
-    console_input: Option<Box<dyn ConsoleInput>>,
-    console_output: Option<Box<dyn ConsoleOutput>>,
+    console_input: Option<Arc<Mutex<Box<dyn ConsoleInput>>>>,
+    console_output: Option<Arc<Mutex<Box<dyn ConsoleOutput>>>>,
     buffer: Buffer,
     key_parser: KeyParser,
     key_handler: Option<KeyHandler>,
@@ -305,12 +306,12 @@ impl ReplEngine {
 
     /// Set the console input implementation.
     pub fn set_console_input(&mut self, input: Box<dyn ConsoleInput>) {
-        self.console_input = Some(input);
+        self.console_input = Some(Arc::new(Mutex::new(input)));
     }
 
     /// Set the console output implementation.
     pub fn set_console_output(&mut self, output: Box<dyn ConsoleOutput>) {
-        self.console_output = Some(output);
+        self.console_output = Some(Arc::new(Mutex::new(output)));
     }
 
     /// Get a reference to the current configuration.
@@ -415,31 +416,223 @@ impl ReplEngine {
         map
     }
 
+    /// Initialize the REPL components without the complex event loop.
+    ///
+    /// This method sets up the KeyHandler and Renderer with the
+    /// configured ConsoleOutput implementations using a simpler approach.
+    fn initialize_components_simple(&mut self) -> Result<(), ReplError> {
+        // Ensure we have console output
+        let console_output_arc = self
+            .console_output
+            .as_ref()
+            .ok_or_else(|| ReplError::ConfigurationError("ConsoleOutput not set".to_string()))?
+            .clone();
+
+        // Create key handler with custom bindings
+        let key_bindings = self.config.key_bindings.clone();
+        self.key_handler = Some(KeyHandler::new(key_bindings));
+
+        // Create renderer with prompt - we need to create a wrapper that implements ConsoleOutput
+        let renderer_output = ConsoleOutputWrapper::new(console_output_arc.clone());
+        self.renderer = Some(Renderer::new(Box::new(renderer_output), self.config.prompt.clone()));
+
+        Ok(())
+    }
+
+    /// Process a key event directly using the key handler.
+    fn process_key_event_direct(&mut self, key_event: KeyEvent) -> Result<Option<String>, ReplError> {
+        let key_handler = self
+            .key_handler
+            .as_ref()
+            .ok_or_else(|| ReplError::EventLoopError("KeyHandler not initialized".to_string()))?;
+
+        // Process the key event
+        let key_result = key_handler.handle_key(key_event, &mut self.buffer)?;
+
+        // Handle the result
+        match key_result {
+            crate::key_handler::KeyResult::Continue => {
+                // Update display
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.render(&self.buffer)?;
+                }
+                Ok(None)
+            }
+            crate::key_handler::KeyResult::Execute(input) => {
+                // Return input for execution
+                Ok(Some(input))
+            }
+            crate::key_handler::KeyResult::Exit => {
+                self.state.should_exit = true;
+                Ok(None)
+            }
+            crate::key_handler::KeyResult::ClearLine => {
+                // Clear display and render new prompt
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.clear_line()?;
+                    renderer.render(&self.buffer)?;
+                }
+                Ok(None)
+            }
+            crate::key_handler::KeyResult::Ignore => {
+                // Do nothing
+                Ok(None)
+            }
+        }
+    }
+
+    /// Read the next key event from console input (blocking).
+    fn read_next_key(&mut self) -> Result<KeyEvent, ReplError> {
+        let _console_input_arc = self.console_input.as_ref().ok_or_else(|| {
+            ReplError::TerminalStateError("ConsoleInput not available".to_string())
+        })?;
+
+        // Simple approach: read one byte at a time and parse it
+        use std::io::{stdin, Read};
+        use std::time::{Duration, Instant};
+
+        let mut buffer = [0u8; 1];
+        let mut bytes = Vec::new();
+        let start = Instant::now();
+        let timeout = Duration::from_millis(100);
+
+        loop {
+            // Try to read one byte
+            match stdin().read(&mut buffer) {
+                Ok(1) => {
+                    bytes.push(buffer[0]);
+                    
+                    // Check for common key sequences
+                    if let Some(key_event) = self.parse_key_sequence(&bytes) {
+                        return Ok(key_event);
+                    }
+                    
+                    // If we haven't found a complete sequence and timeout hasn't expired, continue
+                    if start.elapsed() < timeout && bytes.len() < 10 {
+                        continue;
+                    }
+                    
+                    // Process what we have
+                    if let Some(key_event) = self.parse_key_sequence(&bytes) {
+                        return Ok(key_event);
+                    }
+                    
+                    // If we can't parse, treat as text input
+                    if !bytes.is_empty() {
+                        return Ok(self.bytes_to_key_event(&bytes));
+                    }
+                }
+                Ok(0) => {
+                    // EOF - treat as Ctrl+D
+                    return Ok(KeyEvent::simple(crate::key::Key::ControlD, vec![]));
+                }
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::WouldBlock {
+                        // No data available, wait a bit
+                        std::thread::sleep(Duration::from_millis(10));
+                        
+                        // Check if we have partial data that we should process
+                        if !bytes.is_empty() && start.elapsed() > timeout {
+                            if let Some(key_event) = self.parse_key_sequence(&bytes) {
+                                return Ok(key_event);
+                            }
+                            return Ok(self.bytes_to_key_event(&bytes));
+                        }
+                        continue;
+                    } else {
+                        return Err(ReplError::TerminalStateError(format!("Read error: {}", e)));
+                    }
+                }
+                Ok(_) => {
+                    // This shouldn't happen with buffer size 1
+                    continue;
+                }
+            }
+
+            // Check if we should exit
+            if !self.state.running || self.state.should_exit {
+                return Err(ReplError::TerminalStateError("exit".to_string()));
+            }
+        }
+    }
+
+    /// Parse a sequence of bytes into a KeyEvent.
+    fn parse_key_sequence(&self, bytes: &[u8]) -> Option<KeyEvent> {
+        if bytes.is_empty() {
+            return None;
+        }
+
+        // Use the key parser to parse the sequence
+        let mut parser = crate::KeyParser::new();
+        
+        // Try to parse the bytes
+        let events = parser.feed(bytes);
+        
+        // Return the first event if we have one
+        events.into_iter().next()
+    }
+
+    /// Convert bytes to a KeyEvent when parsing fails.
+    fn bytes_to_key_event(&self, bytes: &[u8]) -> KeyEvent {
+        // Convert bytes to string if possible
+        match String::from_utf8(bytes.to_vec()) {
+            Ok(text) => {
+                if text.len() == 1 {
+                    let ch = text.chars().next().unwrap();
+                    match ch {
+                        '\r' | '\n' => KeyEvent::simple(crate::key::Key::Enter, bytes.to_vec()),
+                        '\x7f' => KeyEvent::simple(crate::key::Key::Backspace, bytes.to_vec()),
+                        '\x08' => KeyEvent::simple(crate::key::Key::Backspace, bytes.to_vec()),
+                        '\x03' => KeyEvent::simple(crate::key::Key::ControlC, bytes.to_vec()),
+                        '\x04' => KeyEvent::simple(crate::key::Key::ControlD, bytes.to_vec()),
+                        '\x01' => KeyEvent::simple(crate::key::Key::ControlA, bytes.to_vec()),
+                        '\x05' => KeyEvent::simple(crate::key::Key::ControlE, bytes.to_vec()),
+                        '\x0c' => KeyEvent::simple(crate::key::Key::ControlL, bytes.to_vec()),
+                        _ if ch.is_ascii_graphic() || ch == ' ' => {
+                            KeyEvent::with_text(crate::key::Key::NotDefined, bytes.to_vec(), text)
+                        }
+                        _ => KeyEvent::simple(crate::key::Key::NotDefined, bytes.to_vec()),
+                    }
+                } else {
+                    KeyEvent::with_text(crate::key::Key::NotDefined, bytes.to_vec(), text)
+                }
+            }
+            Err(_) => {
+                // Invalid UTF-8, treat as undefined key
+                KeyEvent::simple(crate::key::Key::NotDefined, bytes.to_vec())
+            }
+        }
+    }
+
     /// Initialize the REPL components.
     ///
     /// This method sets up the KeyHandler, Renderer, and EventLoop with the
     /// configured ConsoleInput and ConsoleOutput implementations.
     fn initialize_components(&mut self) -> Result<(), ReplError> {
         // Ensure we have console input and output
-        let console_input = self
+        let console_input_arc = self
             .console_input
-            .take()
-            .ok_or_else(|| ReplError::ConfigurationError("ConsoleInput not set".to_string()))?;
+            .as_ref()
+            .ok_or_else(|| ReplError::ConfigurationError("ConsoleInput not set".to_string()))?
+            .clone();
 
-        let console_output = self
+        let console_output_arc = self
             .console_output
-            .take()
-            .ok_or_else(|| ReplError::ConfigurationError("ConsoleOutput not set".to_string()))?;
+            .as_ref()
+            .ok_or_else(|| ReplError::ConfigurationError("ConsoleOutput not set".to_string()))?
+            .clone();
 
         // Create key handler with custom bindings
         let key_bindings = self.config.key_bindings.clone();
         self.key_handler = Some(KeyHandler::new(key_bindings));
 
-        // Create renderer with prompt
-        self.renderer = Some(Renderer::new(console_output, self.config.prompt.clone()));
+        // Create renderer with prompt - we need to create a wrapper that implements ConsoleOutput
+        let renderer_output = ConsoleOutputWrapper::new(console_output_arc.clone());
+        self.renderer = Some(Renderer::new(Box::new(renderer_output), self.config.prompt.clone()));
 
-        // Create event loop with console input
-        self.event_loop = Some(EventLoop::new(console_input));
+        // Create event loop with console input - we need to create a wrapper that implements ConsoleInput
+        let event_loop_input = ConsoleInputWrapper::new(console_input_arc.clone());
+        self.event_loop = Some(EventLoop::new(Box::new(event_loop_input)));
 
         Ok(())
     }
@@ -471,34 +664,40 @@ impl ReplEngine {
     /// ```
     pub fn run(&mut self) -> Result<(), ReplError> {
         // Initialize components if not already done
-        if self.key_handler.is_none() || self.renderer.is_none() || self.event_loop.is_none() {
-            self.initialize_components()?;
+        if self.key_handler.is_none() || self.renderer.is_none() {
+            self.initialize_components_simple()?;
         }
 
-        // Enable raw mode
-        let console_input = self.console_input.as_ref().ok_or_else(|| {
+        // Get console input reference
+        let console_input_arc = self.console_input.as_ref().ok_or_else(|| {
             ReplError::TerminalStateError("ConsoleInput not available".to_string())
-        })?;
+        })?.clone();
 
-        let raw_mode_guard = console_input.enable_raw_mode().map_err(|e| {
-            ReplError::TerminalStateError(format!("Failed to enable raw mode: {e}"))
-        })?;
+        // Enable raw mode
+        let raw_mode_guard = {
+            let console_input = console_input_arc.lock().map_err(|e| {
+                ReplError::TerminalStateError(format!("Failed to lock ConsoleInput: {e}"))
+            })?;
+            
+            console_input.enable_raw_mode().map_err(|e| {
+                ReplError::TerminalStateError(format!("Failed to enable raw mode: {e}"))
+            })?
+        };
 
         self.state.raw_mode_guard = Some(raw_mode_guard);
 
         // Get initial window size
-        if let Ok((width, height)) = console_input.get_window_size() {
-            self.state.window_size = (width, height);
-            if let Some(renderer) = &mut self.renderer {
-                renderer.update_window_size(width, height);
-            }
-        }
-
-        // Start event loop
-        if let Some(event_loop) = &mut self.event_loop {
-            event_loop.start().map_err(|e| {
-                ReplError::EventLoopError(format!("Failed to start event loop: {:?}", e))
+        {
+            let console_input = console_input_arc.lock().map_err(|e| {
+                ReplError::TerminalStateError(format!("Failed to lock ConsoleInput: {e}"))
             })?;
+            
+            if let Ok((width, height)) = console_input.get_window_size() {
+                self.state.window_size = (width, height);
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.update_window_size(width, height);
+                }
+            }
         }
 
         self.state.running = true;
@@ -508,39 +707,113 @@ impl ReplEngine {
             renderer.render(&self.buffer)?;
         }
 
-        // Main event processing loop
-        while self.state.running && !self.state.should_exit {
-            match self.run_once() {
-                Ok(Some(input)) => {
-                    // User pressed Enter - execute callback
-                    if let Err(e) = self.execute_callback(&input) {
-                        // Handle callback errors gracefully
-                        self.handle_callback_error(e)?;
-                    }
+        // Set up callbacks using shared state approach
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::mpsc;
+        
+        let shutdown_flag = Arc::new(AtomicBool::new(false));
+        let shutdown_clone = shutdown_flag.clone();
 
-                    // Clear buffer and render new prompt
-                    self.buffer.set_text(String::new());
-                    self.buffer.set_cursor_position(0);
+        // Create a channel to communicate key events from callback to main loop
+        let (key_sender, key_receiver) = mpsc::channel::<KeyEvent>();
 
-                    if let Some(renderer) = &mut self.renderer {
-                        renderer.break_line()?;
-                        renderer.render(&self.buffer)?;
+        // Set up key event callback
+        {
+            let console_input = console_input_arc.lock().map_err(|e| {
+                ReplError::TerminalStateError(format!("Failed to lock ConsoleInput: {e}"))
+            })?;
+            
+            console_input.on_key_pressed(Box::new(move |event: KeyEvent| {
+                // Check for shutdown keys before sending
+                let should_shutdown = event.key == crate::key::Key::ControlC || event.key == crate::key::Key::ControlD;
+                
+                // Send event to main loop for processing
+                let _ = key_sender.send(event);
+                
+                // Set shutdown flag if needed
+                if should_shutdown {
+                    shutdown_clone.store(true, Ordering::Relaxed);
+                }
+            }));
+        }
+
+        // Set up window resize callback
+        {
+            let console_input = console_input_arc.lock().map_err(|e| {
+                ReplError::TerminalStateError(format!("Failed to lock ConsoleInput: {e}"))
+            })?;
+            
+            console_input.on_window_resize(Box::new(move |width: u16, height: u16| {
+                // Window resize events can be logged if needed
+                // eprintln!("Window resized to {}x{}", width, height);
+            }));
+        }
+
+        // Start ConsoleInput event loop
+        {
+            let console_input = console_input_arc.lock().map_err(|e| {
+                ReplError::TerminalStateError(format!("Failed to lock ConsoleInput: {e}"))
+            })?;
+            
+            console_input.start_event_loop().map_err(|e| {
+                ReplError::EventLoopError(format!("Failed to start event loop: {:?}", e))
+            })?;
+        }
+
+        // Main loop - process key events and check for shutdown signal
+        while !shutdown_flag.load(Ordering::Relaxed) {
+            // Check for key events (non-blocking)
+            match key_receiver.try_recv() {
+                Ok(key_event) => {
+                    // Process the key event
+                    match self.process_key_event_direct(key_event) {
+                        Ok(Some(input)) => {
+                            // User pressed Enter - execute callback
+                            if let Err(e) = self.execute_callback(&input) {
+                                // Handle callback errors gracefully
+                                let _ = Self::handle_callback_error(e);
+                            }
+
+                            // Clear buffer and render new prompt
+                            self.buffer.set_text(String::new());
+                            self.buffer.set_cursor_position(0);
+
+                            if let Some(renderer) = &mut self.renderer {
+                                let _ = renderer.break_line();
+                                let _ = renderer.render(&self.buffer);
+                            }
+                        }
+                        Ok(None) => {
+                            // Continue processing
+                        }
+                        Err(e) => {
+                            eprintln!("Key processing error: {}", e);
+                        }
                     }
                 }
-                Ok(None) => {
-                    // Continue processing
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    // No events available, continue
                 }
-                Err(e) => {
-                    // Try to recover from errors
-                    if let Err(recovery_error) = self.handle_error(e) {
-                        // Unrecoverable error
-                        return Err(recovery_error);
-                    }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    // Channel disconnected, exit
+                    break;
                 }
             }
+            
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        // Stop event loop
+        {
+            let console_input = console_input_arc.lock().map_err(|e| {
+                ReplError::TerminalStateError(format!("Failed to lock ConsoleInput: {e}"))
+            })?;
+            
+            let _ = console_input.stop_event_loop(); // Ignore errors during shutdown
         }
 
         // Clean shutdown
+        self.state.running = false;
         self.shutdown()?;
         Ok(())
     }
@@ -650,7 +923,6 @@ impl ReplEngine {
 
     /// Handle callback execution errors.
     fn handle_callback_error(
-        &mut self,
         error: Box<dyn Error + Send + Sync>,
     ) -> Result<(), ReplError> {
         // For now, we'll just log the error and continue
@@ -715,11 +987,12 @@ impl ReplEngine {
     pub fn shutdown(&mut self) -> Result<(), ReplError> {
         self.state.running = false;
 
-        // Stop event loop
-        if let Some(event_loop) = &mut self.event_loop {
-            event_loop.stop().map_err(|e| {
-                ReplError::EventLoopError(format!("Failed to stop event loop: {:?}", e))
-            })?;
+        // Stop event loop if it exists
+        // Stop console input event loop if needed
+        if let Some(console_input_arc) = &self.console_input {
+            if let Ok(console_input) = console_input_arc.lock() {
+                let _ = console_input.stop_event_loop(); // Ignore errors during shutdown
+            }
         }
 
         // Clear the current line
@@ -736,6 +1009,218 @@ impl ReplEngine {
         }
 
         Ok(())
+    }
+}
+
+
+/// Wrapper for ConsoleInput that works with Arc<Mutex<>>
+struct ConsoleInputWrapper {
+    inner: Arc<Mutex<Box<dyn ConsoleInput>>>,
+}
+
+impl ConsoleInputWrapper {
+    fn new(inner: Arc<Mutex<Box<dyn ConsoleInput>>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl crate::console::AsAny for ConsoleInputWrapper {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
+impl ConsoleInput for ConsoleInputWrapper {
+    fn enable_raw_mode(&self) -> Result<RawModeGuard, ConsoleError> {
+        let input = self.inner.lock().map_err(|e| {
+            ConsoleError::IoError(format!("Failed to lock ConsoleInput: {e}"))
+        })?;
+        input.enable_raw_mode()
+    }
+
+    fn get_window_size(&self) -> Result<(u16, u16), ConsoleError> {
+        let input = self.inner.lock().map_err(|e| {
+            ConsoleError::IoError(format!("Failed to lock ConsoleInput: {e}"))
+        })?;
+        input.get_window_size()
+    }
+
+    fn start_event_loop(&self) -> Result<(), ConsoleError> {
+        let input = self.inner.lock().map_err(|e| {
+            ConsoleError::IoError(format!("Failed to lock ConsoleInput: {e}"))
+        })?;
+        input.start_event_loop()
+    }
+
+    fn stop_event_loop(&self) -> Result<(), ConsoleError> {
+        let input = self.inner.lock().map_err(|e| {
+            ConsoleError::IoError(format!("Failed to lock ConsoleInput: {e}"))
+        })?;
+        input.stop_event_loop()
+    }
+
+    fn on_window_resize(&self, callback: Box<dyn FnMut(u16, u16) + Send>) {
+        if let Ok(input) = self.inner.lock() {
+            input.on_window_resize(callback);
+        }
+    }
+
+    fn on_key_pressed(&self, callback: Box<dyn FnMut(KeyEvent) + Send>) {
+        if let Ok(input) = self.inner.lock() {
+            input.on_key_pressed(callback);
+        }
+    }
+
+    fn is_running(&self) -> bool {
+        if let Ok(input) = self.inner.lock() {
+            input.is_running()
+        } else {
+            false
+        }
+    }
+
+    fn get_capabilities(&self) -> crate::console::ConsoleCapabilities {
+        if let Ok(input) = self.inner.lock() {
+            input.get_capabilities()
+        } else {
+            crate::console::ConsoleCapabilities {
+                supports_raw_mode: false,
+                supports_resize_events: false,
+                supports_bracketed_paste: false,
+                supports_mouse_events: false,
+                supports_unicode: false,
+                platform_name: "Error".to_string(),
+                backend_type: crate::console::BackendType::Mock,
+            }
+        }
+    }
+}
+
+/// Wrapper for ConsoleOutput that works with Arc<Mutex<>>
+struct ConsoleOutputWrapper {
+    inner: Arc<Mutex<Box<dyn ConsoleOutput>>>,
+}
+
+impl ConsoleOutputWrapper {
+    fn new(inner: Arc<Mutex<Box<dyn ConsoleOutput>>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl crate::console::AsAny for ConsoleOutputWrapper {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
+impl ConsoleOutput for ConsoleOutputWrapper {
+    fn write_text(&self, text: &str) -> crate::console::ConsoleResult<()> {
+        let output = self.inner.lock().map_err(|e| {
+            ConsoleError::IoError(format!("Failed to lock ConsoleOutput: {e}"))
+        })?;
+        output.write_text(text)
+    }
+
+    fn write_styled_text(&self, text: &str, style: &crate::console::TextStyle) -> crate::console::ConsoleResult<()> {
+        let output = self.inner.lock().map_err(|e| {
+            ConsoleError::IoError(format!("Failed to lock ConsoleOutput: {e}"))
+        })?;
+        output.write_styled_text(text, style)
+    }
+
+    fn write_safe_text(&self, text: &str) -> crate::console::ConsoleResult<()> {
+        let output = self.inner.lock().map_err(|e| {
+            ConsoleError::IoError(format!("Failed to lock ConsoleOutput: {e}"))
+        })?;
+        output.write_safe_text(text)
+    }
+
+    fn move_cursor_to(&self, row: u16, col: u16) -> crate::console::ConsoleResult<()> {
+        let output = self.inner.lock().map_err(|e| {
+            ConsoleError::IoError(format!("Failed to lock ConsoleOutput: {e}"))
+        })?;
+        output.move_cursor_to(row, col)
+    }
+
+    fn move_cursor_relative(&self, row_delta: i16, col_delta: i16) -> crate::console::ConsoleResult<()> {
+        let output = self.inner.lock().map_err(|e| {
+            ConsoleError::IoError(format!("Failed to lock ConsoleOutput: {e}"))
+        })?;
+        output.move_cursor_relative(row_delta, col_delta)
+    }
+
+    fn clear(&self, clear_type: crate::console::ClearType) -> crate::console::ConsoleResult<()> {
+        let output = self.inner.lock().map_err(|e| {
+            ConsoleError::IoError(format!("Failed to lock ConsoleOutput: {e}"))
+        })?;
+        output.clear(clear_type)
+    }
+
+    fn set_style(&self, style: &crate::console::TextStyle) -> crate::console::ConsoleResult<()> {
+        let output = self.inner.lock().map_err(|e| {
+            ConsoleError::IoError(format!("Failed to lock ConsoleOutput: {e}"))
+        })?;
+        output.set_style(style)
+    }
+
+    fn reset_style(&self) -> crate::console::ConsoleResult<()> {
+        let output = self.inner.lock().map_err(|e| {
+            ConsoleError::IoError(format!("Failed to lock ConsoleOutput: {e}"))
+        })?;
+        output.reset_style()
+    }
+
+    fn flush(&self) -> crate::console::ConsoleResult<()> {
+        let output = self.inner.lock().map_err(|e| {
+            ConsoleError::IoError(format!("Failed to lock ConsoleOutput: {e}"))
+        })?;
+        output.flush()
+    }
+
+    fn set_alternate_screen(&self, enabled: bool) -> crate::console::ConsoleResult<()> {
+        let output = self.inner.lock().map_err(|e| {
+            ConsoleError::IoError(format!("Failed to lock ConsoleOutput: {e}"))
+        })?;
+        output.set_alternate_screen(enabled)
+    }
+
+    fn set_cursor_visible(&self, visible: bool) -> crate::console::ConsoleResult<()> {
+        let output = self.inner.lock().map_err(|e| {
+            ConsoleError::IoError(format!("Failed to lock ConsoleOutput: {e}"))
+        })?;
+        output.set_cursor_visible(visible)
+    }
+
+    fn get_cursor_position(&self) -> crate::console::ConsoleResult<(u16, u16)> {
+        let output = self.inner.lock().map_err(|e| {
+            ConsoleError::IoError(format!("Failed to lock ConsoleOutput: {e}"))
+        })?;
+        output.get_cursor_position()
+    }
+
+    fn get_capabilities(&self) -> crate::console::OutputCapabilities {
+        if let Ok(output) = self.inner.lock() {
+            output.get_capabilities()
+        } else {
+            crate::console::OutputCapabilities {
+                supports_colors: false,
+                supports_true_color: false,
+                supports_styling: false,
+                supports_alternate_screen: false,
+                supports_cursor_control: false,
+                max_colors: 0,
+                platform_name: "Error".to_string(),
+                backend_type: crate::console::BackendType::Mock,
+            }
+        }
     }
 }
 
