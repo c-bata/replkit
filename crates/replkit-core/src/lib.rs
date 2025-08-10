@@ -22,6 +22,9 @@ pub mod console;
 // REPL engine
 pub mod repl;
 
+// Key handling
+pub mod key_handler;
+
 // Re-export commonly used types for convenience
 pub use key::{Key, KeyEvent};
 pub use key_parser::{KeyParser, ParserState};
@@ -49,3 +52,6 @@ pub use console::{
 
 // Re-export REPL types
 pub use repl::{KeyAction, KeyBinding, ReplConfig, ReplEngine, ReplError};
+
+// Re-export key handler types
+pub use key_handler::{KeyHandler, KeyResult};

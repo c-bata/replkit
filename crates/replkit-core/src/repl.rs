@@ -89,10 +89,10 @@ pub enum KeyAction {
 impl std::fmt::Debug for KeyAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            KeyAction::MoveCursorLeft(n) => write!(f, "MoveCursorLeft({})", n),
-            KeyAction::MoveCursorRight(n) => write!(f, "MoveCursorRight({})", n),
-            KeyAction::DeleteBackward(n) => write!(f, "DeleteBackward({})", n),
-            KeyAction::DeleteForward(n) => write!(f, "DeleteForward({})", n),
+            KeyAction::MoveCursorLeft(n) => write!(f, "MoveCursorLeft({n})"),
+            KeyAction::MoveCursorRight(n) => write!(f, "MoveCursorRight({n})"),
+            KeyAction::DeleteBackward(n) => write!(f, "DeleteBackward({n})"),
+            KeyAction::DeleteForward(n) => write!(f, "DeleteForward({n})"),
             KeyAction::MoveToBeginning => write!(f, "MoveToBeginning"),
             KeyAction::MoveToEnd => write!(f, "MoveToEnd"),
             KeyAction::ClearLine => write!(f, "ClearLine"),
@@ -165,14 +165,14 @@ pub enum ReplError {
 impl fmt::Display for ReplError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ReplError::ConsoleError(e) => write!(f, "Console error: {}", e),
-            ReplError::ConfigurationError(msg) => write!(f, "Configuration error: {}", msg),
-            ReplError::EventLoopError(msg) => write!(f, "Event loop error: {}", msg),
-            ReplError::RenderError(msg) => write!(f, "Render error: {}", msg),
-            ReplError::CallbackError(msg) => write!(f, "Callback error: {}", msg),
-            ReplError::BufferError(e) => write!(f, "Buffer error: {}", e),
-            ReplError::KeyParsingError(msg) => write!(f, "Key parsing error: {}", msg),
-            ReplError::TerminalStateError(msg) => write!(f, "Terminal state error: {}", msg),
+            ReplError::ConsoleError(e) => write!(f, "Console error: {e}"),
+            ReplError::ConfigurationError(msg) => write!(f, "Configuration error: {msg}"),
+            ReplError::EventLoopError(msg) => write!(f, "Event loop error: {msg}"),
+            ReplError::RenderError(msg) => write!(f, "Render error: {msg}"),
+            ReplError::CallbackError(msg) => write!(f, "Callback error: {msg}"),
+            ReplError::BufferError(e) => write!(f, "Buffer error: {e}"),
+            ReplError::KeyParsingError(msg) => write!(f, "Key parsing error: {msg}"),
+            ReplError::TerminalStateError(msg) => write!(f, "Terminal state error: {msg}"),
         }
     }
 }
