@@ -28,6 +28,9 @@ pub mod key_handler;
 // Rendering
 pub mod renderer;
 
+// Event loop
+pub mod event_loop;
+
 // Re-export commonly used types for convenience
 pub use key::{Key, KeyEvent};
 pub use key_parser::{KeyParser, ParserState};
@@ -61,3 +64,6 @@ pub use key_handler::{KeyHandler, KeyResult};
 
 // Re-export renderer types
 pub use renderer::{RenderConfig, RenderResult, Renderer};
+
+// Re-export event loop types
+pub use event_loop::{EventLoop, ReplEvent};

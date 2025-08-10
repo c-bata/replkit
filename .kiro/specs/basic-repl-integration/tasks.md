@@ -30,7 +30,7 @@
   - Write tests for rendering logic with mock ConsoleOutput
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 8.2, 8.3_
 
-- [ ] 4. Implement EventLoop for coordinating REPL components
+- [x] 4. Implement EventLoop for coordinating REPL components
   - Create `crates/replkit-core/src/event_loop.rs` with EventLoop struct and ReplEvent enum
   - Set up event channels for key presses, window resizes, and shutdown signals
   - Implement start() and stop() methods for event loop lifecycle management
