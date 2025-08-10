@@ -68,3 +68,18 @@ Run the test suite:
 ```bash
 go test -v
 ```
+
+
+### Useful commands
+
+To disable raw mode (macOS or Linux only):
+
+```
+stty sane
+```
+
+Or
+
+```
+stty -raw echo
+```
