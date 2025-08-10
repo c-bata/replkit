@@ -7,6 +7,9 @@
 
 use std::io;
 
+// Debug logging utilities
+pub mod debug;
+
 // Re-export core types and traits
 pub use replkit_core::{
     KeyEvent, KeyParser,

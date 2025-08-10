@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use replkit_core::{KeyEvent, KeyParser};
 use crate::{ConsoleError, ConsoleInput, ConsoleOutput, ConsoleResult, RawModeGuard, 
            ConsoleCapabilities, OutputCapabilities, BackendType, TextStyle, Color, ClearType};
+use crate::debug_log;
 
 struct UnixRawModeGuard {
     stdin_fd: i32,
@@ -342,33 +343,43 @@ impl UnixConsoleOutput {
     
     /// Query cursor position by sending ANSI sequence and reading response
     fn query_cursor_position_impl(&self) -> ConsoleResult<(u16, u16)> {
-        // Send cursor position query
-        self.write_bytes_direct(b"\x1b[6n")?;
+        // Try to flush stdout first to ensure all previous output is visible
+        self.flush()?;
         
-        // Read response from stdin
+        // Store original terminal settings
+        let stdin_fd = libc::STDIN_FILENO;
+        let mut original_termios = std::mem::MaybeUninit::<libc::termios>::uninit();
+        
+        if unsafe { libc::tcgetattr(stdin_fd, original_termios.as_mut_ptr()) } != 0 {
+            return Err(ConsoleError::IoError("Failed to get terminal attributes".to_string()));
+        }
+        
+        let original_termios = unsafe { original_termios.assume_init() };
+        let mut raw_termios = original_termios;
+        
+        // Set terminal to raw mode for the query
+        unsafe {
+            libc::cfmakeraw(&mut raw_termios);
+            if libc::tcsetattr(stdin_fd, libc::TCSANOW, &raw_termios) != 0 {
+                return Err(ConsoleError::IoError("Failed to set raw mode".to_string()));
+            }
+        }
+        
+        // Send cursor position query
+        debug_log!("Sending cursor position query");
+        self.write_bytes_direct(b"\x1b[6n")?;
+        self.flush()?;
+        
+        // Read response synchronously with blocking I/O
         let mut response = Vec::new();
         let mut buffer = [0u8; 1];
-        
-        // Set stdin to non-blocking temporarily
-        let stdin_fd = libc::STDIN_FILENO;
-        let original_flags = unsafe { libc::fcntl(stdin_fd, libc::F_GETFL) };
-        if original_flags == -1 {
-            return Err(ConsoleError::IoError("Failed to get stdin flags".to_string()));
-        }
-        
-        // Set non-blocking
-        if unsafe { libc::fcntl(stdin_fd, libc::F_SETFL, original_flags | libc::O_NONBLOCK) } == -1 {
-            return Err(ConsoleError::IoError("Failed to set stdin non-blocking".to_string()));
-        }
-        
-        // Read response with timeout
+        let timeout = std::time::Duration::from_millis(200);
         let start_time = std::time::Instant::now();
-        let timeout = std::time::Duration::from_millis(100);
         
         loop {
             if start_time.elapsed() > timeout {
-                // Restore original flags
-                unsafe { libc::fcntl(stdin_fd, libc::F_SETFL, original_flags) };
+                // Restore terminal settings
+                unsafe { libc::tcsetattr(stdin_fd, libc::TCSANOW, &original_termios) };
                 return Err(ConsoleError::IoError("Cursor position query timeout".to_string()));
             }
             
@@ -378,35 +389,47 @@ impl UnixConsoleOutput {
             
             if result == 1 {
                 response.push(buffer[0]);
+                debug_log!("Read byte: {} ('{}')", buffer[0], buffer[0] as char);
+                
                 // Check if we have a complete response: ESC[{row};{col}R
                 if buffer[0] == b'R' && response.len() >= 6 {
+                    debug_log!("Complete response received");
+                    break;
+                }
+                if response.len() > 20 {
+                    debug_log!("Response too long, breaking");
                     break;
                 }
             } else if result == 0 {
-                // EOF
+                debug_log!("EOF reached");
                 break;
             } else {
                 let error = io::Error::last_os_error();
                 match error.raw_os_error() {
                     Some(libc::EAGAIN) => {
                         // EAGAIN - no data available, continue polling
+                        continue;
                     }
                     _ => {
                         // Real error
-                        unsafe { libc::fcntl(stdin_fd, libc::F_SETFL, original_flags) };
+                        unsafe { libc::tcsetattr(stdin_fd, libc::TCSANOW, &original_termios) };
                         return Err(ConsoleError::IoError(format!("Read error: {error}")));
                     }
                 }
-                // EAGAIN/EWOULDBLOCK - no data available, continue polling
-                std::thread::sleep(std::time::Duration::from_millis(1));
             }
         }
         
-        // Restore original flags
-        unsafe { libc::fcntl(stdin_fd, libc::F_SETFL, original_flags) };
+        // Restore terminal settings
+        unsafe { libc::tcsetattr(stdin_fd, libc::TCSANOW, &original_termios) };
+        
+        if response.is_empty() {
+            return Err(ConsoleError::IoError("No response received".to_string()));
+        }
         
         // Parse response: ESC[{row};{col}R
         let response_str = String::from_utf8_lossy(&response);
+        debug_log!("Cursor response: {:?} (bytes: {:?})", response_str, response);
+        
         if !response_str.starts_with("\x1b[") || !response_str.ends_with('R') {
             return Err(ConsoleError::IoError("Invalid cursor position response".to_string()));
         }
@@ -423,6 +446,8 @@ impl UnixConsoleOutput {
         let col: u16 = parts[1].parse().map_err(|_| {
             ConsoleError::IoError("Invalid column in cursor position".to_string())
         })?;
+        
+        debug_log!("Parsed cursor position: row={}, col={}", row, col);
         
         // Convert from 1-based ANSI to 0-based API
         Ok((row.saturating_sub(1), col.saturating_sub(1)))
