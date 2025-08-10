@@ -55,7 +55,7 @@ pub use replkit_core::{
     console::{
         ConsoleOutput, ConsoleInput, ConsoleError, ConsoleResult,
         TextStyle, Color, ClearType, OutputCapabilities, BackendType,
-        AsAny, RawModeGuard, SafeTextFilter, SanitizationPolicy,
+        RawModeGuard, SafeTextFilter, SanitizationPolicy,
         EventLoopError, ConsoleCapabilities
     },
 };

@@ -14,7 +14,7 @@ use std::thread::{self, JoinHandle};
 
 use replkit_core::{KeyParser, KeyEvent};
 use crate::{ConsoleError, ConsoleInput, ConsoleResult, RawModeGuard,
-           ConsoleCapabilities, BackendType, AsAny};
+           ConsoleCapabilities, BackendType};
 use replkit_core::console::EventLoopError;
 
 type BOOL = i32;
@@ -391,16 +391,6 @@ impl Drop for WindowsVtConsoleInput {
         unsafe {
             CloseHandle(self.stop_event);
         }
-    }
-}
-
-impl AsAny for WindowsVtConsoleInput {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-    
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
     }
 }
 

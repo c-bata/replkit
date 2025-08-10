@@ -13,7 +13,7 @@ mod imp {
 
     use replkit_core::{Key, KeyEvent};
     use crate::{ConsoleError, ConsoleInput, ConsoleOutput, ConsoleResult, RawModeGuard,
-               ConsoleCapabilities, OutputCapabilities, BackendType, TextStyle, ClearType, AsAny};
+               ConsoleCapabilities, OutputCapabilities, BackendType, TextStyle, ClearType};
 
     type BOOL = i32;
     type HANDLE = isize;
@@ -243,11 +243,6 @@ mod imp {
 
 
 
-    impl AsAny for WindowsLegacyConsoleInput {
-        fn as_any(&self) -> &dyn std::any::Any { self }
-        fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
-    }
-
     impl ConsoleInput for WindowsLegacyConsoleInput {
         fn enable_raw_mode(&self) -> Result<RawModeGuard, ConsoleError> {
             unsafe {
@@ -357,11 +352,6 @@ mod imp {
             }
         }
     }
-    impl AsAny for WindowsVtConsoleOutput {
-        fn as_any(&self) -> &dyn std::any::Any { self }
-        fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
-    }
-
     impl ConsoleOutput for WindowsVtConsoleOutput {
         fn write_text(&self, _text: &str) -> ConsoleResult<()> {
             Err(ConsoleError::UnsupportedFeature { 
@@ -447,11 +437,6 @@ mod imp {
                 backend_type: BackendType::WindowsVt,
             }
         }
-    }
-
-    impl AsAny for WindowsLegacyConsoleOutput {
-        fn as_any(&self) -> &dyn std::any::Any { self }
-        fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
     }
 
     impl ConsoleOutput for WindowsLegacyConsoleOutput {

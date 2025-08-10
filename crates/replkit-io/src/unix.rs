@@ -6,7 +6,7 @@ use std::thread::{self, JoinHandle};
 
 use replkit_core::{KeyEvent, KeyParser};
 use crate::{ConsoleError, ConsoleInput, ConsoleOutput, ConsoleResult, RawModeGuard, 
-           ConsoleCapabilities, OutputCapabilities, BackendType, TextStyle, Color, ClearType, AsAny};
+           ConsoleCapabilities, OutputCapabilities, BackendType, TextStyle, Color, ClearType};
 
 struct UnixRawModeGuard {
     stdin_fd: i32,
@@ -161,16 +161,6 @@ impl UnixConsoleInput {
             return Err(io::Error::last_os_error());
         }
         Ok((ws.ws_col as u16, ws.ws_row as u16))
-    }
-}
-
-impl AsAny for UnixConsoleInput {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-    
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
     }
 }
 
@@ -525,16 +515,6 @@ impl UnixConsoleOutput {
         
         // Default to false for safety
         false
-    }
-}
-
-impl AsAny for UnixConsoleOutput {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-    
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
     }
 }
 

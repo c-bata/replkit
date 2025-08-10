@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use replkit_core::KeyEvent;
 use crate::{ConsoleInput, ConsoleOutput, ConsoleResult, ConsoleError, RawModeGuard,
-           ConsoleCapabilities, OutputCapabilities, BackendType, TextStyle, ClearType, AsAny};
+           ConsoleCapabilities, OutputCapabilities, BackendType, TextStyle, ClearType};
 
 /// WASM bridge console input implementation
 pub struct WasmBridgeConsoleInput {
@@ -47,16 +47,6 @@ impl WasmBridgeConsoleInput {
                 format!("Unknown message type: {}", message)
             ))
         }
-    }
-}
-
-impl AsAny for WasmBridgeConsoleInput {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-    
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
     }
 }
 
@@ -153,16 +143,6 @@ impl WasmBridgeConsoleOutput {
         }
         
         Ok(())
-    }
-}
-
-impl AsAny for WasmBridgeConsoleOutput {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-    
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
     }
 }
 

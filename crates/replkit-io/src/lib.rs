@@ -12,7 +12,7 @@ pub use replkit_core::{
     KeyEvent, KeyParser,
     ConsoleInput, ConsoleOutput, ConsoleError, ConsoleResult, EventLoopError,
     RawModeGuard, ConsoleCapabilities, OutputCapabilities, BackendType,
-    TextStyle, Color, ClearType, SanitizationPolicy, SafeTextFilter, AsAny
+    TextStyle, Color, ClearType, SanitizationPolicy, SafeTextFilter
 };
 
 // Helper function to convert io::Error to ConsoleError

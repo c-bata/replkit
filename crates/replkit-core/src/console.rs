@@ -9,14 +9,8 @@ use std::sync::{
     Arc,
 };
 
-/// Helper trait for testing - allows downcasting to concrete types
-pub trait AsAny {
-    fn as_any(&self) -> &dyn std::any::Any;
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
-}
-
 /// Cross-platform console input interface
-pub trait ConsoleInput: Send + Sync + AsAny {
+pub trait ConsoleInput: Send + Sync {
     /// Enable raw terminal mode with automatic restoration
     fn enable_raw_mode(&self) -> Result<RawModeGuard, ConsoleError>;
 
@@ -45,7 +39,7 @@ pub trait ConsoleInput: Send + Sync + AsAny {
 }
 
 /// Cross-platform console output interface
-pub trait ConsoleOutput: Send + Sync + AsAny {
+pub trait ConsoleOutput: Send + Sync {
     /// Write text at current cursor position
     fn write_text(&self, text: &str) -> ConsoleResult<()>;
 

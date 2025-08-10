@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use replkit_core::{KeyEvent, Key};
 use crate::{ConsoleInput, ConsoleOutput, ConsoleResult, ConsoleError, RawModeGuard,
-           ConsoleCapabilities, OutputCapabilities, BackendType, TextStyle, ClearType, AsAny, EventLoopError};
+           ConsoleCapabilities, OutputCapabilities, BackendType, TextStyle, ClearType, EventLoopError};
 
 /// Mock console input for testing
 pub struct MockConsoleInput {
@@ -118,16 +118,6 @@ impl MockConsoleInput {
             }
         }
         false
-    }
-}
-
-impl AsAny for MockConsoleInput {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-    
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
     }
 }
 
@@ -261,16 +251,6 @@ impl MockConsoleOutput {
     /// Check if cursor is visible
     pub fn is_cursor_visible(&self) -> bool {
         *self.cursor_visible.lock().unwrap()
-    }
-}
-
-impl AsAny for MockConsoleOutput {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-    
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
     }
 }
 

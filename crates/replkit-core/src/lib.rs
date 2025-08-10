@@ -42,7 +42,7 @@ pub use unicode::{
 
 // Re-export console types
 pub use console::{
-    AsAny, BackendType, ClearType, Color, ConsoleCapabilities, ConsoleError, ConsoleInput,
+    BackendType, ClearType, Color, ConsoleCapabilities, ConsoleError, ConsoleInput,
     ConsoleOutput, ConsoleResult, EventLoopError, OutputCapabilities, RawModeGuard, SafeTextFilter,
     SanitizationPolicy, TextStyle,
 };
