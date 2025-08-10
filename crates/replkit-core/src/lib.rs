@@ -19,6 +19,9 @@ pub mod unicode;
 // Completion system
 pub mod suggestion;
 
+// Convenience module for common imports
+pub mod prelude;
+
 // Console I/O abstraction
 pub mod console;
 
