@@ -10,31 +10,57 @@ use std::sync::{
 };
 
 /// Cross-platform console input interface
+/// 
+/// This trait provides a unified API for reading keyboard input across different platforms
+/// (Unix/Linux, Windows, WASM) with both blocking and non-blocking operations.
 pub trait ConsoleInput: Send + Sync {
     /// Enable raw terminal mode with automatic restoration
+    /// 
+    /// Returns a RAII guard that will restore the original terminal mode when dropped.
+    /// Raw mode disables line buffering and canonical input processing.
     fn enable_raw_mode(&self) -> Result<RawModeGuard, ConsoleError>;
 
-    /// Get current terminal window size (columns, rows)
-    /// Returns the visible window area (srWindow on Windows), not the buffer size (dwSize)
-    /// Values are in character cells, 0-based for API but 1-based for ANSI sequences
+    /// Try to read a key event without blocking
+    /// 
+    /// This is the primary method for non-blocking input polling.
+    /// Returns immediately with Ok(None) if no input is available.
+    /// 
+    /// # Returns
+    /// - `Ok(Some(KeyEvent))` if a key event is available
+    /// - `Ok(None)` if no input is available (non-blocking)
+    /// - `Err(ConsoleError)` on actual I/O errors
+    fn try_read_key(&self) -> Result<Option<KeyEvent>, ConsoleError>;
+
+    /// Read a single key event with optional timeout
+    /// 
+    /// Provides flexible timeout control for input operations.
+    /// 
+    /// # Parameters
+    /// - `timeout_ms`: 
+    ///   - `Some(0)` - Non-blocking (equivalent to try_read_key)
+    ///   - `Some(ms)` - Wait up to `ms` milliseconds
+    ///   - `None` - Block indefinitely (not supported on WASM)
+    /// 
+    /// # Returns
+    /// - `Ok(Some(KeyEvent))` if a key event was read
+    /// - `Ok(None)` if timeout expired or no input (for non-blocking)
+    /// - `Err(ConsoleError)` on I/O errors or unsupported operations
+    fn read_key_timeout(&self, timeout_ms: Option<u32>) -> Result<Option<KeyEvent>, ConsoleError>;
+
+    /// Get current terminal window size in character cells
+    /// 
+    /// Returns the visible window area (not buffer size on Windows).
+    /// Coordinates are 0-based for API consistency, though ANSI sequences use 1-based.
+    /// 
+    /// # Returns
+    /// - `Ok((columns, rows))` - Terminal size in character cells
+    /// - `Err(ConsoleError)` if size cannot be determined
     fn get_window_size(&self) -> Result<(u16, u16), ConsoleError>;
 
-    /// Start the event processing loop
-    fn start_event_loop(&self) -> Result<(), ConsoleError>;
-
-    /// Stop the event processing loop
-    fn stop_event_loop(&self) -> Result<(), ConsoleError>;
-
-    /// Register callback for window resize events
-    fn on_window_resize(&self, callback: Box<dyn FnMut(u16, u16) + Send>);
-
-    /// Register callback for key press events
-    fn on_key_pressed(&self, callback: Box<dyn FnMut(KeyEvent) + Send>);
-
-    /// Check if the event loop is currently running
-    fn is_running(&self) -> bool;
-
-    /// Get platform-specific capabilities
+    /// Get platform-specific capabilities and features
+    /// 
+    /// Returns information about what features are supported on the current platform,
+    /// such as raw mode, Unicode support, and backend type.
     fn get_capabilities(&self) -> ConsoleCapabilities;
 }
 
