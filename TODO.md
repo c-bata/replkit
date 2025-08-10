@@ -10,13 +10,18 @@
 - **Unicode Support**: Comprehensive Unicode text processing
 - **WASM Bindings**: Foundation for cross-language integration
 - **Suggestion struct**: Completion suggestion data structure ✅
+- **Completion System**: Trait-based completion framework ✅
+- **Prompt Builder**: Core prompt interface with builder pattern ✅
 - **Prelude module**: Convenient imports for users ✅
 
+### 🚧 In Progress: Crate Restructuring
+Moving high-level components to unified `replkit` crate for better API organization.
+
 ### ❌ Missing High-Level Components
-- **Prompt struct**: Core prompt interface with builder pattern
-- **Completion System**: Trait-based completion framework
-- **Rendering System**: Terminal output and display management
-- **Prompt Loop**: Interactive input/output cycle
+- **Unified Crate Structure**: Need to create `replkit` crate and move high-level components
+- **Terminal Renderer**: Proper rendering system using ConsoleOutput implementations  
+- **Complete Prompt Loop**: Interactive input/output cycle with renderer integration
+- **Crate Integration**: Clean separation between low-level (core) and high-level (replkit) APIs
 
 ## Implementation Roadmap
 
@@ -130,164 +135,160 @@ let prompt = Prompt::builder()
 - ✅ Updated prelude.rs with prompt types
 - ✅ Added comprehensive prelude tests for prompt functionality
 
-### 📺 Phase 3: Minimal Rendering System (Medium Priority)
+### 📺 Phase 3: Minimal Rendering System (Medium Priority) 🚧 DEFERRED
 
-#### Task 3.1: Basic Terminal Renderer
-**File**: `crates/replkit-core/src/renderer.rs`
+**Status**: 🚧 Deferred - Moving to unified crate structure first
+
+#### Task 3.1: Basic Terminal Renderer ➡️ MOVED TO Task 4.2
+This task has been moved to Task 4.2 after crate restructuring.
+
+### 🎯 Phase 4: Crate Restructuring & Unified API (High Priority)
+
+#### Task 4.1: Create Unified `replkit` Crate & Move High-Level Components
+**Files**: 
+- Create `crates/replkit/` 
+- Move high-level components from `replkit-core`
+
+**Objective**: Create a unified `replkit` crate that provides the complete API by combining `replkit-core` (low-level) and `replkit-io` (platform-specific I/O).
+
+**Implementation Requirements**:
+- [ ] Create `crates/replkit/Cargo.toml` with dependencies on `replkit-core` and `replkit-io`
+- [ ] Create `crates/replkit/src/lib.rs` with unified API exports
+- [ ] Move high-level components from `replkit-core` to `replkit`:
+  - [ ] Move `prompt.rs` (Prompt, PromptBuilder, PromptError)
+  - [ ] Move `completion.rs` (Completor trait, StaticCompleter)
+  - [ ] Move `suggestion.rs` (Suggestion struct)
+  - [ ] Update `prelude.rs` to re-export from new locations
+- [ ] Update `replkit-core` to focus on low-level primitives:
+  - [ ] Keep: Document, Buffer, KeyParser, Unicode, Error handling
+  - [ ] Keep: Console trait definitions (but not implementations)
+- [ ] Update all imports and dependencies
+- [ ] Ensure all tests pass after migration
+
+**Expected Structure After Migration**:
+```
+crates/
+├── replkit/              # NEW: Unified high-level API
+│   ├── src/
+│   │   ├── lib.rs        # Re-exports everything + convenience functions
+│   │   ├── prompt.rs     # Moved from replkit-core
+│   │   ├── completion.rs # Moved from replkit-core  
+│   │   ├── suggestion.rs # Moved from replkit-core
+│   │   └── prelude.rs    # Updated prelude
+│   └── Cargo.toml        # Depends on replkit-core + replkit-io
+├── replkit-core/         # Low-level primitives only
+│   ├── src/
+│   │   ├── document.rs   # Stays
+│   │   ├── buffer.rs     # Stays  
+│   │   ├── key*.rs       # Stays
+│   │   ├── unicode.rs    # Stays
+│   │   ├── error.rs      # Stays
+│   │   └── console.rs    # Trait definitions only
+│   └── Cargo.toml
+├── replkit-io/           # Platform-specific I/O implementations
+└── replkit-wasm/         # WASM bindings
+```
+
+**Validation Criteria**:
+- [ ] `cargo test` passes in all crates
+- [ ] Users can `use replkit::prelude::*` for complete API
+- [ ] `replkit-core` has no high-level prompt functionality
+- [ ] Clean separation between low-level and high-level APIs
+
+#### Task 4.2: Implement Terminal Renderer (moved from Task 3.1)
+**File**: `crates/replkit/src/renderer.rs`
+
+**Objective**: Implement terminal rendering using actual `ConsoleOutput` implementations from `replkit-io`.
+
+**Implementation Requirements**:
+- [ ] Create `renderer.rs` in the `replkit` crate
+- [ ] Use actual `ConsoleOutput` implementations (no more mocks)
+- [ ] Integrate with `go-prompt`-style rendering patterns
+- [ ] Support Unicode text width calculations
+- [ ] Handle completion display and cleanup
+- [ ] Provide styled output (colors, formatting)
+
+**Expected API**:
 ```rust
-use crate::{Document, Suggestion};
-use std::io::{self, Write, stdout};
+use replkit::console::ConsoleOutput;
 
 pub struct Renderer {
-    // Basic rendering state
+    console: Box<dyn ConsoleOutput>,
+    // ... state
 }
 
 impl Renderer {
-    pub fn new() -> Self {
-        Self {}
-    }
-    
-    pub fn render_prompt(&mut self, prefix: &str, document: &Document) -> io::Result<()> {
-        // Clear current line and render prompt with current text
-        print!("\r\x1b[K{}{}", prefix, document.text());
-        
-        // Position cursor correctly
-        let cursor_pos = prefix.len() + document.cursor_position();
-        print!("\r\x1b[{}C", cursor_pos + 1);
-        
-        stdout().flush()
-    }
-    
-    pub fn render_completions(&mut self, suggestions: &[Suggestion]) -> io::Result<()> {
-        if suggestions.is_empty() {
-            return Ok(());
-        }
-        
-        println!(); // New line for completions
-        for suggestion in suggestions.iter().take(10) { // Limit to 10 suggestions
-            println!("  {} - {}", suggestion.text, suggestion.description);
-        }
-        
-        Ok(())
-    }
-    
-    pub fn clear_completions(&mut self, count: usize) -> io::Result<()> {
-        for _ in 0..count {
-            print!("\x1b[A\x1b[K"); // Move up and clear line
-        }
-        stdout().flush()
-    }
+    pub fn new(console: Box<dyn ConsoleOutput>) -> Self;
+    pub fn render_prompt(&mut self, prefix: &str, document: &Document) -> io::Result<()>;
+    pub fn render_completions(&mut self, suggestions: &[Suggestion]) -> io::Result<()>;
+    pub fn clear_completions(&mut self) -> io::Result<()>;
 }
 ```
 
-### 🎯 Phase 4: Basic Prompt Loop (Medium Priority)
+#### Task 4.3: Update Prompt with Renderer Integration  
+**File**: `crates/replkit/src/prompt.rs` (update existing after move)
 
-#### Task 4.1: Implement Input Loop
-**File**: `crates/replkit-core/src/prompt.rs` (update existing)
+**Objective**: Integrate the new Renderer into the Prompt system.
+
+**Implementation Requirements**:
+- [ ] Add renderer field to `Prompt` struct
+- [ ] Update `PromptBuilder` to accept renderer configuration
+- [ ] Implement basic input loop using renderer
+- [ ] Handle keyboard events and text editing
+- [ ] Integrate completion display
+
+**Expected API Updates**:
 ```rust
-use crate::{KeyParser, Key, renderer::Renderer};
-use std::io::{self, Read, stdin};
+impl PromptBuilder {
+    pub fn with_renderer(mut self, renderer: Renderer) -> Self;
+    // or auto-create renderer from console
+    pub fn with_console(mut self, console: Box<dyn ConsoleOutput>) -> Self;
+}
 
 impl Prompt {
-    pub fn input(&mut self) -> Result<String, PromptError> {
-        let mut parser = KeyParser::new();
-        let mut renderer = Renderer::new();
-        let stdin = stdin();
-        let mut buffer = [0u8; 1024];
-        
-        // Set up raw mode (simplified version for now)
-        // TODO: Implement proper terminal mode handling
-        
-        loop {
-            // Render current state
-            let document = self.buffer.document();
-            renderer.render_prompt(&self.prefix, &document)?;
-            
-            // Check for completions if we have a completer
-            if let Some(ref completer) = self.completer {
-                let suggestions = completer.complete(&document);
-                if !suggestions.is_empty() {
-                    renderer.render_completions(&suggestions)?;
-                }
-            }
-            
-            // Read input
-            match stdin.read(&mut buffer) {
-                Ok(n) if n > 0 => {
-                    let events = parser.feed(&buffer[..n]);
-                    
-                    for event in events {
-                        match event.key {
-                            Key::Enter => {
-                                println!(); // New line after input
-                                return Ok(self.buffer.text().to_string());
-                            }
-                            Key::ControlC => {
-                                return Err(PromptError::Interrupted);
-                            }
-                            // Handle other keys
-                            _ => {
-                                if let Some(text) = event.text {
-                                    self.buffer.insert_text(&text, false, true);
-                                }
-                            }
-                        }
-                    }
-                }
-                Ok(_) => break, // EOF
-                Err(e) => return Err(PromptError::IoError(e.to_string())),
-            }
-        }
-        
-        Ok(String::new())
-    }
+    pub fn input(&mut self) -> PromptResult<String>; // Now actually implemented
 }
 ```
 
-### 🔧 Phase 5: Console I/O Integration (Low Priority)
+### 🔧 Phase 5: Advanced Features (Low Priority)
 
-#### Task 5.1: Implement replkit-io Crate
-**File**: `crates/replkit-io/src/lib.rs`
-```rust
-//! Console input/output abstraction for cross-platform terminal handling
-
-mod console;
-mod terminal;
-
-pub use console::{ConsoleInput, ConsoleOutput, ConsoleError};
-pub use terminal::Terminal;
-
-// Re-export from core for convenience
-pub use replkit_core::prelude::*;
-```
-
-#### Task 5.2: Terminal Control Integration
+#### Task 5.1: Enhanced Input Handling
+- Implement advanced key bindings (Emacs/Vi modes)
+- Add history support with up/down arrow navigation
 - Implement proper raw mode terminal control
 - Add cross-platform terminal size detection
-- Integrate with existing console I/O specifications
+
+#### Task 5.2: Advanced Rendering Features  
+- Multi-line prompt support
+- Syntax highlighting for input
+- Advanced completion UI (scrollable, selectable)
+- Progress indicators and status displays
 
 ### 🏗️ Phase 6: Integration & Testing (Low Priority)
 
 #### Task 6.1: Integration Testing
-- Verify `simple_prompt.rs` compiles and runs
+- Verify `simple_prompt.rs` compiles and runs with new structure
 - Test with Unicode input (Japanese, emoji, etc.)
-- Validate error handling paths
-- Test completion functionality
+- Validate error handling paths across crate boundaries
+- Performance testing and optimization
 
 #### Task 6.2: Documentation & Examples
-- Add comprehensive API documentation
-- Create additional usage examples
-- Update README with current capabilities
+- Add comprehensive API documentation for unified crate
+- Create migration guide from replkit-core to replkit
+- Update README with current capabilities and examples
+- Add example projects demonstrating different use cases
 
 ## Priority Implementation Path
 
 ### Minimum Viable Implementation (1-2 weeks)
 1. **Phase 1**: Foundation interfaces (Tasks 1.1-1.3) ✅ COMPLETED
 2. **Phase 2**: Prompt builder (Tasks 2.1-2.2) ✅ COMPLETED
-3. **Phase 3**: Basic rendering (Task 3.1) 🚧 NEXT
-4. **Phase 4**: Simple input loop (Task 4.1) 
+3. **Phase 4**: Crate restructuring & unified API (Tasks 4.1-4.3) 🚧 CURRENT
+   - **Task 4.1**: Create unified `replkit` crate and move components
+   - **Task 4.2**: Implement terminal renderer with real ConsoleOutput
+   - **Task 4.3**: Integrate renderer into prompt system
 
-This path will enable `simple_prompt.rs` to compile and provide basic functionality using `std::io::stdin()` for input.
+This path will enable `simple_prompt.rs` to compile and provide basic functionality with proper crate separation.
 
 ### Full Implementation (3-4 weeks)
 Complete all phases including proper terminal control and cross-platform I/O integration.
@@ -307,10 +308,12 @@ Complete all phases including proper terminal control and cross-platform I/O int
 
 ## Success Criteria
 
-✅ **simple_prompt.rs compiles without errors**
+✅ **Clean crate separation**: `replkit-core` for low-level, `replkit` for high-level API  
+✅ **simple_prompt.rs compiles without errors using unified `replkit` crate**
 ✅ **Basic prompt functionality works (input, display, completion)**  
-✅ **Error handling works correctly**
+✅ **Error handling works correctly across crate boundaries**
 ✅ **Unicode text input is properly supported**
 ✅ **Code follows existing project patterns and conventions**
+✅ **Users can import complete API with `use replkit::prelude::*`**
 
-The strong foundation of low-level components (KeyParser, Document, Buffer) means we primarily need to build the high-level user interface layer to achieve a working prompt system.
+The strong foundation of low-level components (KeyParser, Document, Buffer) in `replkit-core` combined with the high-level prompt interface in `replkit` will provide a clean, usable API similar to go-prompt.

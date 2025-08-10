@@ -11,9 +11,9 @@
 ```
 /
 ├── crates/                     # Workspace crates
-│   ├── replkit-core/           # Core REPL engine logic (editor, history, prompt loop)
-│   ├── replkit-io/             # Implementation of ConsoleInput and ConsoleOuptut traits
-│   ├── replkit/                # Replkit for Rust library users
+│   ├── replkit/                # Integrated high-level APIs
+│   ├── replkit-core/           # Low-level primitives for REPLKIT
+│   ├── replkit-io/             # Platform-specific I/O
 │   ├── replkit-wasm/           # WASM interface for Go bindings
 │   └── replkit-pyo3/           # PyO3-based Python binding (build with maturin)
 │       ├── python-examples/    # Examples of Python bindings
