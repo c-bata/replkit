@@ -83,82 +83,52 @@ pub struct StaticCompleter {
 }
 ```
 
-### 🚀 Phase 2: Prompt Builder System (Medium Priority)
+### 🚀 Phase 2: Prompt Builder System (Medium Priority) ✅ COMPLETED
 
-#### Task 2.1: Implement Core Prompt Structure
+**Status**: ✅ Core prompt structure and builder pattern implemented and tested
+
+#### Task 2.1: Implement Core Prompt Structure ✅ COMPLETED
 **File**: `crates/replkit-core/src/prompt.rs`
+
+**Status**: ✅ Fully implemented and tested
+
+**Implementation Summary**:
+- ✅ `Prompt` struct with prefix, completer, and buffer management
+- ✅ `PromptBuilder` with fluent API and method chaining
+- ✅ `PromptError` hierarchy with proper error conversion
+- ✅ Integration with completion system (StaticCompleter and function-based)
+- ✅ Comprehensive test coverage (11 tests)
+- ✅ Available through prelude imports
+- ✅ Placeholder for input() method (to be implemented in Phase 4)
+
+**Key Features Implemented**:
 ```rust
-use crate::{Buffer, Document, Suggestion, completion::Completor, error::PromptError};
-use std::io::{self, Write};
+// Builder pattern with fluent API
+let prompt = Prompt::builder()
+    .with_prefix("myapp> ")
+    .with_completer(StaticCompleter::from_strings(vec!["help", "quit"]))
+    .build()
+    .unwrap();
 
-pub struct Prompt {
-    prefix: String,
-    completer: Option<Box<dyn Completor>>,
-    buffer: Buffer,
-}
-
-pub struct PromptBuilder {
-    prefix: String,
-    completer: Option<Box<dyn Completor>>,
-}
-
-impl Prompt {
-    pub fn builder() -> PromptBuilder {
-        PromptBuilder::new()
-    }
-    
-    pub fn input(&mut self) -> Result<String, PromptError> {
-        // Implementation will be added in Phase 4
-        todo!("Prompt input loop implementation")
-    }
-}
-
-impl PromptBuilder {
-    pub fn new() -> Self {
-        Self {
-            prefix: "> ".to_string(),
-            completer: None,
-        }
-    }
-    
-    pub fn with_prefix(mut self, prefix: &str) -> Self {
-        self.prefix = prefix.to_string();
-        self
-    }
-    
-    pub fn with_completer<F>(mut self, completer: F) -> Self 
-    where 
-        F: Fn(&Document) -> Vec<Suggestion> + 'static 
-    {
-        self.completer = Some(Box::new(completer));
-        self
-    }
-    
-    pub fn build(self) -> Result<Prompt, PromptError> {
-        Ok(Prompt {
-            prefix: self.prefix,
-            completer: self.completer,
-            buffer: Buffer::new(),
-        })
-    }
-}
+// Function-based completer support
+let prompt = Prompt::builder()
+    .with_completer(|doc: &Document| {
+        vec![Suggestion::new("git status", "Show status")]
+    })
+    .build()
+    .unwrap();
 ```
 
-#### Task 2.2: Update lib.rs Exports
-**File**: `crates/replkit-core/src/lib.rs`
-Add new modules to the existing exports:
-```rust
-// Add these new modules
-pub mod completion;
-pub mod prompt;
-pub mod suggestion;
-pub mod prelude;
+#### Task 2.2: Update lib.rs Exports ✅ COMPLETED
+**Files**: `crates/replkit-core/src/lib.rs`, `crates/replkit-core/src/prelude.rs`
 
-// Add to existing re-exports
-pub use completion::Completor;
-pub use prompt::{Prompt, PromptBuilder};
-pub use suggestion::Suggestion;
-```
+**Status**: ✅ All exports updated and tested
+
+**Implementation Summary**:
+- ✅ Added `prompt` module to lib.rs
+- ✅ Exported `Prompt`, `PromptBuilder`, `PromptError`, `PromptResult`
+- ✅ Updated prelude.rs with prompt types
+- ✅ Added comprehensive prelude tests for prompt functionality
 
 ### 📺 Phase 3: Minimal Rendering System (Medium Priority)
 
@@ -312,10 +282,10 @@ pub use replkit_core::prelude::*;
 ## Priority Implementation Path
 
 ### Minimum Viable Implementation (1-2 weeks)
-1. **Phase 1**: Foundation interfaces (Tasks 1.1-1.3)
-2. **Phase 2**: Prompt builder (Tasks 2.1-2.2)  
-3. **Phase 3**: Basic rendering (Task 3.1)
-4. **Phase 4**: Simple input loop (Task 4.1)
+1. **Phase 1**: Foundation interfaces (Tasks 1.1-1.3) ✅ COMPLETED
+2. **Phase 2**: Prompt builder (Tasks 2.1-2.2) ✅ COMPLETED
+3. **Phase 3**: Basic rendering (Task 3.1) 🚧 NEXT
+4. **Phase 4**: Simple input loop (Task 4.1) 
 
 This path will enable `simple_prompt.rs` to compile and provide basic functionality using `std::io::stdin()` for input.
 

@@ -39,8 +39,8 @@ pub use crate::unicode::{
 // Re-export traits and types that will be implemented in future tasks
 // These will be uncommented as they are implemented:
 
-// Prompt system (to be implemented in Phase 2)
-// pub use crate::prompt::{Prompt, PromptBuilder};
+// Prompt system (implemented in Phase 2)
+pub use crate::prompt::{Prompt, PromptBuilder, PromptError, PromptResult};
 
 // Rendering system (to be implemented in Phase 3) 
 // pub use crate::renderer::Renderer;
@@ -122,5 +122,31 @@ mod tests {
         let test_suggestions = func_completer.complete(&test_doc);
         assert_eq!(test_suggestions.len(), 1);
         assert_eq!(test_suggestions[0].text, "testing");
+    }
+
+    #[test]
+    fn test_prompt_from_prelude() {
+        // Test that Prompt and PromptBuilder are available through prelude
+        let prompt = Prompt::builder()
+            .with_prefix("test> ")
+            .build()
+            .unwrap();
+        
+        assert_eq!(prompt.prefix(), "test> ");
+        
+        // Test with completer
+        let completer = StaticCompleter::from_strings(vec!["hello", "help"]);
+        let mut prompt_with_completer = Prompt::builder()
+            .with_prefix("$ ")
+            .with_completer(completer)
+            .build()
+            .unwrap();
+        
+        prompt_with_completer.insert_text("he").unwrap();
+        let suggestions = prompt_with_completer.get_completions();
+        assert_eq!(suggestions.len(), 2);
+        
+        // Test error types are available
+        let _error: PromptResult<String> = Err(PromptError::Interrupted);
     }
 }

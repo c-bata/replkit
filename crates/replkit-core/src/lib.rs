@@ -20,6 +20,9 @@ pub mod unicode;
 pub mod suggestion;
 pub mod completion;
 
+// Prompt system
+pub mod prompt;
+
 // Convenience module for common imports
 pub mod prelude;
 
@@ -42,6 +45,7 @@ pub use document::Document;
 pub use error::{BufferError, BufferResult};
 pub use suggestion::Suggestion;
 pub use completion::{Completor, StaticCompleter};
+pub use prompt::{Prompt, PromptBuilder, PromptError, PromptResult};
 pub use unicode::{
     byte_index_from_rune_index, char_at_rune_index, display_width, rune_count, rune_slice,
 };
