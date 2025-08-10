@@ -2,7 +2,6 @@ use std::io::{self};
 use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread::{self, JoinHandle};
 
 use replkit_core::{KeyEvent, KeyParser};
 use crate::{ConsoleError, ConsoleInput, ConsoleOutput, ConsoleResult, RawModeGuard, 
@@ -26,34 +25,15 @@ impl Drop for UnixRawModeGuard {
 pub struct UnixConsoleInput {
     stdin_fd: i32,
     raw_guard: Option<UnixRawModeGuard>,
-    running: Arc<AtomicBool>,
-    wake_fds: (i32, i32), // (read, write)
-    resize_cb: Arc<Mutex<Option<Box<dyn FnMut(u16, u16) + Send>>>>,
-    key_cb: Arc<Mutex<Option<Box<dyn FnMut(KeyEvent) + Send>>>>,
-    thread: Option<JoinHandle<()>>,
+    key_parser: Mutex<KeyParser>,
 }
 
 impl UnixConsoleInput {
     pub fn new() -> io::Result<Self> {
-        // Create self-pipe for waking up poll on stop/resize checks
-        let mut fds = [0i32; 2];
-        if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
-            return Err(io::Error::last_os_error());
-        }
-        // Set read end non-blocking
-        let flags = unsafe { libc::fcntl(fds[0], libc::F_GETFL) };
-        if flags != -1 {
-            unsafe { libc::fcntl(fds[0], libc::F_SETFL, flags | libc::O_NONBLOCK) };
-        }
-
         Ok(Self {
             stdin_fd: io::stdin().as_raw_fd(),
             raw_guard: None,
-            running: Arc::new(AtomicBool::new(false)),
-            wake_fds: (fds[0], fds[1]),
-            resize_cb: Arc::new(Mutex::new(None)),
-            key_cb: Arc::new(Mutex::new(None)),
-            thread: None,
+            key_parser: Mutex::new(KeyParser::new()),
         })
     }
 
@@ -79,80 +59,6 @@ impl UnixConsoleInput {
             return Err(io::Error::last_os_error());
         }
         Ok(UnixRawModeGuard { stdin_fd: fd, original_termios, original_flags: flags })
-    }
-
-    fn poll_loop(
-        stdin_fd: i32,
-        wake_read: i32,
-        running: Arc<AtomicBool>,
-        resize_cb: Arc<Mutex<Option<Box<dyn FnMut(u16, u16) + Send>>>>,
-        key_cb: Arc<Mutex<Option<Box<dyn FnMut(KeyEvent) + Send>>>>,
-    ) {
-        let mut parser = KeyParser::new();
-
-        // Initial window size to detect changes
-        let mut last_size = Self::query_window_size().ok();
-        if let Some((cols, rows)) = last_size {
-            if let Ok(mut g) = resize_cb.lock() {
-                if let Some(cb) = g.as_mut() {
-                    (cb)(cols, rows);
-                }
-            }
-        }
-
-        loop {
-            if !running.load(Ordering::Relaxed) {
-                break;
-            }
-
-            // Prepare poll fds: stdin and wake pipe
-            let mut fds = [
-                libc::pollfd { fd: stdin_fd, events: libc::POLLIN, revents: 0 },
-                libc::pollfd { fd: wake_read, events: libc::POLLIN, revents: 0 },
-            ];
-            let rc = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, 50) }; // 50ms timeout to check resize
-            if rc < 0 {
-                // Interrupted; continue
-                continue;
-            }
-
-            // Drain wake pipe if signaled
-            if fds[1].revents & libc::POLLIN != 0 {
-                let mut buf = [0u8; 64];
-                unsafe { libc::read(wake_read, buf.as_mut_ptr() as *mut _, buf.len()) };
-            }
-
-            // Read stdin if ready
-            if fds[0].revents & libc::POLLIN != 0 {
-                let mut buf = [0u8; 1024];
-                loop {
-                    let n = unsafe { libc::read(stdin_fd, buf.as_mut_ptr() as *mut _, buf.len()) };
-                    if n <= 0 { break; }
-                    let bytes = &buf[..n as usize];
-                    let events = parser.feed(bytes);
-                    if !events.is_empty() {
-                        if let Ok(mut g) = key_cb.lock() {
-                            if let Some(cb) = g.as_mut() {
-                                for ev in events { (cb)(ev); }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Resize check
-            if let Ok((cols, rows)) = Self::query_window_size() {
-                match last_size {
-                    Some((c, r)) if c == cols && r == rows => {}
-                    _ => {
-                        last_size = Some((cols, rows));
-                        if let Ok(mut g) = resize_cb.lock() {
-                            if let Some(cb) = g.as_mut() { (cb)(cols, rows); }
-                        }
-                    }
-                }
-            }
-        }
     }
 
     fn query_window_size() -> io::Result<(u16, u16)> {
@@ -184,51 +90,81 @@ impl ConsoleInput for UnixConsoleInput {
         Ok(RawModeGuard::new(restore_fn, "Unix VT".to_string()))
     }
 
+    fn try_read_key(&self) -> Result<Option<KeyEvent>, ConsoleError> {
+        // Non-blocking read from stdin
+        let mut buffer = [0u8; 64];
+        let result = unsafe {
+            libc::read(self.stdin_fd, buffer.as_mut_ptr() as *mut libc::c_void, buffer.len())
+        };
+        
+        if result == -1 {
+            let error = std::io::Error::last_os_error();
+            match error.kind() {
+                std::io::ErrorKind::WouldBlock => {
+                    // No input available - this is expected for non-blocking read
+                    Ok(None)
+                }
+                _ => Err(ConsoleError::IoError(format!("Read error: {}", error))),
+            }
+        } else if result == 0 {
+            // EOF reached
+            Ok(None)
+        } else {
+            // Parse the bytes using shared KeyParser
+            let bytes = &buffer[..result as usize];
+            let mut parser = self.key_parser.lock().unwrap();
+            let events = parser.feed(bytes);
+            
+            // Return the first key event if any
+            Ok(events.into_iter().next())
+        }
+    }
+
+    fn read_key_timeout(&self, timeout_ms: Option<u32>) -> Result<Option<KeyEvent>, ConsoleError> {
+        match timeout_ms {
+            Some(0) => {
+                // Non-blocking - delegate to try_read_key
+                self.try_read_key()
+            }
+            Some(ms) => {
+                // Timeout-based reading using poll()
+                let mut poll_fd = libc::pollfd {
+                    fd: self.stdin_fd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                
+                let poll_result = unsafe {
+                    libc::poll(&mut poll_fd as *mut libc::pollfd, 1, ms as i32)
+                };
+                
+                if poll_result == -1 {
+                    return Err(ConsoleError::IoError("Poll error".to_string()));
+                } else if poll_result == 0 {
+                    // Timeout expired - check if parser has incomplete sequences to flush
+                    let mut parser = self.key_parser.lock().unwrap();
+                    let events = parser.flush();
+                    Ok(events.into_iter().next())
+                } else {
+                    // Input is available - read it
+                    self.try_read_key()
+                }
+            }
+            None => {
+                // Infinite blocking - keep polling until we get input
+                loop {
+                    match self.read_key_timeout(Some(100)) {
+                        Ok(Some(key)) => return Ok(Some(key)),
+                        Ok(None) => continue, // Timeout, try again
+                        Err(e) => return Err(e),
+                    }
+                }
+            }
+        }
+    }
+
     fn get_window_size(&self) -> ConsoleResult<(u16, u16)> {
         Self::query_window_size().map_err(crate::io_error_to_console_error)
-    }
-
-    fn start_event_loop(&self) -> ConsoleResult<()> {
-        if self.running.swap(true, Ordering::Relaxed) {
-            return Err(ConsoleError::EventLoopError(crate::EventLoopError::AlreadyRunning));
-        }
-        let stdin_fd = self.stdin_fd;
-        let wake_read = self.wake_fds.0;
-        let running = self.running.clone();
-        let resize_cb = self.resize_cb.clone();
-        let key_cb = self.key_cb.clone();
-        
-        // Store thread handle - this is a simplified approach
-        // In a real implementation, we'd need better thread management
-        thread::spawn(move || {
-            Self::poll_loop(stdin_fd, wake_read, running, resize_cb, key_cb);
-        });
-        Ok(())
-    }
-
-    fn stop_event_loop(&self) -> ConsoleResult<()> {
-        if !self.running.swap(false, Ordering::Relaxed) {
-            return Err(ConsoleError::EventLoopError(crate::EventLoopError::NotRunning));
-        }
-        // Wake the poll by writing a byte
-        let _ = unsafe { libc::write(self.wake_fds.1, &1u8 as *const _ as *const _, 1) };
-        Ok(())
-    }
-
-    fn on_window_resize(&self, callback: Box<dyn FnMut(u16, u16) + Send>) {
-        if let Ok(mut g) = self.resize_cb.lock() {
-            *g = Some(callback);
-        }
-    }
-
-    fn on_key_pressed(&self, callback: Box<dyn FnMut(KeyEvent) + Send>) {
-        if let Ok(mut g) = self.key_cb.lock() {
-            *g = Some(callback);
-        }
-    }
-
-    fn is_running(&self) -> bool {
-        self.running.load(Ordering::Relaxed)
     }
 
     fn get_capabilities(&self) -> ConsoleCapabilities {

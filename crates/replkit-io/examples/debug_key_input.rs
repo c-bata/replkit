@@ -1,18 +1,16 @@
-//! VT Debug Example - portable ConsoleInput-based input printing
+//! Key Input Debug Example - Console Input Debug Tool
 //!
-//! Usage: cargo run --example vt100_debug
-//! Press Ctrl+C (or Enter + Ctrl+C on some shells) to exit.
+//! Usage: cargo run --example debug_key_input
+//! Press Ctrl+C to exit.
 
-use replkit_core::{ConsoleInput, Key, KeyEvent};
+use replkit_io::{ConsoleInput, ConsoleError};
+use replkit_core::{Key, KeyEvent};
 use std::io::{self, Write};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 
 /// Wrapper to ensure proper cleanup of console input
 struct ConsoleInputGuard {
     input: Box<dyn ConsoleInput>,
-    _raw_guard: Option<replkit_core::RawModeGuard>,
-    running: bool,
+    _raw_guard: Option<replkit_io::RawModeGuard>,
 }
 
 impl ConsoleInputGuard {
@@ -23,42 +21,19 @@ impl ConsoleInputGuard {
         Ok(Self {
             input,
             _raw_guard: Some(raw_guard),
-            running: false,
         })
     }
 
-    fn start_event_loop(&mut self) -> io::Result<()> {
-        self.input
-            .start_event_loop()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("start error: {}", e)))?;
-        self.running = true;
-        Ok(())
+    fn try_read_key(&self) -> Result<Option<KeyEvent>, ConsoleError> {
+        self.input.try_read_key()
     }
 
-    fn stop_event_loop(&mut self) -> io::Result<()> {
-        if self.running {
-            if let Err(e) = self.input.stop_event_loop() {
-                eprintln!("Warning: Failed to stop event loop: {}", e);
-            }
-            self.running = false;
-        }
-        Ok(())
+    fn read_key_timeout(&self, timeout_ms: Option<u32>) -> Result<Option<KeyEvent>, ConsoleError> {
+        self.input.read_key_timeout(timeout_ms)
     }
 
-    fn set_key_event_callback(&mut self, callback: Box<dyn FnMut(KeyEvent) + Send>) {
-        self.input.on_key_pressed(callback);
-    }
-
-    fn set_resize_callback(&mut self, callback: Box<dyn FnMut(u16, u16) + Send>) {
-        self.input.on_window_resize(callback);
-    }
-}
-
-impl Drop for ConsoleInputGuard {
-    fn drop(&mut self) {
-        let _ = self.stop_event_loop();
-        // Give a moment for cleanup to complete
-        std::thread::sleep(std::time::Duration::from_millis(50));
+    fn get_window_size(&self) -> Result<(u16, u16), ConsoleError> {
+        self.input.get_window_size()
     }
 }
 
@@ -85,26 +60,16 @@ fn format_bytes(bytes: &[u8]) -> String {
 }
 
 /// Display key event information with improved formatting
-fn display_key_event(event: &replkit_core::KeyEvent) {
+fn display_key_event(event: &KeyEvent) {
     let key_name = format!("{:?}", event.key);
     let raw_bytes = format_bytes(&event.raw_bytes);
 
-    // Use different formatting for better readability
-    print!(
-        "KeyPress(key={:<20}, raw={:<25}",
-        format!("'{}'", key_name),
-        raw_bytes
-    );
-
-    if let Some(text) = &event.text {
-        print!(", data='{}'", text);
-    }
-
-    // Use explicit \r\n for proper line breaks in raw terminal mode
-    print!(")\r\n");
-
-    // Flush output immediately
-    io::stdout().flush().unwrap();
+    // Use \r\n for proper line endings in raw mode
+    print!("Key: {} | Raw: {} | Text: {:?}\r\n", 
+             key_name, 
+             raw_bytes, 
+             event.text);
+    let _ = io::stdout().flush();
 }
 
 #[cfg(unix)]
@@ -118,48 +83,64 @@ fn make_input() -> io::Result<Box<dyn ConsoleInput>> {
     Ok(Box::new(replkit_io::WindowsLegacyConsoleInput::new()?))
 }
 
-fn main() -> io::Result<()> {
-    println!("VT Debug - ConsoleInput");
-    println!("========================");
-    println!("Press keys to see parsed events. Press Ctrl+C to exit.");
-    println!();
+#[cfg(target_arch = "wasm32")]
+fn make_input() -> io::Result<Box<dyn ConsoleInput>> {
+    Ok(Box::new(replkit_io::WasmBridgeConsoleInput::new()?))
+}
 
-    let shutdown = Arc::new(AtomicBool::new(false));
-    let shutdown_flag = shutdown.clone();
+#[cfg(not(any(unix, windows, target_arch = "wasm32")))]
+fn make_input() -> io::Result<Box<dyn ConsoleInput>> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "Unsupported platform",
+    ))
+}
+
+fn main() -> io::Result<()> {
+    println!("Key Input Debug Tool");
+    println!("Press keys to see their events. Press Ctrl+C to exit.");
+    println!();
 
     let input_impl = make_input()
         .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("init error: {}", e)))?;
-    let mut input = ConsoleInputGuard::new(input_impl)?;
+    let input = ConsoleInputGuard::new(input_impl)?;
 
-    input.set_key_event_callback(Box::new(move |ev: KeyEvent| {
-        display_key_event(&ev);
-        if ev.key == Key::ControlC {
-            println!("\r\nReceived Ctrl+C, shutting down...\r\n");
-            io::stdout().flush().unwrap();
-            shutdown_flag.store(true, Ordering::Relaxed);
-        }
-    }));
-
-    input.set_resize_callback(Box::new(|cols, rows| {
-        println!("[resize] cols={}, rows={}\r", cols, rows);
-        let _ = io::stdout().flush();
-    }));
-
-    input.start_event_loop()?;
+    // Display current window size
+    match input.get_window_size() {
+        Ok((cols, rows)) => print!("[window size] cols={}, rows={}\r\n", cols, rows),
+        Err(e) => print!("[window size] error: {}\r\n", e),
+    }
 
     print!("Ready for input...\r\n");
     io::stdout().flush()?;
 
-    // Main loop - check for shutdown signal
-    while !shutdown.load(Ordering::Relaxed) {
-        std::thread::sleep(std::time::Duration::from_millis(50));
+    // Main input loop using new API
+    loop {
+        match input.read_key_timeout(Some(50)) { // 50ms timeout for better Escape key detection
+            Ok(Some(key_event)) => {
+                display_key_event(&key_event);
+                
+                // Exit on Ctrl+C
+                if key_event.key == Key::ControlC {
+                    print!("Received Ctrl+C, shutting down...\r\n");
+                    let _ = io::stdout().flush();
+                    break;
+                }
+            }
+            Ok(None) => {
+                // Timeout - continue loop
+                continue;
+            }
+            Err(e) => {
+                print!("Input error: {}\r\n", e);
+                let _ = io::stdout().flush();
+                break;
+            }
+        }
     }
 
-    // Explicit cleanup - the Drop impl will also handle this as a fallback
-    println!("Stopping event loop...");
-    input.stop_event_loop()?;
-
-    println!("Done. Goodbye!");
+    print!("Done. Goodbye!\r\n");
+    let _ = io::stdout().flush();
     Ok(())
 }
 
@@ -180,28 +161,5 @@ mod tests {
 
         // Test empty
         assert_eq!(format_bytes(&[]), "[] \"\"");
-    }
-
-    #[test]
-    fn test_key_parser_integration() {
-        let mut parser = KeyParser::new();
-
-        // Test basic control character
-        let events = parser.feed(&[0x03]);
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].key, Key::ControlC);
-
-        // Test arrow key sequence
-        let events = parser.feed(&[0x1b, 0x5b, 0x41]);
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].key, Key::Up);
-
-        // Test partial sequence handling
-        let events = parser.feed(&[0x1b]);
-        assert_eq!(events.len(), 0); // Should buffer partial sequence
-
-        let events = parser.feed(&[0x5b, 0x42]);
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].key, Key::Down);
     }
 }

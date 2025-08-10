@@ -55,7 +55,7 @@
 use replkit_core::{Buffer, Document, error::BufferError, Key, KeyEvent, KeyParser};
 use replkit_io::{ConsoleInput, ConsoleOutput, ConsoleError};
 use crate::{Suggestion, completion::Completor, renderer::Renderer};
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+
 
 /// Error types specific to prompt operations
 #[derive(Debug, Clone)]
@@ -311,66 +311,41 @@ impl Prompt {
         // Initialize the input session
         self.buffer.set_text(String::new());
         
-        // Set up shared state for the event loop
-        let result = Arc::new(std::sync::Mutex::new(None::<PromptResult<String>>));
-        let running = Arc::new(AtomicBool::new(true));
-        let completion_visible = Arc::new(std::sync::Mutex::new(false));
-        let selected_completion = Arc::new(std::sync::Mutex::new(0usize));
-        
         // Render initial prompt
         self.renderer.render_prompt(&self.prefix, &self.document())?;
         
-        // Set up key event handler
-        {
-            let result_clone = Arc::clone(&result);
-            let running_clone = Arc::clone(&running);
-            let completion_visible_clone = Arc::clone(&completion_visible);
-            let selected_completion_clone = Arc::clone(&selected_completion);
-            
-            self.input.on_key_pressed(Box::new(move |key_event: KeyEvent| {
-                // This is a simplified event handler that will set the result and stop the loop
-                // In a real implementation, we would need a more sophisticated approach
-                // For now, we'll just handle basic cases
-                
-                match key_event.key {
-                    Key::Enter => {
-                        // TODO: Get the actual buffer text - for now use a placeholder
-                        let mut result_guard = result_clone.lock().unwrap();
-                        *result_guard = Some(Ok("demo_input".to_string()));
-                        running_clone.store(false, Ordering::Relaxed);
-                    },
-                    Key::ControlC => {
-                        let mut result_guard = result_clone.lock().unwrap();
-                        *result_guard = Some(Err(PromptError::Interrupted));
-                        running_clone.store(false, Ordering::Relaxed);
-                    },
-                    _ => {
-                        // For other keys, continue the loop
-                        // TODO: Implement full key handling
+        // Main input loop using new ConsoleInput API
+        loop {
+            match self.input.read_key_timeout(Some(100)) { // 100ms timeout
+                Ok(Some(key_event)) => {
+                    match key_event.key {
+                        Key::Enter => {
+                            // TODO: Get the actual buffer text - for now use a placeholder
+                            self.renderer.clear_completions().ok();
+                            self.renderer.clear_prompt().ok();
+                            return Ok("demo_input".to_string());
+                        },
+                        Key::ControlC => {
+                            self.renderer.clear_completions().ok();
+                            self.renderer.clear_prompt().ok();
+                            return Err(PromptError::Interrupted);
+                        },
+                        _ => {
+                            // For other keys, continue the loop
+                            // TODO: Implement full key handling (character input, navigation, etc.)
+                        }
                     }
                 }
-            }));
-        }
-        
-        // Start the event loop
-        self.input.start_event_loop()?;
-        
-        // Wait for input completion
-        while running.load(Ordering::Relaxed) {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        
-        // Stop the event loop
-        self.input.stop_event_loop()?;
-        
-        // Clear rendering and return result
-        self.renderer.clear_completions().ok();
-        self.renderer.clear_prompt().ok();
-        
-        let result_guard = result.lock().unwrap();
-        match result_guard.as_ref() {
-            Some(result) => result.clone(),
-            None => Err(PromptError::IoError("No input received".to_string())),
+                Ok(None) => {
+                    // Timeout - continue loop (useful for periodic updates)
+                    continue;
+                }
+                Err(e) => {
+                    self.renderer.clear_completions().ok();
+                    self.renderer.clear_prompt().ok();
+                    return Err(PromptError::IoError(format!("Input error: {}", e)));
+                }
+            }
         }
     }
 }

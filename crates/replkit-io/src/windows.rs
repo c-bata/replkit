@@ -7,9 +7,6 @@ mod imp {
     use std::io;
     use std::mem::zeroed;
     use std::ptr::{null, null_mut};
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Arc, Mutex};
-    use std::thread::{self, JoinHandle};
 
     use replkit_core::{Key, KeyEvent};
     use crate::{ConsoleError, ConsoleInput, ConsoleOutput, ConsoleResult, RawModeGuard,
@@ -87,6 +84,8 @@ mod imp {
         fn GetConsoleMode(hConsoleHandle: HANDLE, lpMode: *mut DWORD) -> BOOL;
         fn SetConsoleMode(hConsoleHandle: HANDLE, dwMode: DWORD) -> BOOL;
         fn ReadConsoleInputW(hConsoleInput: HANDLE, lpBuffer: *mut INPUT_RECORD, nLength: DWORD, lpNumberOfEventsRead: *mut DWORD) -> BOOL;
+        fn GetNumberOfConsoleInputEvents(hConsoleInput: HANDLE, lpNumberOfEvents: *mut DWORD) -> BOOL;
+        fn WaitForSingleObject(hHandle: HANDLE, dwMilliseconds: DWORD) -> DWORD;
         fn GetConsoleScreenBufferInfo(hConsoleOutput: HANDLE, lpConsoleScreenBufferInfo: *mut CONSOLE_SCREEN_BUFFER_INFO) -> BOOL;
         fn CreateEventW(lpEventAttributes:*mut c_void, bManualReset: BOOL, bInitialState: BOOL, lpName: *const WCHAR) -> HANDLE;
         fn SetEvent(hEvent: HANDLE) -> BOOL;
@@ -99,11 +98,6 @@ mod imp {
     pub struct WindowsLegacyConsoleInput {
         h_input: HANDLE,
         original_mode: DWORD,
-        running: Arc<AtomicBool>,
-        stop_event: HANDLE,
-        resize_cb: Arc<Mutex<Option<Box<dyn FnMut(u16, u16) + Send>>>>,
-        key_cb: Arc<Mutex<Option<Box<dyn FnMut(KeyEvent) + Send>>>>,
-        thread: Option<JoinHandle<()>>,
     }
 
     pub struct WindowsLegacyConsoleOutput {
@@ -131,24 +125,19 @@ mod imp {
         pub fn new() -> io::Result<Self> {
             unsafe {
                 let h_input = GetStdHandle(STD_INPUT_HANDLE);
-                if h_input == 0 || h_input == -1 { return Err(io::Error::new(io::ErrorKind::Other, "GetStdHandle failed")); }
+                if h_input == 0 || h_input == -1 { 
+                    return Err(io::Error::new(io::ErrorKind::Other, "GetStdHandle failed")); 
+                }
 
                 // Save current console mode
                 let mut mode: DWORD = 0;
-                if GetConsoleMode(h_input, &mut mode as *mut DWORD) == 0 { return Err(io::Error::new(io::ErrorKind::Other, "GetConsoleMode failed")); }
-
-                // Create stop event
-                let stop_event = CreateEventW(null_mut(), 1, 0, null());
-                if stop_event == 0 { return Err(io::Error::new(io::ErrorKind::Other, "CreateEventW failed")); }
+                if GetConsoleMode(h_input, &mut mode as *mut DWORD) == 0 { 
+                    return Err(io::Error::new(io::ErrorKind::Other, "GetConsoleMode failed")); 
+                }
 
                 Ok(Self {
                     h_input,
                     original_mode: mode,
-                    running: Arc::new(AtomicBool::new(false)),
-                    stop_event,
-                    resize_cb: Arc::new(Mutex::new(None)),
-                    key_cb: Arc::new(Mutex::new(None)),
-                    thread: None,
                 })
             }
         }
@@ -271,33 +260,90 @@ mod imp {
             }
         }
 
+        fn try_read_key(&self) -> Result<Option<KeyEvent>, ConsoleError> {
+            unsafe {
+                // Check if input is available without blocking
+                let mut available: DWORD = 0;
+                if GetNumberOfConsoleInputEvents(self.h_input, &mut available) == 0 {
+                    return Err(ConsoleError::IoError("GetNumberOfConsoleInputEvents failed".to_string()));
+                }
+                
+                if available == 0 {
+                    return Ok(None);
+                }
+                
+                // Read one input event
+                let mut buffer: INPUT_RECORD = zeroed();
+                let mut events_read: DWORD = 0;
+                if ReadConsoleInputW(self.h_input, &mut buffer, 1, &mut events_read) == 0 {
+                    return Err(ConsoleError::IoError("ReadConsoleInputW failed".to_string()));
+                }
+                
+                if events_read == 0 {
+                    return Ok(None);
+                }
+                
+                // Process only key events
+                if buffer.EventType == KEY_EVENT {
+                    let key_event = buffer.Event.KeyEvent;
+                    if key_event.bKeyDown != 0 { // Only process key down events
+                        return Ok(Some(self.convert_key_event(&key_event)));
+                    }
+                }
+                
+                // For non-key events or key-up events, return None
+                Ok(None)
+            }
+        }
+
+        fn read_key_timeout(&self, timeout_ms: Option<u32>) -> Result<Option<KeyEvent>, ConsoleError> {
+            match timeout_ms {
+                Some(0) => {
+                    // Non-blocking read
+                    self.try_read_key()
+                }
+                Some(ms) => {
+                    // Timeout-based reading using WaitForSingleObject
+                    unsafe {
+                        let wait_result = WaitForSingleObject(self.h_input, ms);
+                        if wait_result == WAIT_OBJECT_0 {
+                            // Input is available
+                            self.try_read_key()
+                        } else {
+                            // Timeout or error
+                            Ok(None)
+                        }
+                    }
+                }
+                None => {
+                    // Infinite blocking - keep trying until we get input
+                    loop {
+                        match self.read_key_timeout(Some(100)) {
+                            Ok(Some(key)) => return Ok(Some(key)),
+                            Ok(None) => continue, // Timeout, try again
+                            Err(e) => return Err(e),
+                        }
+                    }
+                }
+            }
+        }
+
         fn get_window_size(&self) -> ConsoleResult<(u16, u16)> {
             self.query_window_size().map_err(crate::io_error_to_console_error)
         }
 
-        fn on_window_resize(&self, callback: Box<dyn FnMut(u16, u16) + Send>) {
-            if let Ok(mut g) = self.resize_cb.lock() { *g = Some(callback); }
-        }
-
-        fn on_key_pressed(&self, callback: Box<dyn FnMut(KeyEvent) + Send>) {
-            if let Ok(mut g) = self.key_cb.lock() { *g = Some(callback); }
-        }
-
-        fn start_event_loop(&self) -> ConsoleResult<()> {
-            if self.running.swap(true, Ordering::Relaxed) { 
-                return Err(ConsoleError::EventLoopError(crate::EventLoopError::AlreadyRunning)); 
+        fn get_capabilities(&self) -> ConsoleCapabilities {
+            ConsoleCapabilities {
+                supports_raw_mode: true,
+                supports_resize_events: true,
+                supports_bracketed_paste: false,
+                supports_mouse_events: true,
+                supports_unicode: true,
+                platform_name: "Windows Legacy".to_string(),
+                backend_type: BackendType::WindowsLegacy,
             }
-            let h_input = self.h_input;
-            let h_stop = self.stop_event;
-            let running = self.running.clone();
-            let resize_cb = self.resize_cb.clone();
-            let key_cb = self.key_cb.clone();
-            self.thread = Some(thread::spawn(move || unsafe {
-                let mut nread: DWORD = 0;
-                let handles = [h_input, h_stop];
-                loop {
-                    if !running.load(Ordering::Relaxed) { break; }
-                    let wait = WaitForMultipleObjects(2, handles.as_ptr(), 0, 100); // 100ms timeout for periodic checks
+        }
+    }
                     if wait == WAIT_FAILED { break; }
                     if wait == WAIT_OBJECT_0 { // input ready
                         // Drain available records (bounded)
@@ -326,30 +372,14 @@ mod imp {
                 }
             }));
             Ok(())
-        }
-
-        fn stop_event_loop(&self) -> ConsoleResult<()> {
-            if !self.running.swap(false, Ordering::Relaxed) { 
-                return Err(ConsoleError::EventLoopError(crate::EventLoopError::NotRunning)); 
-            }
-            unsafe { let _ = SetEvent(self.stop_event); }
-            Ok(())
-        }
-
-        fn is_running(&self) -> bool {
-            self.running.load(Ordering::Relaxed)
-        }
-
-        fn get_capabilities(&self) -> ConsoleCapabilities {
-            ConsoleCapabilities {
-                supports_raw_mode: true,
-                supports_resize_events: true,
-                supports_bracketed_paste: false,
-                supports_mouse_events: true,
-                supports_unicode: true,
-                platform_name: "Windows Legacy".to_string(),
-                backend_type: BackendType::WindowsLegacy,
-            }
+        
+        // Helper method to convert Windows key event to our KeyEvent
+        fn convert_key_event(&self, key_event: &KEY_EVENT_RECORD) -> KeyEvent {
+            // Use existing translate_key function
+            Self::translate_key(key_event).unwrap_or_else(|| {
+                // Fallback for undefined keys
+                KeyEvent::new(Key::NotDefined, Vec::new(), String::new())
+            })
         }
     }
     impl ConsoleOutput for WindowsVtConsoleOutput {
@@ -563,6 +593,49 @@ impl WindowsVtConsoleOutput {
 impl WindowsLegacyConsoleInput {
     pub fn new() -> std::io::Result<Self> {
         Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "Windows not supported"))
+    }
+}
+
+#[cfg(not(windows))]
+impl crate::ConsoleInput for WindowsLegacyConsoleInput {
+    fn enable_raw_mode(&self) -> Result<crate::RawModeGuard, crate::ConsoleError> {
+        Err(crate::ConsoleError::UnsupportedFeature { 
+            feature: "Windows console input".to_string(), 
+            platform: "Non-Windows".to_string() 
+        })
+    }
+    
+    fn try_read_key(&self) -> Result<Option<replkit_core::KeyEvent>, crate::ConsoleError> {
+        Err(crate::ConsoleError::UnsupportedFeature { 
+            feature: "Windows console input".to_string(), 
+            platform: "Non-Windows".to_string() 
+        })
+    }
+    
+    fn read_key_timeout(&self, _timeout_ms: Option<u32>) -> Result<Option<replkit_core::KeyEvent>, crate::ConsoleError> {
+        Err(crate::ConsoleError::UnsupportedFeature { 
+            feature: "Windows console input".to_string(), 
+            platform: "Non-Windows".to_string() 
+        })
+    }
+    
+    fn get_window_size(&self) -> crate::ConsoleResult<(u16, u16)> {
+        Err(crate::ConsoleError::UnsupportedFeature { 
+            feature: "Windows console input".to_string(), 
+            platform: "Non-Windows".to_string() 
+        })
+    }
+    
+    fn get_capabilities(&self) -> crate::ConsoleCapabilities {
+        crate::ConsoleCapabilities {
+            supports_raw_mode: false,
+            supports_resize_events: false,
+            supports_bracketed_paste: false,
+            supports_mouse_events: false,
+            supports_unicode: false,
+            platform_name: "Windows (not available)".to_string(),
+            backend_type: crate::BackendType::WindowsLegacy,
+        }
     }
 }
 

@@ -5,7 +5,7 @@
 //! pattern to communicate with the host environment through serialization.
 
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::VecDeque;
 
 use replkit_core::KeyEvent;
 use crate::{ConsoleInput, ConsoleOutput, ConsoleResult, ConsoleError, RawModeGuard,
@@ -13,21 +13,23 @@ use crate::{ConsoleInput, ConsoleOutput, ConsoleResult, ConsoleError, RawModeGua
 
 /// WASM bridge console input implementation
 pub struct WasmBridgeConsoleInput {
-    running: Arc<AtomicBool>,
-    resize_callback: Arc<Mutex<Option<Box<dyn FnMut(u16, u16) + Send>>>>,
-    key_callback: Arc<Mutex<Option<Box<dyn FnMut(KeyEvent) + Send>>>>,
+    input_queue: Arc<Mutex<VecDeque<KeyEvent>>>,
 }
 
 impl WasmBridgeConsoleInput {
     pub fn new() -> std::io::Result<Self> {
         Ok(Self {
-            running: Arc::new(AtomicBool::new(false)),
-            resize_callback: Arc::new(Mutex::new(None)),
-            key_callback: Arc::new(Mutex::new(None)),
+            input_queue: Arc::new(Mutex::new(VecDeque::new())),
         })
     }
     
-    /// Receive a message from the host environment
+    /// Push a key event to the input queue (called from host environment)
+    pub fn push_key_event(&self, event: KeyEvent) {
+        if let Ok(mut queue) = self.input_queue.lock() {
+            queue.push_back(event);
+        }
+    }
+    
     /// This would be called by WASM-exported functions
     pub fn receive_message(&self, message: &str) -> Result<(), ConsoleError> {
         // In a full implementation, this would deserialize messages from the host
@@ -60,43 +62,42 @@ impl ConsoleInput for WasmBridgeConsoleInput {
         Ok(RawModeGuard::new(restore_fn, "WASM Bridge".to_string()))
     }
     
+    fn try_read_key(&self) -> Result<Option<KeyEvent>, ConsoleError> {
+        // Non-blocking read from input queue
+        if let Ok(mut queue) = self.input_queue.lock() {
+            Ok(queue.pop_front())
+        } else {
+            Err(ConsoleError::IoError("Failed to lock input queue".to_string()))
+        }
+    }
+    
+    fn read_key_timeout(&self, timeout_ms: Option<u32>) -> Result<Option<KeyEvent>, ConsoleError> {
+        match timeout_ms {
+            Some(0) => {
+                // Non-blocking - delegate to try_read_key
+                self.try_read_key()
+            }
+            Some(_) => {
+                // WASM environments don't support blocking I/O with timeouts
+                Err(ConsoleError::UnsupportedFeature { 
+                    feature: "blocking read with timeout".to_string(), 
+                    platform: "WASM".to_string() 
+                })
+            }
+            None => {
+                // Infinite blocking is not supported in WASM
+                Err(ConsoleError::UnsupportedFeature { 
+                    feature: "infinite blocking read".to_string(), 
+                    platform: "WASM".to_string() 
+                })
+            }
+        }
+    }
+    
     fn get_window_size(&self) -> ConsoleResult<(u16, u16)> {
         // In a full implementation, this would query the host environment
         // For now, return a default size
         Ok((80, 24))
-    }
-    
-    fn start_event_loop(&self) -> ConsoleResult<()> {
-        if self.running.swap(true, Ordering::Relaxed) {
-            return Err(ConsoleError::EventLoopError(crate::EventLoopError::AlreadyRunning));
-        }
-        
-        // In WASM, the event loop is managed by the host environment
-        // We just mark ourselves as running
-        Ok(())
-    }
-    
-    fn stop_event_loop(&self) -> ConsoleResult<()> {
-        if !self.running.swap(false, Ordering::Relaxed) {
-            return Err(ConsoleError::EventLoopError(crate::EventLoopError::NotRunning));
-        }
-        Ok(())
-    }
-    
-    fn on_window_resize(&self, callback: Box<dyn FnMut(u16, u16) + Send>) {
-        if let Ok(mut cb) = self.resize_callback.lock() {
-            *cb = Some(callback);
-        }
-    }
-    
-    fn on_key_pressed(&self, callback: Box<dyn FnMut(KeyEvent) + Send>) {
-        if let Ok(mut cb) = self.key_callback.lock() {
-            *cb = Some(callback);
-        }
-    }
-    
-    fn is_running(&self) -> bool {
-        self.running.load(Ordering::Relaxed)
     }
     
     fn get_capabilities(&self) -> ConsoleCapabilities {
@@ -104,6 +105,13 @@ impl ConsoleInput for WasmBridgeConsoleInput {
             supports_raw_mode: true,
             supports_resize_events: true,
             supports_bracketed_paste: false,
+            supports_mouse_events: false,
+            supports_unicode: true,
+            platform_name: "WASM Bridge".to_string(),
+            backend_type: BackendType::WasmBridge,
+        }
+    }
+}
             supports_mouse_events: false,
             supports_unicode: true,
             platform_name: "WASM Bridge".to_string(),

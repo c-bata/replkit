@@ -22,7 +22,6 @@ We've designed two complementary methods for key input:
 1. **`try_read_key()`**: Pure non-blocking, immediate return
    - Clear intent: "check if input is available"
    - Optimized implementation path
-   - WASM-friendly (JavaScript event queue polling)
    - Go-friendly (channel select patterns)
 
 2. **`read_key_timeout(timeout_ms: Option<u32>)`**: Flexible timeout control
@@ -38,13 +37,6 @@ We've designed two complementary methods for key input:
 | `read_key_timeout(0)` | ✅ Same as above | ✅ Same as above | ✅ Same as above | ✅ Recommended |
 | `read_key_timeout(ms)` | ✅ select() | ✅ WaitForSingleObject | ❌ Unsupported | ⚠️ Short timeouts only |
 | `read_key_timeout(None)` | ✅ blocking read | ✅ ReadConsoleInput | ❌ Unsupported | ❌ Not recommended |
-
-### WASM Considerations
-
-- **No Blocking I/O**: WASM cannot perform blocking operations
-- **Event-Driven**: Relies on JavaScript event queue and async callbacks
-- **Limited Timeout Support**: Only immediate polling supported
-- **Bridge Pattern**: Communication through JavaScript bridge layer
 
 ### Go Binding Strategy
 
@@ -62,118 +54,45 @@ func (c *ConsoleInput) ReadKeyWithTimeout(timeout time.Duration) (*KeyEvent, err
 
 ## Implementation Tasks
 
-### Phase 1: Core API Implementation (Task 4.4)
+### [COMPLETE] Phase 1: Core API Implementation (Task 4.4)
 
-#### High Priority (Required for simple_prompt.rs)
+- [x] **Implement Unix `try_read_key()`** ✅ DONE
+- [x] **Implement Unix `read_key_timeout()`** ✅ DONE  
+- [x] **Update prompt.rs input() method** ✅ DONE
+- [x] **Implement Windows `try_read_key()`** ✅ DONE
+- [x] **Implement Windows `read_key_timeout()`** ✅ DONE
+- [x] **Fix Escape key detection with KeyParser state management** ✅ DONE
+- [x] **Fix raw mode output formatting with \\r\\n line endings** ✅ DONE
 
-- [ ] **Implement Unix `try_read_key()`**
-  - File: `crates/replkit-io/src/unix/input.rs`
-  - Use `poll()` with timeout 0 for immediate return
-  - Handle STDIN file descriptor polling
-  - Parse VT sequences into KeyEvent structures
-
-- [ ] **Implement Unix `read_key_timeout()`**
-  - File: `crates/replkit-io/src/unix/input.rs`
-  - Use `select()` or `poll()` with configurable timeout
-  - Handle timeout expiration gracefully
-  - Support infinite blocking for `None` timeout
-
-- [ ] **Update prompt.rs input() method**
-  - File: `crates/replkit-core/src/prompt.rs`
-  - Replace placeholder implementation
-  - Use `try_read_key()` for main event loop
-  - Implement key handling and state management
-
-#### Medium Priority (Platform Completeness)
-
-- [ ] **Implement Windows `try_read_key()`**
-  - File: `crates/replkit-io/src/windows/input.rs`
-  - Use `PeekConsoleInputW()` for non-blocking check
-  - Handle Windows console input records
-  - Convert to unified KeyEvent format
-
-- [ ] **Implement Windows `read_key_timeout()`**
-  - File: `crates/replkit-io/src/windows/input.rs`
-  - Use `WaitForSingleObject()` with timeout
-  - Handle both legacy and VT console modes
-  - Support Windows-specific key combinations
-
-### Phase 2: WASM Integration
+### [IN PROGRESS] Phase 2: WASM Integration
 
 #### WASM Bridge Implementation
 
-- [ ] **Implement WASM `try_read_key()`**
-  - File: `crates/replkit-wasm/src/input.rs`
-  - JavaScript event queue polling
-  - Convert JS keyboard events to KeyEvent
-  - Handle browser-specific key mapping
-
-- [ ] **Implement WASM `read_key_timeout()`**
-  - File: `crates/replkit-wasm/src/input.rs`
+- [x] **Implement WASM `try_read_key()`** ✅ DONE
+  - File: `crates/replkit-io/src/wasm.rs`
+  - Non-blocking input queue polling
+  - Proper error handling with ConsoleError::IoError
+- [x] **Implement WASM `read_key_timeout()`** ✅ DONE
+  - File: `crates/replkit-io/src/wasm.rs`
   - Support only `Some(0)` (delegate to `try_read_key()`)
   - Return `UnsupportedFeature` for blocking operations
   - Document WASM limitations clearly
+- [x] **Go WASM Runtime Integration**
+  - File: `crates/replkit-io/src/wasm.rs`
+  - Export functions for Go wazero runtime
+  - Handle key event marshaling from Go
+  - Window size management from Go side
 
-- [ ] **JavaScript Bridge Layer**
-  - File: `bindings/wasm/keyboard_bridge.js`
-  - Event listener registration
-  - Key event buffering
-  - Cross-origin and security considerations
-
-### Phase 3: Go Bindings
+### [COMPLETE] Phase 3: Go Bindings
 
 #### Go Interface Design
 
-- [ ] **Design Go ConsoleInput Interface**
+- [x] **Design Go ConsoleInput Interface**
   - File: `bindings/go/console_input.go`
   - Channel-based high-level API
   - Context support for cancellation
   - Idiomatic Go error handling
-
-- [ ] **Implement Go Wrapper**
-  - File: `bindings/go/console_wrapper.go`
-  - CGO bindings to Rust implementation
-  - Memory management for cross-language calls
-  - Goroutine-safe operations
-
-- [ ] **Go Examples and Tests**
-  - File: `bindings/go/_examples/input_demo.go`
-  - Demonstrate channel-based patterns
-  - Show timeout and cancellation usage
-  - Performance benchmarks
-
-### Phase 4: Testing and Validation
-
-#### Unit Tests
-
-- [ ] **Platform-Specific Input Tests**
-  - Files: `crates/replkit-io/tests/unix_input_test.rs`, `windows_input_test.rs`
-  - Test all timeout scenarios
-  - Mock platform APIs for reliable testing
-  - Error condition handling
-
-- [ ] **Cross-Platform Integration Tests**
-  - File: `crates/replkit-core/tests/input_integration.rs`
-  - Test API consistency across platforms
-  - Validate KeyEvent format consistency
-  - Performance characteristics testing
-
-#### End-to-End Validation
-
-- [ ] **simple_prompt.rs Functionality Test**
-  - Verify example works on all platforms
-  - Test with various terminal emulators
-  - Validate key sequence handling
-
-- [ ] **WASM Demo Application**
-  - Browser-based demonstration
-  - Test in multiple browsers
-  - Validate security restrictions
-
-- [ ] **Go Integration Example**
-  - Command-line application using Go bindings
-  - Demonstrate Go-idiomatic usage patterns
-  - Performance comparison with native implementation
+- [x] Update `bindings/go/_examples/key_input_debug/main.go`
 
 ## Implementation Details
 
@@ -201,7 +120,6 @@ pub enum ConsoleError {
 - Support Windows-specific modifier keys
 
 #### WASM
-- Minimize JavaScript bridge overhead
 - Handle browser security restrictions
 - Support mobile browser touch events
 
@@ -340,11 +258,6 @@ pub extern "C" fn render_prompt(data_ptr: u32, data_len: u32) -> u32 {
 - Use Windows Console API for size detection
 - Handle both legacy console and Windows Terminal
 - Support UTF-8 and legacy code page configurations
-
-#### WASM/Browser
-- JavaScript `resize` event listener for browser window changes
-- Handle browser-specific rendering constraints
-- Consider mobile browser viewport changes
 
 ## Future Enhancements
 

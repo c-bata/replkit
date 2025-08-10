@@ -2,18 +2,14 @@
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use replkit_core::{KeyEvent, Key};
 use crate::{ConsoleInput, ConsoleOutput, ConsoleResult, ConsoleError, RawModeGuard,
-           ConsoleCapabilities, OutputCapabilities, BackendType, TextStyle, ClearType, EventLoopError};
+           ConsoleCapabilities, OutputCapabilities, BackendType, TextStyle, ClearType};
 
 /// Mock console input for testing
 pub struct MockConsoleInput {
     input_queue: Arc<Mutex<VecDeque<KeyEvent>>>,
-    running: Arc<AtomicBool>,
-    resize_callback: Arc<Mutex<Option<Box<dyn FnMut(u16, u16) + Send>>>>,
-    key_callback: Arc<Mutex<Option<Box<dyn FnMut(KeyEvent) + Send>>>>,
 }
 
 impl Default for MockConsoleInput {
@@ -26,9 +22,6 @@ impl MockConsoleInput {
     pub fn new() -> Self {
         Self {
             input_queue: Arc::new(Mutex::new(VecDeque::new())),
-            running: Arc::new(AtomicBool::new(false)),
-            resize_callback: Arc::new(Mutex::new(None)),
-            key_callback: Arc::new(Mutex::new(None)),
         }
     }
     
@@ -39,26 +32,12 @@ impl MockConsoleInput {
         }
     }
     
-    /// Queue text input as a sequence of character key events
-    pub fn queue_text_input(&self, text: &str) {
+    /// Pop the next key event for testing
+    pub fn pop_key_event(&self) -> Option<KeyEvent> {
         if let Ok(mut queue) = self.input_queue.lock() {
-            for ch in text.chars() {
-                let event = KeyEvent::with_text(
-                    Key::NotDefined, // Use NotDefined for regular characters
-                    vec![ch as u8],
-                    ch.to_string(),
-                );
-                queue.push_back(event);
-            }
-        }
-    }
-    
-    /// Queue multiple key events at once
-    pub fn queue_key_events(&self, events: &[KeyEvent]) {
-        if let Ok(mut queue) = self.input_queue.lock() {
-            for event in events {
-                queue.push_back(event.clone());
-            }
+            queue.pop_front()
+        } else {
+            None
         }
     }
     
@@ -73,52 +52,6 @@ impl MockConsoleInput {
             queue.clear();
         }
     }
-    
-    /// Simulate a window resize event
-    pub fn simulate_resize(&self, cols: u16, rows: u16) {
-        if let Ok(mut callback) = self.resize_callback.lock() {
-            if let Some(cb) = callback.as_mut() {
-                // Use catch_unwind to prevent panics in callbacks from crashing tests
-                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    cb(cols, rows);
-                }));
-            }
-        }
-    }
-    
-    /// Process queued events (for testing)
-    pub fn process_queued_events(&self) {
-        if let Ok(mut queue) = self.input_queue.lock() {
-            if let Ok(mut callback) = self.key_callback.lock() {
-                if let Some(cb) = callback.as_mut() {
-                    while let Some(event) = queue.pop_front() {
-                        // Use catch_unwind to prevent panics in callbacks from crashing tests
-                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            cb(event);
-                        }));
-                    }
-                }
-            }
-        }
-    }
-    
-    /// Process a single queued event (for step-by-step testing)
-    pub fn process_single_event(&self) -> bool {
-        if let Ok(mut queue) = self.input_queue.lock() {
-            if let Some(event) = queue.pop_front() {
-                if let Ok(mut callback) = self.key_callback.lock() {
-                    if let Some(cb) = callback.as_mut() {
-                        // Use catch_unwind to prevent panics in callbacks from crashing tests
-                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            cb(event);
-                        }));
-                        return true;
-                    }
-                }
-            }
-        }
-        false
-    }
 }
 
 impl ConsoleInput for MockConsoleInput {
@@ -129,38 +62,18 @@ impl ConsoleInput for MockConsoleInput {
         Ok(RawModeGuard::new(restore_fn, "Mock".to_string()))
     }
     
+    fn try_read_key(&self) -> Result<Option<KeyEvent>, ConsoleError> {
+        // Mock implementation - return queued event if available
+        Ok(self.pop_key_event())
+    }
+    
+    fn read_key_timeout(&self, _timeout_ms: Option<u32>) -> Result<Option<KeyEvent>, ConsoleError> {
+        // Mock implementation - return queued event if available (ignoring timeout)
+        Ok(self.pop_key_event())
+    }
+    
     fn get_window_size(&self) -> ConsoleResult<(u16, u16)> {
         Ok((80, 24)) // Default mock size
-    }
-    
-    fn start_event_loop(&self) -> ConsoleResult<()> {
-        if self.running.swap(true, Ordering::Relaxed) {
-            return Err(ConsoleError::EventLoopError(EventLoopError::AlreadyRunning));
-        }
-        Ok(())
-    }
-    
-    fn stop_event_loop(&self) -> ConsoleResult<()> {
-        if !self.running.swap(false, Ordering::Relaxed) {
-            return Err(ConsoleError::EventLoopError(EventLoopError::NotRunning));
-        }
-        Ok(())
-    }
-    
-    fn on_window_resize(&self, callback: Box<dyn FnMut(u16, u16) + Send>) {
-        if let Ok(mut cb) = self.resize_callback.lock() {
-            *cb = Some(callback);
-        }
-    }
-    
-    fn on_key_pressed(&self, callback: Box<dyn FnMut(KeyEvent) + Send>) {
-        if let Ok(mut cb) = self.key_callback.lock() {
-            *cb = Some(callback);
-        }
-    }
-    
-    fn is_running(&self) -> bool {
-        self.running.load(Ordering::Relaxed)
     }
     
     fn get_capabilities(&self) -> ConsoleCapabilities {
