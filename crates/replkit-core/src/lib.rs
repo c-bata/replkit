@@ -31,6 +31,9 @@ pub mod renderer;
 // Event loop
 pub mod event_loop;
 
+// Platform factory
+pub mod platform;
+
 // Re-export commonly used types for convenience
 pub use key::{Key, KeyEvent};
 pub use key_parser::{KeyParser, ParserState};
@@ -67,3 +70,8 @@ pub use renderer::{RenderConfig, RenderResult, Renderer};
 
 // Re-export event loop types
 pub use event_loop::{EventLoop, ReplEvent};
+
+// Re-export platform factory types
+pub use platform::{
+    create_native_console_io, create_native_factory, NativePlatformFactory, PlatformFactory,
+};

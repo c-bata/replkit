@@ -63,7 +63,7 @@ impl EventLoop {
     }
 
     /// Start the event loop.
-    /// 
+    ///
     /// This will start the console input event loop and begin processing events
     /// in a separate thread. The thread will handle callbacks from ConsoleInput
     /// and forward events through the channel system.
@@ -72,14 +72,17 @@ impl EventLoop {
             return Err(EventLoopError::AlreadyRunning);
         }
 
-        let input = self.input.take()
-            .ok_or_else(|| EventLoopError::StartupFailed("ConsoleInput not available".to_string()))?;
+        let input = self.input.take().ok_or_else(|| {
+            EventLoopError::StartupFailed("ConsoleInput not available".to_string())
+        })?;
 
-        let event_sender = self.event_sender.take()
-            .ok_or_else(|| EventLoopError::StartupFailed("Event sender not available".to_string()))?;
+        let event_sender = self.event_sender.take().ok_or_else(|| {
+            EventLoopError::StartupFailed("Event sender not available".to_string())
+        })?;
 
-        let shutdown_receiver = self.shutdown_receiver.take()
-            .ok_or_else(|| EventLoopError::StartupFailed("Shutdown receiver not available".to_string()))?;
+        let shutdown_receiver = self.shutdown_receiver.take().ok_or_else(|| {
+            EventLoopError::StartupFailed("Shutdown receiver not available".to_string())
+        })?;
 
         let running = Arc::clone(&self.running);
         running.store(true, Ordering::Relaxed);
@@ -96,7 +99,7 @@ impl EventLoop {
     }
 
     /// Stop the event loop.
-    /// 
+    ///
     /// This will signal the event processing thread to shut down and wait for
     /// it to complete. It will also stop the console input event loop.
     pub fn stop(&mut self) -> Result<(), EventLoopError> {
@@ -118,7 +121,9 @@ impl EventLoop {
                 }
                 Err(_) => {
                     self.running.store(false, Ordering::Relaxed);
-                    return Err(EventLoopError::ThreadPanic("Event thread panicked".to_string()));
+                    return Err(EventLoopError::ThreadPanic(
+                        "Event thread panicked".to_string(),
+                    ));
                 }
             }
         }
@@ -127,7 +132,7 @@ impl EventLoop {
     }
 
     /// Get the next event from the event loop.
-    /// 
+    ///
     /// This is a non-blocking call that returns the next available event,
     /// or None if no events are currently available.
     pub fn next_event(&mut self) -> Result<Option<ReplEvent>, EventLoopError> {
@@ -135,7 +140,9 @@ impl EventLoop {
             return Err(EventLoopError::NotRunning);
         }
 
-        let receiver = self.event_receiver.as_ref()
+        let receiver = self
+            .event_receiver
+            .as_ref()
             .ok_or_else(|| EventLoopError::NotRunning)?;
 
         match receiver.try_recv() {
@@ -176,8 +183,9 @@ impl EventLoop {
         input.on_window_resize(resize_callback);
 
         // Start console input event loop
-        input.start_event_loop()
-            .map_err(|e| EventLoopError::StartupFailed(format!("Failed to start console input: {}", e)))?;
+        input.start_event_loop().map_err(|e| {
+            EventLoopError::StartupFailed(format!("Failed to start console input: {}", e))
+        })?;
 
         // Main event processing loop
         while running.load(Ordering::Relaxed) {
@@ -218,12 +226,10 @@ impl Drop for EventLoop {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::console::{AsAny, ConsoleCapabilities, BackendType, ConsoleError};
+    use crate::console::{AsAny, BackendType, ConsoleCapabilities, ConsoleError};
     use crate::key::Key;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -285,10 +291,7 @@ mod tests {
 
     impl ConsoleInput for MockConsoleInput {
         fn enable_raw_mode(&self) -> Result<crate::console::RawModeGuard, ConsoleError> {
-            Ok(crate::console::RawModeGuard::new(
-                || {},
-                "Mock".to_string(),
-            ))
+            Ok(crate::console::RawModeGuard::new(|| {}, "Mock".to_string()))
         }
 
         fn get_window_size(&self) -> Result<(u16, u16), ConsoleError> {
@@ -405,7 +408,7 @@ mod tests {
         // Check for the event
         let event = event_loop.next_event();
         assert!(event.is_ok());
-        
+
         if let Ok(Some(ReplEvent::KeyPressed(key_event))) = event {
             assert_eq!(key_event.key, Key::ControlA);
         } else {
@@ -536,7 +539,9 @@ mod tests {
 
         let resize1 = ReplEvent::WindowResized(80, 24);
         let resize2 = resize1.clone();
-        if let (ReplEvent::WindowResized(w1, h1), ReplEvent::WindowResized(w2, h2)) = (resize1, resize2) {
+        if let (ReplEvent::WindowResized(w1, h1), ReplEvent::WindowResized(w2, h2)) =
+            (resize1, resize2)
+        {
             assert_eq!(w1, w2);
             assert_eq!(h1, h2);
         } else {

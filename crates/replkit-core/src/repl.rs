@@ -416,15 +416,19 @@ impl ReplEngine {
     }
 
     /// Initialize the REPL components.
-    /// 
+    ///
     /// This method sets up the KeyHandler, Renderer, and EventLoop with the
     /// configured ConsoleInput and ConsoleOutput implementations.
     fn initialize_components(&mut self) -> Result<(), ReplError> {
         // Ensure we have console input and output
-        let console_input = self.console_input.take()
+        let console_input = self
+            .console_input
+            .take()
             .ok_or_else(|| ReplError::ConfigurationError("ConsoleInput not set".to_string()))?;
-        
-        let console_output = self.console_output.take()
+
+        let console_output = self
+            .console_output
+            .take()
             .ok_or_else(|| ReplError::ConfigurationError("ConsoleOutput not set".to_string()))?;
 
         // Create key handler with custom bindings
@@ -441,28 +445,28 @@ impl ReplEngine {
     }
 
     /// Run the REPL with the main event processing loop.
-    /// 
+    ///
     /// This method starts the REPL and runs until the user exits or an
     /// unrecoverable error occurs. It handles all key events, rendering,
     /// and callback execution.
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// `Ok(())` when the REPL exits normally, or a `ReplError` if an
     /// unrecoverable error occurs.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```no_run
     /// use replkit_core::repl::{ReplEngine, ReplConfig};
-    /// 
+    ///
     /// let config = ReplConfig::default();
     /// let mut engine = ReplEngine::new(config).unwrap();
-    /// 
+    ///
     /// // Set console input/output implementations here
     /// // engine.set_console_input(...);
     /// // engine.set_console_output(...);
-    /// 
+    ///
     /// // engine.run().unwrap();
     /// ```
     pub fn run(&mut self) -> Result<(), ReplError> {
@@ -472,12 +476,14 @@ impl ReplEngine {
         }
 
         // Enable raw mode
-        let console_input = self.console_input.as_ref()
-            .ok_or_else(|| ReplError::TerminalStateError("ConsoleInput not available".to_string()))?;
-        
-        let raw_mode_guard = console_input.enable_raw_mode()
-            .map_err(|e| ReplError::TerminalStateError(format!("Failed to enable raw mode: {e}")))?;
-        
+        let console_input = self.console_input.as_ref().ok_or_else(|| {
+            ReplError::TerminalStateError("ConsoleInput not available".to_string())
+        })?;
+
+        let raw_mode_guard = console_input.enable_raw_mode().map_err(|e| {
+            ReplError::TerminalStateError(format!("Failed to enable raw mode: {e}"))
+        })?;
+
         self.state.raw_mode_guard = Some(raw_mode_guard);
 
         // Get initial window size
@@ -490,8 +496,9 @@ impl ReplEngine {
 
         // Start event loop
         if let Some(event_loop) = &mut self.event_loop {
-            event_loop.start()
-                .map_err(|e| ReplError::EventLoopError(format!("Failed to start event loop: {:?}", e)))?;
+            event_loop.start().map_err(|e| {
+                ReplError::EventLoopError(format!("Failed to start event loop: {:?}", e))
+            })?;
         }
 
         self.state.running = true;
@@ -510,11 +517,11 @@ impl ReplEngine {
                         // Handle callback errors gracefully
                         self.handle_callback_error(e)?;
                     }
-                    
+
                     // Clear buffer and render new prompt
                     self.buffer.set_text(String::new());
                     self.buffer.set_cursor_position(0);
-                    
+
                     if let Some(renderer) = &mut self.renderer {
                         renderer.break_line()?;
                         renderer.render(&self.buffer)?;
@@ -539,13 +546,13 @@ impl ReplEngine {
     }
 
     /// Run a single iteration of the REPL event loop.
-    /// 
+    ///
     /// This method processes one event from the event loop and returns
     /// the result. It's useful for integrating the REPL into other event
     /// loops or for testing.
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// - `Ok(Some(String))` if the user pressed Enter and input should be executed
     /// - `Ok(None)` if processing should continue
     /// - `Err(ReplError)` if an error occurred
@@ -554,7 +561,9 @@ impl ReplEngine {
             return Err(ReplError::EventLoopError("REPL not running".to_string()));
         }
 
-        let event_loop = self.event_loop.as_mut()
+        let event_loop = self
+            .event_loop
+            .as_mut()
             .ok_or_else(|| ReplError::EventLoopError("EventLoop not initialized".to_string()))?;
 
         // Get next event (non-blocking)
@@ -567,9 +576,7 @@ impl ReplEngine {
     /// Process a single REPL event.
     fn process_event(&mut self, event: ReplEvent) -> Result<Option<String>, ReplError> {
         match event {
-            ReplEvent::KeyPressed(key_event) => {
-                self.process_key_event(key_event)
-            }
+            ReplEvent::KeyPressed(key_event) => self.process_key_event(key_event),
             ReplEvent::WindowResized(width, height) => {
                 self.handle_window_resize(width, height)?;
                 Ok(None)
@@ -583,7 +590,9 @@ impl ReplEngine {
 
     /// Process a key event and update the buffer state.
     fn process_key_event(&mut self, key_event: KeyEvent) -> Result<Option<String>, ReplError> {
-        let key_handler = self.key_handler.as_ref()
+        let key_handler = self
+            .key_handler
+            .as_ref()
             .ok_or_else(|| ReplError::EventLoopError("KeyHandler not initialized".to_string()))?;
 
         // Process the key event
@@ -624,13 +633,13 @@ impl ReplEngine {
     /// Handle window resize events.
     fn handle_window_resize(&mut self, width: u16, height: u16) -> Result<(), ReplError> {
         self.state.window_size = (width, height);
-        
+
         if let Some(renderer) = &mut self.renderer {
             renderer.update_window_size(width, height);
             // Force re-render with new dimensions
             renderer.force_render(&self.buffer)?;
         }
-        
+
         Ok(())
     }
 
@@ -640,7 +649,10 @@ impl ReplEngine {
     }
 
     /// Handle callback execution errors.
-    fn handle_callback_error(&mut self, error: Box<dyn Error + Send + Sync>) -> Result<(), ReplError> {
+    fn handle_callback_error(
+        &mut self,
+        error: Box<dyn Error + Send + Sync>,
+    ) -> Result<(), ReplError> {
         // For now, we'll just log the error and continue
         // In a real implementation, this might be configurable
         eprintln!("Callback error: {}", error);
@@ -677,25 +689,27 @@ impl ReplEngine {
     fn attempt_console_recovery(&mut self) -> Result<(), ReplError> {
         // For now, this is a placeholder
         // A real implementation might try to reinitialize console components
-        Err(ReplError::TerminalStateError("Console recovery not implemented".to_string()))
+        Err(ReplError::TerminalStateError(
+            "Console recovery not implemented".to_string(),
+        ))
     }
 
     /// Shutdown the REPL and clean up resources.
-    /// 
+    ///
     /// This method stops the event loop, restores the terminal state,
     /// and cleans up all resources. It should be called when the REPL
     /// is no longer needed.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```no_run
     /// use replkit_core::repl::{ReplEngine, ReplConfig};
-    /// 
+    ///
     /// let config = ReplConfig::default();
     /// let mut engine = ReplEngine::new(config).unwrap();
-    /// 
+    ///
     /// // Use the engine...
-    /// 
+    ///
     /// engine.shutdown().unwrap();
     /// ```
     pub fn shutdown(&mut self) -> Result<(), ReplError> {
@@ -703,8 +717,9 @@ impl ReplEngine {
 
         // Stop event loop
         if let Some(event_loop) = &mut self.event_loop {
-            event_loop.stop()
-                .map_err(|e| ReplError::EventLoopError(format!("Failed to stop event loop: {:?}", e)))?;
+            event_loop.stop().map_err(|e| {
+                ReplError::EventLoopError(format!("Failed to stop event loop: {:?}", e))
+            })?;
         }
 
         // Clear the current line
@@ -1033,7 +1048,10 @@ mod tests {
     // Integration tests for complete REPL workflow
     mod integration_tests {
         use super::*;
-        use crate::console::{AsAny, BackendType, ConsoleCapabilities, ConsoleResult, OutputCapabilities, TextStyle, ClearType};
+        use crate::console::{
+            AsAny, BackendType, ClearType, ConsoleCapabilities, ConsoleResult, OutputCapabilities,
+            TextStyle,
+        };
         use crate::key::{Key, KeyEvent};
         use std::sync::{Arc, Mutex};
 
@@ -1097,10 +1115,7 @@ mod tests {
         impl ConsoleInput for MockConsoleInput {
             fn enable_raw_mode(&self) -> Result<RawModeGuard, ConsoleError> {
                 *self.raw_mode_enabled.lock().unwrap() = true;
-                Ok(RawModeGuard::new(
-                    || {},
-                    "Mock".to_string(),
-                ))
+                Ok(RawModeGuard::new(|| {}, "Mock".to_string()))
             }
 
             fn get_window_size(&self) -> Result<(u16, u16), ConsoleError> {
@@ -1306,7 +1321,7 @@ mod tests {
             // Should fail without console input
             let result = engine.initialize_components();
             assert!(result.is_err());
-            
+
             if let Err(ReplError::ConfigurationError(msg)) = result {
                 assert!(msg.contains("ConsoleInput not set"));
             } else {
@@ -1325,7 +1340,7 @@ mod tests {
             // Should fail without console output
             let result = engine.initialize_components();
             assert!(result.is_err());
-            
+
             if let Err(ReplError::ConfigurationError(msg)) = result {
                 assert!(msg.contains("ConsoleOutput not set"));
             } else {
@@ -1341,7 +1356,7 @@ mod tests {
             // Should fail when not running
             let result = engine.run_once();
             assert!(result.is_err());
-            
+
             if let Err(ReplError::EventLoopError(msg)) = result {
                 assert!(msg.contains("REPL not running"));
             } else {
@@ -1362,7 +1377,7 @@ mod tests {
 
             // Initialize components
             engine.initialize_components().unwrap();
-            
+
             // Set running state and start event loop
             engine.state.running = true;
             if let Some(event_loop) = &mut engine.event_loop {
@@ -1421,9 +1436,7 @@ mod tests {
         fn test_repl_engine_execute_callback_error() {
             let config = ReplConfig {
                 prompt: "test> ".to_string(),
-                executor: Box::new(|_input| {
-                    Err("Test error".into())
-                }),
+                executor: Box::new(|_input| Err("Test error".into())),
                 ..Default::default()
             };
 
@@ -1440,7 +1453,7 @@ mod tests {
             let mut engine = ReplEngine::new(config).unwrap();
 
             let error: Box<dyn Error + Send + Sync> = "Test error".into();
-            
+
             // Should handle callback errors gracefully
             let result = engine.handle_callback_error(error);
             assert!(result.is_ok());
@@ -1461,7 +1474,7 @@ mod tests {
             // Test processing a regular character
             let key_event = KeyEvent::with_text(Key::NotDefined, vec![b'a'], "a".to_string());
             let result = engine.process_key_event(key_event);
-            
+
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), None); // Should continue
             assert_eq!(engine.buffer().text(), "a");
@@ -1485,7 +1498,7 @@ mod tests {
             // Test processing Enter key
             let key_event = KeyEvent::simple(Key::Enter, vec![0x0d]);
             let result = engine.process_key_event(key_event);
-            
+
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), Some("hello".to_string()));
         }
@@ -1505,7 +1518,7 @@ mod tests {
             // Test processing Ctrl+D (exit)
             let key_event = KeyEvent::simple(Key::ControlD, vec![0x04]);
             let result = engine.process_key_event(key_event);
-            
+
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), None);
             assert!(engine.should_exit());
@@ -1529,7 +1542,7 @@ mod tests {
             // Test processing Ctrl+C (clear line)
             let key_event = KeyEvent::simple(Key::ControlC, vec![0x03]);
             let result = engine.process_key_event(key_event);
-            
+
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), None);
             assert_eq!(engine.buffer().text(), "");
@@ -1549,7 +1562,7 @@ mod tests {
 
             // Test processing shutdown event
             let result = engine.process_event(ReplEvent::Shutdown);
-            
+
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), None);
             assert!(engine.should_exit());
@@ -1569,7 +1582,7 @@ mod tests {
 
             // Test processing window resize event
             let result = engine.process_event(ReplEvent::WindowResized(120, 30));
-            
+
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), None);
             assert_eq!(engine.window_size(), (120, 30));
