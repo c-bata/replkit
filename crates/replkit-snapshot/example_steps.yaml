@@ -1,0 +1,24 @@
+version: 1
+command:
+  exec: ["bash", "-c", "echo 'Welcome to test prompt'; read -p '> ' input; echo 'You entered:' $input"]
+  workdir: "."
+  env:
+    LANG: "en_US.UTF-8"
+    TERM: "xterm-256color"
+tty:
+  cols: 100
+  rows: 30
+
+steps:
+  - send: "hello world"
+  - send: ["Tab"]
+  - waitIdle: "50ms"
+  - snapshot:
+      name: "after-input"
+      stripAnsi: true
+  - send: ["Enter"]
+  - waitIdle: "100ms"
+  - snapshot:
+      name: "after-enter"
+      stripAnsi: true
+  - sleep: "100ms"

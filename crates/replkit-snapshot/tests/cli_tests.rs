@@ -39,7 +39,16 @@ fn test_run_command_with_all_args() {
     let steps_file = temp_dir.path().join("steps.yaml");
     let compare_dir = temp_dir.path().join("snapshots");
     
-    std::fs::write(&steps_file, "").unwrap();
+    std::fs::write(&steps_file, r#"
+version: 1
+command:
+  exec: ["echo", "hello"]
+tty:
+  cols: 80
+  rows: 24
+steps:
+  - send: "test"
+"#).unwrap();
     std::fs::create_dir(&compare_dir).unwrap();
     
     let mut cmd = Command::cargo_bin("replkit-snapshot").unwrap();
@@ -73,7 +82,16 @@ fn test_invalid_window_size() {
     let steps_file = temp_dir.path().join("steps.yaml");
     let compare_dir = temp_dir.path().join("snapshots");
     
-    std::fs::write(&steps_file, "").unwrap();
+    std::fs::write(&steps_file, r#"
+version: 1
+command:
+  exec: ["echo", "hello"]
+tty:
+  cols: 80
+  rows: 24
+steps:
+  - send: "test"
+"#).unwrap();
     std::fs::create_dir(&compare_dir).unwrap();
     
     let mut cmd = Command::cargo_bin("replkit-snapshot").unwrap();
@@ -96,7 +114,16 @@ fn test_invalid_env_var() {
     let steps_file = temp_dir.path().join("steps.yaml");
     let compare_dir = temp_dir.path().join("snapshots");
     
-    std::fs::write(&steps_file, "").unwrap();
+    std::fs::write(&steps_file, r#"
+version: 1
+command:
+  exec: ["echo", "hello"]
+tty:
+  cols: 80
+  rows: 24
+steps:
+  - send: "test"
+"#).unwrap();
     std::fs::create_dir(&compare_dir).unwrap();
     
     let mut cmd = Command::cargo_bin("replkit-snapshot").unwrap();
@@ -119,7 +146,16 @@ fn test_invalid_duration() {
     let steps_file = temp_dir.path().join("steps.yaml");
     let compare_dir = temp_dir.path().join("snapshots");
     
-    std::fs::write(&steps_file, "").unwrap();
+    std::fs::write(&steps_file, r#"
+version: 1
+command:
+  exec: ["echo", "hello"]
+tty:
+  cols: 80
+  rows: 24
+steps:
+  - send: "test"
+"#).unwrap();
     std::fs::create_dir(&compare_dir).unwrap();
     
     let mut cmd = Command::cargo_bin("replkit-snapshot").unwrap();

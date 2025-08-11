@@ -10,7 +10,7 @@
   - Add basic error handling and result types
   - Create unit tests for CLI parsing
 
-- [ ] 2. Configuration System
+- [x] 2. Configuration System
   - Define `StepDefinition` struct with serde deserialization
   - Implement YAML/JSON configuration loading
   - Add validation for step definitions and command configs
