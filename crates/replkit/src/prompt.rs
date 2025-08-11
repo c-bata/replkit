@@ -280,6 +280,30 @@ impl Prompt {
         }
     }
 
+    /// Update and render completions (go-prompt style auto-completion)
+    fn update_and_render_completions(&mut self) -> PromptResult<()> {
+        // Always render the prompt first (go-prompt pattern)
+        self.renderer
+            .render_prompt(&self.prefix, &self.document())?;
+            
+        let suggestions = self.get_completions();
+        if !suggestions.is_empty() {
+            self.completion_manager.update_suggestions(suggestions);
+            let selected_idx = self.completion_manager.selected_index();
+            self.renderer.render_completions_with_selection(
+                self.completion_manager.suggestions(),
+                selected_idx as usize,
+            )?;
+        } else {
+            // Clear completions if no suggestions
+            if self.completion_manager.is_visible() {
+                self.completion_manager.reset();
+                self.renderer.clear_completions().ok();
+            }
+        }
+        Ok(())
+    }
+
     /// Insert text at the current cursor position
     ///
     /// This is a convenience method for basic text insertion.
@@ -401,7 +425,7 @@ impl Prompt {
             .initialize()
             .map_err(|e| PromptError::IoError(e.to_string()))?;
 
-        // Render initial prompt
+        // Render initial prompt (go-prompt doesn't show completions initially)
         self.renderer
             .render_prompt(&self.prefix, &self.document())?;
 
@@ -436,12 +460,8 @@ impl Prompt {
                             // Delete character before cursor
                             if self.buffer.cursor_position() > 0 {
                                 self.buffer.delete_before_cursor(1);
-                                if self.completion_manager.is_visible() {
-                                    self.completion_manager.reset();
-                                    self.renderer.clear_completions().ok();
-                                }
-                                self.renderer
-                                    .render_prompt(&self.prefix, &self.document())?;
+                                // Auto-show completions after backspace (go-prompt style)
+                                self.update_and_render_completions()?;
                             }
                         }
                         Key::Tab => {
@@ -499,43 +519,27 @@ impl Prompt {
                             }
                         }
                         Key::Left => {
-                            if self.completion_manager.is_visible() {
-                                // Hide completions when moving cursor
-                                self.completion_manager.hide();
-                                self.renderer.clear_completions().ok();
-                            }
-
                             // Move cursor left
                             if self.buffer.cursor_position() > 0 {
                                 self.buffer.cursor_left(1);
-                                self.renderer
-                                    .render_prompt(&self.prefix, &self.document())?;
+                                // Auto-show completions after cursor movement (go-prompt style)
+                                self.update_and_render_completions()?;
                             }
                         }
                         Key::Right => {
-                            if self.completion_manager.is_visible() {
-                                // Hide completions when moving cursor
-                                self.completion_manager.hide();
-                                self.renderer.clear_completions().ok();
-                            }
-
                             // Move cursor right
                             if self.buffer.cursor_position() < self.buffer.text().len() {
                                 self.buffer.cursor_right(1);
-                                self.renderer
-                                    .render_prompt(&self.prefix, &self.document())?;
+                                // Auto-show completions after cursor movement (go-prompt style)
+                                self.update_and_render_completions()?;
                             }
                         }
                         _ => {
                             // Handle text input from key events
                             if let Some(text) = &key_event.text {
                                 self.buffer.insert_text(text, false, true);
-                                if self.completion_manager.is_visible() {
-                                    self.completion_manager.reset();
-                                    self.renderer.clear_completions().ok();
-                                }
-                                self.renderer
-                                    .render_prompt(&self.prefix, &self.document())?;
+                                // Auto-show completions after text input (go-prompt style)
+                                self.update_and_render_completions()?;
                             }
                         }
                     }

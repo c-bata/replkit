@@ -209,9 +209,13 @@ impl Renderer {
 
         let max_suggestions = 10;
         let window_height = suggestions.len().min(max_suggestions);
+        let display_suggestions = &suggestions[..window_height];
+
+        // Format suggestions with consistent width (go-prompt style)
+        let available_width = self.terminal_size.0.saturating_sub(3) as usize; // -3 for prefix + scrollbar
+        let formatted = self.format_suggestions_for_display(display_suggestions, available_width);
 
         // Prepare area (go-prompt's prepareArea pattern)
-        // Move down to create space, then move back up
         for _ in 0..window_height {
             self.console
                 .write_text("\n")
@@ -225,14 +229,14 @@ impl Renderer {
                 .map_err(console_error_to_io_error)?;
         }
 
-        // Render each completion line
-        for (i, suggestion) in suggestions.iter().take(window_height).enumerate() {
+        // Render each formatted completion line
+        for formatted_suggestion in formatted.iter() {
             // Move down one line for each suggestion
             self.console
                 .move_cursor_relative(1, 0)
                 .map_err(console_error_to_io_error)?;
 
-            // Set completion styling
+            // Set completion styling with background
             self.console
                 .set_style(&TextStyle {
                     foreground: Some(Color::White),
@@ -241,11 +245,13 @@ impl Renderer {
                 })
                 .map_err(console_error_to_io_error)?;
 
+            // Write the formatted text (already padded to consistent width)
             self.console
-                .write_text(&suggestion.text)
+                .write_text(&formatted_suggestion.text)
                 .map_err(console_error_to_io_error)?;
 
-            if !suggestion.description.is_empty() {
+            // Write the formatted description (already padded)
+            if !formatted_suggestion.description.is_empty() {
                 self.console
                     .set_style(&TextStyle {
                         foreground: Some(Color::BrightBlack),
@@ -255,11 +261,18 @@ impl Renderer {
                     .map_err(console_error_to_io_error)?;
 
                 self.console
-                    .write_text(&format!(" {}", suggestion.description))
+                    .write_text(&formatted_suggestion.description)
                     .map_err(console_error_to_io_error)?;
             }
 
-            // Add scrollbar space
+            // Add scrollbar space with background
+            self.console
+                .set_style(&TextStyle {
+                    background: Some(Color::BrightBlack),
+                    ..Default::default()
+                })
+                .map_err(console_error_to_io_error)?;
+
             self.console
                 .write_text(" ")
                 .map_err(console_error_to_io_error)?;
@@ -269,14 +282,10 @@ impl Renderer {
                 .map_err(console_error_to_io_error)?;
 
             // Move cursor back to beginning of line
-            let line_width = display_width(&suggestion.text) + 
-                if !suggestion.description.is_empty() { 
-                    display_width(&suggestion.description) + 2 
-                } else { 
-                    1 
-                };
+            let total_width = display_width(&formatted_suggestion.text) + 
+                display_width(&formatted_suggestion.description) + 1; // +1 for scrollbar
             self.console
-                .move_cursor_relative(0, -(line_width as i16))
+                .move_cursor_relative(0, -(total_width as i16))
                 .map_err(console_error_to_io_error)?;
         }
 
@@ -302,6 +311,11 @@ impl Renderer {
 
         let max_display = 10;
         let window_height = suggestions.len().min(max_display);
+        let display_suggestions = &suggestions[..window_height];
+
+        // Format suggestions with consistent width (go-prompt style)
+        let available_width = self.terminal_size.0.saturating_sub(3) as usize; // -3 for prefix + scrollbar
+        let formatted = self.format_suggestions_for_display(display_suggestions, available_width);
 
         // Prepare area (go-prompt's prepareArea pattern)
         for _ in 0..window_height {
@@ -317,8 +331,8 @@ impl Renderer {
                 .map_err(console_error_to_io_error)?;
         }
 
-        // Render each completion line
-        for (i, suggestion) in suggestions.iter().take(window_height).enumerate() {
+        // Render each formatted completion line
+        for (i, formatted_suggestion) in formatted.iter().enumerate() {
             // Move down one line for each suggestion
             self.console
                 .move_cursor_relative(1, 0)
@@ -326,7 +340,7 @@ impl Renderer {
 
             let is_selected = i == selected_index;
             
-            // Set styling based on selection
+            // Set styling based on selection for text
             if is_selected {
                 self.console
                     .set_style(&TextStyle {
@@ -346,11 +360,13 @@ impl Renderer {
                     .map_err(console_error_to_io_error)?;
             }
 
+            // Write the formatted text (already padded to consistent width)
             self.console
-                .write_text(&suggestion.text)
+                .write_text(&formatted_suggestion.text)
                 .map_err(console_error_to_io_error)?;
 
-            if !suggestion.description.is_empty() {
+            // Write the formatted description (already padded)
+            if !formatted_suggestion.description.is_empty() {
                 if is_selected {
                     self.console
                         .set_style(&TextStyle {
@@ -370,11 +386,27 @@ impl Renderer {
                 }
 
                 self.console
-                    .write_text(&format!(" {}", suggestion.description))
+                    .write_text(&formatted_suggestion.description)
                     .map_err(console_error_to_io_error)?;
             }
 
-            // Add scrollbar space
+            // Add scrollbar space with appropriate background
+            if is_selected {
+                self.console
+                    .set_style(&TextStyle {
+                        background: Some(Color::White),
+                        ..Default::default()
+                    })
+                    .map_err(console_error_to_io_error)?;
+            } else {
+                self.console
+                    .set_style(&TextStyle {
+                        background: Some(Color::BrightBlack),
+                        ..Default::default()
+                    })
+                    .map_err(console_error_to_io_error)?;
+            }
+
             self.console
                 .write_text(" ")
                 .map_err(console_error_to_io_error)?;
@@ -384,14 +416,10 @@ impl Renderer {
                 .map_err(console_error_to_io_error)?;
 
             // Move cursor back to beginning of line
-            let line_width = display_width(&suggestion.text) + 
-                if !suggestion.description.is_empty() { 
-                    display_width(&suggestion.description) + 2 
-                } else { 
-                    1 
-                };
+            let total_width = display_width(&formatted_suggestion.text) + 
+                display_width(&formatted_suggestion.description) + 1; // +1 for scrollbar
             self.console
-                .move_cursor_relative(0, -(line_width as i16))
+                .move_cursor_relative(0, -(total_width as i16))
                 .map_err(console_error_to_io_error)?;
         }
 
@@ -522,7 +550,91 @@ impl Renderer {
         Ok(())
     }
 
-    // Complex formatting methods temporarily removed
+    /// Format suggestions for consistent display width (go-prompt style)
+    fn format_suggestions_for_display(&self, suggestions: &[Suggestion], max_width: usize) -> Vec<FormattedSuggestion> {
+        if suggestions.is_empty() {
+            return Vec::new();
+        }
+
+        // Find maximum text width
+        let max_text_width = suggestions
+            .iter()
+            .map(|s| display_width(&s.text))
+            .max()
+            .unwrap_or(0)
+            .min(max_width / 2); // Don't use more than half width for text
+
+        // Find maximum description width
+        let remaining_width = max_width.saturating_sub(max_text_width + 1); // -1 for space
+        let max_desc_width = suggestions
+            .iter()
+            .map(|s| display_width(&s.description))
+            .max()
+            .unwrap_or(0)
+            .min(remaining_width);
+
+        let mut formatted = Vec::new();
+        
+        for suggestion in suggestions {
+            // Format text with consistent width
+            let mut text = suggestion.text.clone();
+            let text_width = display_width(&text);
+            
+            if text_width > max_text_width {
+                // Truncate if too long
+                text = self.truncate_text(&text, max_text_width);
+            }
+            
+            // Pad to consistent width
+            let padding_needed = max_text_width.saturating_sub(display_width(&text));
+            text.push_str(&" ".repeat(padding_needed));
+
+            // Format description with consistent width
+            let mut description = String::new();
+            if !suggestion.description.is_empty() && max_desc_width > 0 {
+                description = format!(" {}", suggestion.description);
+                let desc_width = display_width(&description);
+                
+                if desc_width > max_desc_width {
+                    // Truncate if too long
+                    description = self.truncate_text(&description, max_desc_width);
+                }
+                
+                // Pad to consistent width
+                let desc_padding = max_desc_width.saturating_sub(display_width(&description));
+                description.push_str(&" ".repeat(desc_padding));
+            } else if max_desc_width > 0 {
+                // Empty description, but pad to consistent width
+                description = " ".repeat(max_desc_width);
+            }
+
+            formatted.push(FormattedSuggestion { text, description });
+        }
+
+        formatted
+    }
+
+    /// Truncate text to fit within specified width (go-prompt style)
+    fn truncate_text(&self, text: &str, max_width: usize) -> String {
+        if max_width <= 3 {
+            return "...".to_string();
+        }
+        
+        let mut result = String::new();
+        let mut current_width = 0;
+        
+        for ch in text.chars() {
+            let ch_width = display_width(&ch.to_string());
+            if current_width + ch_width > max_width - 3 {
+                result.push_str("...");
+                break;
+            }
+            result.push(ch);
+            current_width += ch_width;
+        }
+        
+        result
+    }
 
     // Clear methods temporarily simplified
 }
