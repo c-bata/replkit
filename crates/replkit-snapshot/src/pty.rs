@@ -64,20 +64,49 @@ impl PtyManager {
     }
     
     pub async fn send_input(&mut self, input: &[u8]) -> Result<()> {
-        use std::io::Write;
+        use std::io::{Error, ErrorKind};
         
-        let mut writer = self.pty_pair.master.take_writer()
-            .map_err(|e| PtyError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other, 
-                format!("Failed to get writer: {}", e)
-            )))?;
+        println!("[DEBUG send_input] Sending {} bytes using raw fd write", input.len());
         
-        writer.write_all(input)
-            .map_err(|e| PtyError::IoError(e))?;
-        writer.flush()
-            .map_err(|e| PtyError::IoError(e))?;
+        // Use the same raw fd approach as read_output_timeout for consistency
+        let raw_fd = match self.pty_pair.master.as_raw_fd() {
+            Some(fd) => {
+                println!("[DEBUG send_input] Got raw fd from master: {}", fd);
+                fd
+            },
+            None => {
+                println!("[DEBUG send_input] Master does not expose raw fd");
+                return Err(PtyError::IoError(Error::new(
+                    ErrorKind::Other, 
+                    "Cannot get raw file descriptor from PTY master for writing"
+                )).into());
+            }
+        };
         
-        Ok(())
+        // Use raw libc::write for consistency with read approach
+        let write_result = unsafe {
+            libc::write(raw_fd, input.as_ptr() as *const libc::c_void, input.len())
+        };
+        
+        if write_result == -1 {
+            let errno = unsafe { *libc::__errno_location() };
+            println!("[DEBUG send_input] write() error, errno: {}", errno);
+            Err(PtyError::IoError(Error::from_raw_os_error(errno)).into())
+        } else {
+            let bytes_written = write_result as usize;
+            println!("[DEBUG send_input] Successfully wrote {} bytes", bytes_written);
+            
+            // Ensure all data was written
+            if bytes_written != input.len() {
+                println!("[DEBUG send_input] Partial write: {} of {} bytes", bytes_written, input.len());
+                return Err(PtyError::IoError(Error::new(
+                    ErrorKind::WriteZero, 
+                    "Partial write to PTY"
+                )).into());
+            }
+            
+            Ok(())
+        }
     }
     
     pub async fn read_output(&mut self, buffer: &mut [u8]) -> Result<usize> {
@@ -93,24 +122,78 @@ impl PtyManager {
     }
     
     pub async fn read_output_timeout(&mut self, buffer: &mut [u8], timeout_duration: Duration) -> Result<usize> {
-        let mut reader = self.pty_pair.master.try_clone_reader()
-            .map_err(|e| PtyError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other, 
-                format!("Failed to clone reader: {}", e)
-            )))?;
+        println!("[DEBUG read_output_timeout] START - buffer size: {}, timeout: {:?}", buffer.len(), timeout_duration);
         
-        let read_future = async move {
-            reader.read(buffer)
-                .map_err(|e| PtyError::IoError(e))
+        use std::io::{Error, ErrorKind};
+        use std::os::unix::io::AsRawFd;
+        
+        println!("[DEBUG read_output_timeout] Using raw file descriptor approach...");
+        
+        // Try to get raw fd directly from portable-pty master
+        let raw_fd = match self.pty_pair.master.as_raw_fd() {
+            Some(fd) => {
+                println!("[DEBUG read_output_timeout] Got raw fd from master: {}", fd);
+                fd
+            },
+            None => {
+                println!("[DEBUG read_output_timeout] Master does not expose raw fd, fallback to reader");
+                return Err(PtyError::IoError(Error::new(
+                    ErrorKind::Other, 
+                    "Cannot get raw file descriptor from PTY master"
+                )).into());
+            }
+        };
+        println!("[DEBUG read_output_timeout] Got raw fd: {}", raw_fd);
+        
+        let timeout_start = std::time::Instant::now();
+        let timeout_ms = timeout_duration.as_millis() as libc::c_int;
+        
+        println!("[DEBUG read_output_timeout] Using libc::poll with {}ms timeout...", timeout_ms);
+        
+        // Use poll() to check if data is available with timeout
+        let mut poll_fds = [libc::pollfd {
+            fd: raw_fd,
+            events: libc::POLLIN,
+            revents: 0,
+        }];
+        
+        let poll_result = unsafe {
+            libc::poll(poll_fds.as_mut_ptr(), 1, timeout_ms)
         };
         
-        timeout(timeout_duration, read_future)
-            .await
-            .map_err(|_| PtyError::IoError(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "Read operation timed out"
-            )))?
-            .map_err(|e| e.into())
+        let poll_elapsed = timeout_start.elapsed();
+        println!("[DEBUG read_output_timeout] poll() returned {} after {:?}", poll_result, poll_elapsed);
+        
+        match poll_result {
+            -1 => {
+                let errno = unsafe { *libc::__errno_location() };
+                println!("[DEBUG read_output_timeout] poll() error, errno: {}", errno);
+                Err(PtyError::IoError(Error::from_raw_os_error(errno)).into())
+            },
+            0 => {
+                // Timeout - no data available
+                println!("[DEBUG read_output_timeout] poll() timeout - no data available");
+                Err(PtyError::IoError(Error::new(ErrorKind::TimedOut, "No data available within timeout")).into())
+            },
+            _ => {
+                // Data is available, perform non-blocking read
+                println!("[DEBUG read_output_timeout] poll() indicates data available, performing read...");
+                let read_result = unsafe {
+                    libc::read(raw_fd, buffer.as_mut_ptr() as *mut libc::c_void, buffer.len())
+                };
+                
+                if read_result == -1 {
+                    let errno = unsafe { *libc::__errno_location() };
+                    println!("[DEBUG read_output_timeout] read() error, errno: {}", errno);
+                    Err(PtyError::IoError(Error::from_raw_os_error(errno)).into())
+                } else {
+                    let bytes_read = read_result as usize;
+                    let total_elapsed = timeout_start.elapsed();
+                    println!("[DEBUG read_output_timeout] END - read {} bytes after {:?}", bytes_read, total_elapsed);
+                    Ok(bytes_read)
+                }
+            }
+        }
     }
     
     pub fn is_process_running(&mut self) -> bool {
@@ -209,40 +292,64 @@ impl PtyManager {
     }
     
     pub async fn drain_output(&mut self, max_wait: Duration) -> Result<Vec<u8>> {
+        println!("[DEBUG drain_output] START - max_wait: {:?}", max_wait);
         let mut output = Vec::new();
         let mut buffer = vec![0u8; 4096];
         let start_time = std::time::Instant::now();
         
         // Try to read immediately without waiting if no process is running
-        if !self.is_process_running() {
+        let process_running = self.is_process_running();
+        println!("[DEBUG drain_output] Process running: {}", process_running);
+        if !process_running {
+            println!("[DEBUG drain_output] Process not running, returning early");
             return Ok(output);
         }
         
+        let mut iteration = 0;
         loop {
-            if start_time.elapsed() > max_wait {
+            iteration += 1;
+            let elapsed = start_time.elapsed();
+            println!("[DEBUG drain_output] Iteration {}, elapsed: {:?}", iteration, elapsed);
+            
+            if elapsed > max_wait {
+                println!("[DEBUG drain_output] Max wait exceeded, breaking loop");
                 break;
             }
             
             // Use very short timeout for each read attempt
+            println!("[DEBUG drain_output] Calling read_output_timeout with 10ms timeout...");
+            let read_start = std::time::Instant::now();
             match self.read_output_timeout(&mut buffer, Duration::from_millis(10)).await {
                 Ok(bytes_read) => {
+                    let read_duration = read_start.elapsed();
+                    println!("[DEBUG drain_output] read_output_timeout returned Ok({}) after {:?}", bytes_read, read_duration);
                     if bytes_read == 0 {
+                        println!("[DEBUG drain_output] Zero bytes read, breaking loop");
                         break;
                     }
                     output.extend_from_slice(&buffer[..bytes_read]);
+                    println!("[DEBUG drain_output] Total output size: {} bytes", output.len());
                 },
-                Err(_) => {
+                Err(e) => {
+                    let read_duration = read_start.elapsed();
+                    println!("[DEBUG drain_output] read_output_timeout returned Err({:?}) after {:?}", e, read_duration);
                     // No more data available, wait a bit and try again
+                    println!("[DEBUG drain_output] Sleeping for 10ms...");
                     sleep(Duration::from_millis(10)).await;
+                    println!("[DEBUG drain_output] Sleep completed");
                 }
             }
             
             // If we got some data and process is no longer running, stop
-            if !output.is_empty() && !self.is_process_running() {
+            let process_still_running = self.is_process_running();
+            println!("[DEBUG drain_output] Process still running: {}, output size: {}", process_still_running, output.len());
+            if !output.is_empty() && !process_still_running {
+                println!("[DEBUG drain_output] Got data and process stopped, breaking loop");
                 break;
             }
         }
         
+        println!("[DEBUG drain_output] END - returning {} bytes", output.len());
         Ok(output)
     }
 }

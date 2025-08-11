@@ -76,8 +76,11 @@ impl StepExecutor {
     }
     
     async fn execute_single_step(&mut self, step: &Step) -> Result<(Option<Vec<u8>>, Option<Snapshot>)> {
+        println!("  [DEBUG execute_single_step] START - step type: {:?}", std::mem::discriminant(step));
         // First, feed any new PTY output to the screen capturer
+        println!("  [DEBUG execute_single_step] Updating screen from PTY...");
         self.update_screen_from_pty().await?;
+        println!("  [DEBUG execute_single_step] Screen update completed");
         
         match step {
             Step::Send { send } => {
@@ -132,8 +135,13 @@ impl StepExecutor {
     
     async fn execute_wait_idle(&mut self, wait_idle: &str) -> Result<()> {
         let duration = parse_duration(wait_idle)?;
+        println!("  [DEBUG execute_wait_idle] START - duration: {:?}", duration);
         println!("  Waiting idle for {:?}", duration);
+        let start = std::time::Instant::now();
         sleep(duration).await;
+        let elapsed = start.elapsed();
+        println!("  [DEBUG execute_wait_idle] Sleep completed after {:?}", elapsed);
+        println!("  [DEBUG execute_wait_idle] END");
         Ok(())
     }
     
@@ -183,14 +191,21 @@ impl StepExecutor {
     }
     
     async fn update_screen_from_pty(&mut self) -> Result<()> {
+        println!("    [DEBUG update_screen_from_pty] START");
         // Try to read any available output from PTY
+        println!("    [DEBUG update_screen_from_pty] Calling drain_output with 50ms timeout...");
+        let start = std::time::Instant::now();
         let output = self.pty_manager.drain_output(Duration::from_millis(50)).await?;
+        let elapsed = start.elapsed();
+        println!("    [DEBUG update_screen_from_pty] drain_output returned {} bytes after {:?}", output.len(), elapsed);
         
         if !output.is_empty() {
+            println!("    [DEBUG update_screen_from_pty] Feeding {} bytes to screen capturer", output.len());
             // Feed the output to the screen capturer
             self.screen_capturer.feed_data(&output)?;
         }
         
+        println!("    [DEBUG update_screen_from_pty] END");
         Ok(())
     }
     

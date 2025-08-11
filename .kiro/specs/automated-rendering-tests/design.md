@@ -1,5 +1,68 @@
 # Design Document — `replkit-snapshot`
 
+全然だめなことやらせてた...
+
+```
+> 自分がかんちがいしていたのですが　termwizはescape sequenceのparserだけがあり、screenの情報は自前で復元する必要があるのでしょうか？
+
+● はい、その理解で正しいです！termwiz はエスケープシーケンスのパーサー + 低レベルターミナル操作で、スクリーン状態の管理は自前で実装する必要があります。
+
+  🔍 termwiz の実際の機能
+
+  ✅ termwiz が提供するもの
+
+  - エスケープシーケンスのパース (ESC[H, ESC[2J など)
+  - キー入力のパース (方向キー、Ctrl+C など)
+  - ターミナルの raw mode 制御
+  - 基本的な出力書き込み
+
+  ❌ termwiz が提供しないもの
+
+  - スクリーンバッファの状態管理
+  - カーソル位置の追跡
+  - スクロールバックの管理
+  - 文字属性の状態保持
+
+  📋 現在の実装状況
+
+  crates/replkit-snapshot/src/capture.rs を見ると：
+
+  pub struct ScreenCapturer {
+      terminal_size: (u16, u16),
+      strip_ansi_default: bool,
+      accumulated_output: Vec<u8>, // ← 単純な出力蓄積のみ
+  }
+
+  現在は単純にRAW出力を蓄積しているだけで、真のスクリーン状態復元はしていません。
+
+  🛠️ 必要な実装
+
+  真のスナップショットテストには ターミナルエミュレータ的な機能 が必要：
+
+  pub struct ScreenState {
+      buffer: Vec<Vec<Cell>>,     // 2D文字バッファ
+      cursor_x: u16,
+      cursor_y: u16,
+      attrs: TextAttributes,      // 現在の文字属性
+      scroll_region: (u16, u16),  // スクロール領域
+  }
+
+  pub struct ScreenCapturer {
+      screen_state: ScreenState,
+      parser: termwiz::escape::parser::Parser,
+  }
+
+  🎯 推奨アプローチ
+
+  1. Phase 1 MVP: 現在の RAW 出力蓄積で進める
+  2. Phase 2: termwiz + 自前スクリーン状態管理で真のスナップショット
+  3. 代替案: vt100 crate なども検討可能
+
+  現在のクリティカルバグが解決されたので、まずは 既存の簡単な実装で MVP を完成 させてから、termwiz 統合に進むのが良いでしょう。
+
+  termwiz 統合は .kiro/specs/automated-rendering-tests/tasks.md の Task 5-6 に相当する大きなタスクです。
+```
+
 ## Overview
 
 This design outlines `replkit-snapshot`, a CLI tool for automated snapshot testing of terminal-based applications built with replkit. The tool uses PTY-based execution to run applications in controlled terminal environments and compares their output with golden snapshots. This enables cross-language binding validation and regression detection for interactive applications built with replkit.
