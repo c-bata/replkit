@@ -213,12 +213,18 @@ impl PtyManager {
         let mut buffer = vec![0u8; 4096];
         let start_time = std::time::Instant::now();
         
+        // Try to read immediately without waiting if no process is running
+        if !self.is_process_running() {
+            return Ok(output);
+        }
+        
         loop {
             if start_time.elapsed() > max_wait {
                 break;
             }
             
-            match self.read_output_timeout(&mut buffer, Duration::from_millis(100)).await {
+            // Use very short timeout for each read attempt
+            match self.read_output_timeout(&mut buffer, Duration::from_millis(10)).await {
                 Ok(bytes_read) => {
                     if bytes_read == 0 {
                         break;
@@ -226,9 +232,14 @@ impl PtyManager {
                     output.extend_from_slice(&buffer[..bytes_read]);
                 },
                 Err(_) => {
-                    // No more data available
-                    break;
+                    // No more data available, wait a bit and try again
+                    sleep(Duration::from_millis(10)).await;
                 }
+            }
+            
+            // If we got some data and process is no longer running, stop
+            if !output.is_empty() && !self.is_process_running() {
+                break;
             }
         }
         

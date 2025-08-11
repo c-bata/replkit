@@ -1,5 +1,5 @@
 use clap::Parser;
-use replkit_snapshot::{Cli, Commands, RunConfig, StepDefinition, PtyManager, Result};
+use replkit_snapshot::{Cli, Commands, RunConfig, StepDefinition, PtyManager, StepExecutor, Result};
 use std::process;
 
 #[tokio::main]
@@ -98,26 +98,63 @@ async fn run_snapshot_test(config: RunConfig) -> Result<()> {
     pty_manager.spawn_command(&step_definition.command)?;
     
     // Wait a moment for the command to start
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     
     // Check if process is running
     if pty_manager.is_process_running() {
         println!("Process is running successfully");
-        
-        // Drain initial output
-        let initial_output = pty_manager.drain_output(std::time::Duration::from_millis(1000)).await?;
-        if !initial_output.is_empty() {
-            println!("Initial output received ({} bytes):", initial_output.len());
-            let output_str = String::from_utf8_lossy(&initial_output);
-            println!("Output preview: {:?}", &output_str[..output_str.len().min(100)]);
-        }
     } else {
         println!("Process has already completed");
     }
     
-    // TODO: Implement step execution and snapshot capture
-    println!("\n[TODO] Step execution and snapshot capture not yet implemented");
-    println!("PTY management is now functional!");
+    // Initialize step executor
+    let mut step_executor = StepExecutor::new(pty_manager);
+    
+    // Execute all steps
+    println!("\nExecuting {} steps...", step_definition.steps.len());
+    let execution_results = step_executor.execute_steps(&step_definition.steps).await?;
+    
+    // Display execution results
+    println!("\n=== Execution Summary ===");
+    let successful_steps = execution_results.iter().filter(|r| r.success).count();
+    let failed_steps = execution_results.len() - successful_steps;
+    
+    println!("Total steps: {}", execution_results.len());
+    println!("Successful: {}", successful_steps);
+    println!("Failed: {}", failed_steps);
+    
+    if !execution_results.is_empty() {
+        println!("\nStep details:");
+        for result in &execution_results {
+            let status = if result.success { "✓" } else { "✗" };
+            println!("  {} Step {}: {} ({:?})", 
+                status, 
+                result.step_index + 1, 
+                result.step_name, 
+                result.duration
+            );
+            
+            if let Some(error) = &result.error {
+                println!("    Error: {}", error);
+            }
+            
+            if let Some(output) = &result.output {
+                if !output.is_empty() {
+                    let preview = String::from_utf8_lossy(output);
+                    let preview = if preview.len() > 100 {
+                        format!("{}...", &preview[..100])
+                    } else {
+                        preview.to_string()
+                    };
+                    println!("    Output: {:?}", preview);
+                }
+            }
+        }
+    }
+    
+    // TODO: Implement snapshot comparison
+    println!("\n[TODO] Snapshot comparison not yet implemented");
+    println!("Step execution is now functional!");
     
     Ok(())
 }

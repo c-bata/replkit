@@ -1,0 +1,18 @@
+version: 1
+command:
+  exec: ["bash", "-c", "echo 'Press Enter to continue'; read; echo 'You pressed Enter!'"]
+  workdir: "."
+tty:
+  cols: 80
+  rows: 24
+
+steps:
+  - waitIdle: "200ms"
+  - snapshot:
+      name: "initial"
+      stripAnsi: true
+  - send: ["Enter"]
+  - waitIdle: "200ms"
+  - snapshot:
+      name: "after-enter"
+      stripAnsi: true

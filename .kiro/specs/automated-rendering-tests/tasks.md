@@ -26,7 +26,7 @@
   - Add process lifecycle management (spawn, monitor, terminate)
   - Create PTY integration tests
 
-- [ ] 4. Basic Step Execution
+- [x] 4. Basic Step Execution
   - Implement `Step` enum for different step types
   - Create `StepExecutor` for running test steps
   - Add basic text input synthesis
