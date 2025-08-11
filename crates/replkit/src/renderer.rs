@@ -477,22 +477,19 @@ impl Renderer {
 
     /// Write a newline character (go-prompt style)
     pub fn write_newline(&mut self) -> io::Result<()> {
-        // Clear any completion lines first
-        if self.last_completion_lines > 0 {
-            // Clear from cursor down to remove completion menu
-            self.console
-                .clear(ClearType::FromCursor)
-                .map_err(console_error_to_io_error)?;
-            self.last_completion_lines = 0;
-        }
-        
-        // Write newline
+        // Clear from cursor down to remove any completion menu
         self.console
-            .write_text("\n")
+            .clear(ClearType::FromCursor)
+            .map_err(console_error_to_io_error)?;
+        
+        // Write newline and carriage return to ensure cursor goes to beginning of next line
+        self.console
+            .write_text("\r\n")
             .map_err(console_error_to_io_error)?;
         
         // Reset previous cursor position to start of new line
         self.previous_cursor = 0;
+        self.last_completion_lines = 0;
         self.console.flush().map_err(console_error_to_io_error)?;
         Ok(())
     }
