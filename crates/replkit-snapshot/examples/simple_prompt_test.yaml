@@ -1,0 +1,38 @@
+version: 1
+
+command:
+  exec: ["/home/cbata/go/src/github.com/c-bata/replkit/target/debug/examples/simple_prompt"]
+  workdir: "."
+
+tty:
+  cols: 80
+  rows: 24
+
+steps:
+  # Wait for the prompt to be ready
+  - waitIdle: "200ms"
+  
+  # Take initial snapshot
+  - snapshot:
+      name: "initial-prompt"
+      stripAnsi: true
+  
+  # Type 'u' to trigger partial completion
+  - send: "u"
+  
+  # Press TAB to trigger completion
+  - send: ["Tab"]
+  
+  # Wait for completion to appear
+  - waitIdle: "300ms"
+  
+  # Take snapshot with completion visible
+  - snapshot:
+      name: "completion-u-tab"
+      stripAnsi: true
+  
+  # Send Ctrl+C to terminate the process
+  - send: ["Ctrl+C"]
+  
+  # Wait for process to exit
+  - waitExit: "1s"
