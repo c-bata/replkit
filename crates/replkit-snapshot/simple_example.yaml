@@ -1,0 +1,14 @@
+version: 1
+command:
+  exec: ["echo", "Hello from PTY test"]
+  workdir: "."
+tty:
+  cols: 80
+  rows: 24
+
+steps:
+  - send: "test input"
+  - waitIdle: "100ms"
+  - snapshot:
+      name: "simple-test"
+      stripAnsi: true

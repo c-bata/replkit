@@ -18,7 +18,7 @@
   - Implement duration and window size parsing utilities
   - Add configuration validation tests
 
-- [ ] 3. PTY Management
+- [x] 3. PTY Management
   - Add `portable-pty` dependency
   - Implement `PtyManager` struct for process control
   - Add process spawning with environment and working directory

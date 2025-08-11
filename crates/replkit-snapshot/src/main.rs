@@ -1,5 +1,5 @@
 use clap::Parser;
-use replkit_snapshot::{Cli, Commands, RunConfig, StepDefinition, Result};
+use replkit_snapshot::{Cli, Commands, RunConfig, StepDefinition, PtyManager, Result};
 use std::process;
 
 #[tokio::main]
@@ -89,9 +89,35 @@ async fn run_snapshot_test(config: RunConfig) -> Result<()> {
         }
     }
     
-    // TODO: Implement actual snapshot testing logic
-    println!("\n[TODO] PTY management and snapshot testing implementation not yet complete");
-    println!("Configuration system is now functional!");
+    // Initialize PTY manager
+    println!("\nInitializing PTY with size {}x{}", step_definition.tty.cols, step_definition.tty.rows);
+    let mut pty_manager = PtyManager::new(step_definition.tty.cols, step_definition.tty.rows)?;
+    
+    // Spawn the command from step definition (overrides CLI command)
+    println!("Spawning command: {:?}", step_definition.command.exec);
+    pty_manager.spawn_command(&step_definition.command)?;
+    
+    // Wait a moment for the command to start
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    
+    // Check if process is running
+    if pty_manager.is_process_running() {
+        println!("Process is running successfully");
+        
+        // Drain initial output
+        let initial_output = pty_manager.drain_output(std::time::Duration::from_millis(1000)).await?;
+        if !initial_output.is_empty() {
+            println!("Initial output received ({} bytes):", initial_output.len());
+            let output_str = String::from_utf8_lossy(&initial_output);
+            println!("Output preview: {:?}", &output_str[..output_str.len().min(100)]);
+        }
+    } else {
+        println!("Process has already completed");
+    }
+    
+    // TODO: Implement step execution and snapshot capture
+    println!("\n[TODO] Step execution and snapshot capture not yet implemented");
+    println!("PTY management is now functional!");
     
     Ok(())
 }
