@@ -15,11 +15,12 @@
 │   ├── replkit-core/           # Low-level primitives for REPLKIT
 │   ├── replkit-io/             # Platform-specific I/O
 │   ├── replkit-wasm/           # WASM interface for Go bindings
-│   └── replkit-pyo3/           # PyO3-based Python binding (build with maturin)
-│       ├── python-examples/    # Examples of Python bindings
-│       ├── replkit/            # Python source codes
-│       ├── src/                # Rust source codes
-│       └── tests/              # Tests for Python bindings (pytest)
+│   ├── replkit-pyo3/           # PyO3-based Python binding (build with maturin)
+│   │   ├── python-examples/    # Examples of Python bindings
+│   │   ├── replkit/            # Python source codes
+│   │   ├── src/                # Rust source codes
+│   │   └── tests/              # Tests for Python bindings (pytest)
+│   └── replkit-snapshot/       # CLI tool for automated snapshot testing
 ├── bindings/                   # Language-specific bindings
 │   └── go/                     # Go binding via Wasm and wazero runtime
 │       ├── _examples/          # Examples of Go bindings

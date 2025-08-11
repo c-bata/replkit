@@ -1,36 +1,40 @@
-# Design Document
+# Design Document — `replkit-snapshot`
 
 ## Overview
 
-This design outlines an automated testing framework for terminal rendering in replkit that uses termwiz for terminal emulation and provides go-prompt compatibility validation. The framework will enable confident refactoring of the renderer while ensuring visual output matches the proven go-prompt reference implementation.
+This design outlines `replkit-snapshot`, a CLI tool for automated snapshot testing of terminal-based applications built with replkit. The tool uses PTY-based execution to run applications in controlled terminal environments and compares their output with golden snapshots. This enables cross-language binding validation and regression detection for interactive applications built with replkit.
 
-## Architecture
+## Tool Architecture
 
 ### High-Level Architecture
 
 ```mermaid
 graph TB
-    A[Renderer Tests] --> B[TestConsoleOutput]
-    B --> C[TerminalEmulator]
-    C --> D[termwiz Terminal]
+    A[CLI Interface] --> B[Process Manager]
+    B --> C[PTY Controller]
+    C --> D[Target Application]
     
-    A --> E[SnapshotTesting]
-    E --> F[insta crate]
+    A --> E[Step Executor]
+    E --> F[Input Generator]
+    E --> G[Screen Capturer]
     
-    A --> G[CompatibilityTesting]
-    G --> H[go-prompt Reference]
+    G --> H[Snapshot Comparator]
+    H --> I[Golden Files]
     
-    subgraph "Test Infrastructure"
+    subgraph "replkit-snapshot CLI"
+        A
         B
-        C
         E
-        G
+        H
     end
     
-    subgraph "External Dependencies"
+    subgraph "External Process"
+        C
         D
-        F
-        H
+    end
+    
+    subgraph "File System"
+        I
     end
 ```
 
@@ -38,341 +42,701 @@ graph TB
 
 ```mermaid
 graph LR
-    subgraph "Test Framework"
-        A[TestConsoleOutput] --> B[ConsoleOperation]
-        A --> C[TerminalEmulator]
-        C --> D[termwiz::Terminal]
-        
-        E[TestRenderer] --> A
-        F[SnapshotManager] --> G[insta]
-        H[CompatibilityValidator] --> I[ReferenceCapture]
+    subgraph "CLI Tool Components"
+        A[CLI Parser] --> B[Config Loader]
+        B --> C[Step Definition]
+        C --> D[PTY Manager]
+        D --> E[Input Synthesizer]
+        E --> F[Screen Buffer]
+        F --> G[Snapshot Manager]
+        G --> H[File Comparator]
     end
     
-    subgraph "Existing Code"
-        J[Renderer] --> K[ConsoleOutput trait]
-        L[replkit-io] --> K
+    subgraph "External Dependencies"
+        I[portable-pty]
+        J[termwiz::terminal]
+        K[serde_yaml]
     end
     
-    A -.implements.-> K
-```
-
-## Module Structure
-
-### File Organization
-
-```
-crates/replkit/
-├── src/
-│   ├── renderer.rs              # Existing renderer
-│   └── lib.rs
-└── tests/                       # Integration tests
-    ├── test_console.rs      # TestConsoleOutput
-    ├── terminal_emulator.rs # TerminalEmulator
-    ├── snapshot_manager.rs  # Snapshot utilities
-    └── compatibility.rs     # go-prompt validation
+    D --> I
+    F --> J
+    B --> K
 ```
 
 ## Components and Interfaces
 
-### 1. TestConsoleOutput
+### 1. CLI Parser and Configuration
 
-The core testing component that implements the `ConsoleOutput` trait and captures all operations.
+The main entry point that handles command line arguments and configuration loading.
 
 ```rust
-pub struct TestConsoleOutput {
-    operations: Vec<ConsoleOperation>,
-    terminal_emulator: TerminalEmulator,
-    capture_mode: CaptureMode,
+use clap::{Parser, Subcommand};
+use serde::{Deserialize, Serialize};
+
+#[derive(Parser)]
+#[command(name = "replkit-snapshot")]
+#[command(about = "Snapshot testing tool for terminal applications")]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Commands,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum ConsoleOperation {
-    MoveCursor { row: u16, col: u16 },
-    WriteText { text: String },
-    SetStyle { style: TextStyle },
-    ResetStyle,
-    Clear { clear_type: ClearType },
-    Flush,
-    HideCursor,
-    ShowCursor,
-    GetCursorPosition,
+#[derive(Subcommand)]
+pub enum Commands {
+    Run {
+        /// Command to execute
+        #[arg(long)]
+        cmd: String,
+        
+        /// Working directory
+        #[arg(long)]
+        workdir: Option<PathBuf>,
+        
+        /// Environment variables (KEY=VALUE)
+        #[arg(long = "env")]
+        env_vars: Vec<String>,
+        
+        /// Terminal window size (COLSxROWS)
+        #[arg(long, default_value = "80x24")]
+        winsize: String,
+        
+        /// Step definition file
+        #[arg(long)]
+        steps: PathBuf,
+        
+        /// Snapshot directory
+        #[arg(long)]
+        compare: PathBuf,
+        
+        /// Update golden snapshots
+        #[arg(long)]
+        update: bool,
+        
+        /// Global timeout
+        #[arg(long, default_value = "30s")]
+        timeout: String,
+        
+        /// Strip ANSI codes
+        #[arg(long, default_value = "true")]
+        strip_ansi: bool,
+    },
 }
 
-pub enum CaptureMode {
-    Operations,      // Capture operation sequence
-    TerminalState,   // Use termwiz emulation
-    Both,           // Capture both for comparison
+#[derive(Debug, Deserialize, Serialize)]
+pub struct StepDefinition {
+    pub version: u32,
+    pub command: CommandConfig,
+    pub tty: TtyConfig,
+    pub steps: Vec<Step>,
 }
 
-impl ConsoleOutput for TestConsoleOutput {
-    fn write_text(&mut self, text: &str) -> Result<(), ConsoleError> {
-        self.operations.push(ConsoleOperation::WriteText { 
-            text: text.to_string() 
-        });
-        self.terminal_emulator.write_text(text)?;
-        Ok(())
-    }
-    
-    fn move_cursor_to(&mut self, row: u16, col: u16) -> Result<(), ConsoleError> {
-        self.operations.push(ConsoleOperation::MoveCursor { row, col });
-        self.terminal_emulator.move_cursor_to(row, col)?;
-        Ok(())
-    }
-    
-    // ... other trait methods
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CommandConfig {
+    pub exec: Vec<String>,
+    pub workdir: Option<PathBuf>,
+    pub env: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct TtyConfig {
+    pub cols: u16,
+    pub rows: u16,
 }
 ```
 
-### 2. TerminalEmulator
+### 2. PTY Manager and Process Control
 
-Wraps termwiz to provide terminal emulation capabilities.
+Manages the pseudo-terminal and target application lifecycle.
 
 ```rust
-pub struct TerminalEmulator {
-    terminal: termwiz::terminal::Terminal,
-    screen_size: (u16, u16),
+use portable_pty::{PtySize, CommandBuilder, PtyPair};
+use std::process::{Child, Stdio};
+use std::io::{Read, Write};
+
+pub struct PtyManager {
+    pty_pair: PtyPair,
+    child_process: Option<Child>,
+    reader: Box<dyn Read + Send>,
+    writer: Box<dyn Write + Send>,
+    terminal_size: PtySize,
 }
 
-impl TerminalEmulator {
-    pub fn new(cols: u16, rows: u16) -> Self {
-        let terminal = termwiz::terminal::Terminal::new(cols as usize, rows as usize);
+impl PtyManager {
+    pub fn new(cols: u16, rows: u16) -> Result<Self, PtyError> {
+        let pty_system = portable_pty::native_pty_system();
+        let terminal_size = PtySize {
+            cols: cols,
+            rows: rows,
+            pixel_width: 0,
+            pixel_height: 0,
+        };
+        
+        let pty_pair = pty_system.openpty(terminal_size)?;
+        let reader = pty_pair.master.try_clone_reader()?;
+        let writer = pty_pair.master.try_clone_writer()?;
+        
+        Ok(Self {
+            pty_pair,
+            child_process: None,
+            reader,
+            writer,
+            terminal_size,
+        })
+    }
+    
+    pub fn spawn_command(&mut self, cmd: &CommandConfig) -> Result<(), PtyError> {
+        let mut command = CommandBuilder::new(&cmd.exec[0]);
+        
+        for arg in &cmd.exec[1..] {
+            command.arg(arg);
+        }
+        
+        if let Some(workdir) = &cmd.workdir {
+            command.cwd(workdir);
+        }
+        
+        if let Some(env) = &cmd.env {
+            for (key, value) in env {
+                command.env(key, value);
+            }
+        }
+        
+        let child = self.pty_pair.slave.spawn_command(command)?;
+        self.child_process = Some(child);
+        
+        Ok(())
+    }
+    
+    pub fn send_input(&mut self, input: &[u8]) -> Result<(), std::io::Error> {
+        self.writer.write_all(input)?;
+        self.writer.flush()?;
+        Ok(())
+    }
+    
+    pub fn read_output(&mut self, buffer: &mut [u8]) -> Result<usize, std::io::Error> {
+        self.reader.read(buffer)
+    }
+    
+    pub fn is_process_running(&mut self) -> bool {
+        match &mut self.child_process {
+            Some(child) => child.try_wait().unwrap_or(None).is_none(),
+            None => false,
+        }
+    }
+}
+```
+
+### 3. Step Execution Engine
+
+Executes test steps defined in the configuration file.
+
+```rust
+use serde::{Deserialize, Serialize};
+use std::time::Duration;
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum Step {
+    Send { send: InputSpec },
+    WaitIdle { waitIdle: String },
+    WaitRegex { waitForRegex: String },
+    WaitExit { waitExit: String },
+    Snapshot { snapshot: SnapshotConfig },
+    Sleep { sleep: String },
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum InputSpec {
+    Text(String),
+    Keys(Vec<String>),
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SnapshotConfig {
+    pub name: String,
+    #[serde(default = "default_strip_ansi")]
+    pub stripAnsi: bool,
+    pub mask: Option<Vec<String>>,
+}
+
+fn default_strip_ansi() -> bool { true }
+
+pub struct StepExecutor {
+    pty_manager: PtyManager,
+    screen_capturer: ScreenCapturer,
+}
+
+impl StepExecutor {
+    pub fn new(pty_manager: PtyManager, screen_capturer: ScreenCapturer) -> Self {
+        Self {
+            pty_manager,
+            screen_capturer,
+        }
+    }
+    
+    pub async fn execute_steps(&mut self, steps: &[Step]) -> Result<Vec<Snapshot>, ExecutionError> {
+        let mut snapshots = Vec::new();
+        
+        for step in steps {
+            match step {
+                Step::Send { send } => self.execute_send(send).await?,
+                Step::WaitIdle { waitIdle } => self.execute_wait_idle(waitIdle).await?,
+                Step::WaitRegex { waitForRegex } => self.execute_wait_regex(waitForRegex).await?,
+                Step::WaitExit { waitExit } => self.execute_wait_exit(waitExit).await?,
+                Step::Snapshot { snapshot } => {
+                    let snap = self.capture_snapshot(snapshot).await?;
+                    snapshots.push(snap);
+                },
+                Step::Sleep { sleep } => self.execute_sleep(sleep).await?,
+            }
+        }
+        
+        Ok(snapshots)
+    }
+    
+    async fn execute_send(&mut self, input: &InputSpec) -> Result<(), ExecutionError> {
+        let bytes = match input {
+            InputSpec::Text(text) => text.as_bytes().to_vec(),
+            InputSpec::Keys(keys) => self.convert_keys_to_bytes(keys)?,
+        };
+        
+        self.pty_manager.send_input(&bytes)?;
+        Ok(())
+    }
+    
+    fn convert_keys_to_bytes(&self, keys: &[String]) -> Result<Vec<u8>, ExecutionError> {
+        let mut bytes = Vec::new();
+        
+        for key in keys {
+            match key.as_str() {
+                "Tab" => bytes.push(0x09),
+                "Enter" => bytes.push(0x0D),
+                "Esc" => bytes.push(0x1B),
+                "Left" => bytes.extend_from_slice(b"\x1B[D"),
+                "Right" => bytes.extend_from_slice(b"\x1B[C"),
+                "Up" => bytes.extend_from_slice(b"\x1B[A"),
+                "Down" => bytes.extend_from_slice(b"\x1B[B"),
+                "Ctrl+C" => bytes.push(0x03),
+                "Ctrl+D" => bytes.push(0x04),
+                _ if key.starts_with("Ctrl+") => {
+                    let ch = key.chars().last().unwrap().to_ascii_uppercase();
+                    let ctrl_code = (ch as u8) - b'A' + 1;
+                    bytes.push(ctrl_code);
+                },
+                _ => return Err(ExecutionError::InvalidKey(key.clone())),
+            }
+        }
+        
+        Ok(bytes)
+    }
+}
+```
+
+### 4. Screen Capture and Snapshot Management
+
+Captures terminal output and manages snapshot comparison.
+
+```rust
+use termwiz::terminal::Terminal;
+use std::fs;
+use std::path::Path;
+
+pub struct ScreenCapturer {
+    terminal: Terminal,
+    strip_ansi: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct Snapshot {
+    pub name: String,
+    pub content: String,
+    pub timestamp: std::time::SystemTime,
+}
+
+impl ScreenCapturer {
+    pub fn new(cols: u16, rows: u16, strip_ansi: bool) -> Self {
+        let terminal = Terminal::new_with_size(cols as usize, rows as usize);
         Self {
             terminal,
-            screen_size: (cols, rows),
+            strip_ansi,
         }
     }
     
-    pub fn write_text(&mut self, text: &str) -> Result<(), ConsoleError> {
-        self.terminal.add_change(termwiz::surface::Change::Text(text.to_string()));
-        Ok(())
-    }
-    
-    pub fn get_screen_contents(&self) -> String {
-        self.terminal.render_to_string()
-    }
-    
-    pub fn get_cursor_position(&self) -> (u16, u16) {
-        let pos = self.terminal.cursor_position();
-        (pos.y as u16, pos.x as u16)
-    }
-    
-    pub fn get_screen_lines(&self) -> Vec<String> {
-        (0..self.screen_size.1)
-            .map(|row| self.terminal.get_line_text(row as usize))
-            .collect()
-    }
-}
-```
-
-### 3. Test Utilities
-
-Helper functions and macros for common testing patterns.
-
-```rust
-pub struct TestRenderer {
-    renderer: Renderer,
-    console: TestConsoleOutput,
-}
-
-impl TestRenderer {
-    pub fn new() -> Self {
-        let console = TestConsoleOutput::new(80, 24);
-        let renderer = Renderer::new(Box::new(console.clone()));
-        Self { renderer, console }
-    }
-    
-    pub fn with_size(cols: u16, rows: u16) -> Self {
-        let console = TestConsoleOutput::new(cols, rows);
-        let renderer = Renderer::new(Box::new(console.clone()));
-        Self { renderer, console }
-    }
-    
-    pub fn get_operations(&self) -> &[ConsoleOperation] {
-        &self.console.operations
-    }
-    
-    pub fn get_screen_contents(&self) -> String {
-        self.console.terminal_emulator.get_screen_contents()
-    }
-    
-    pub fn assert_cursor_at(&self, row: u16, col: u16) {
-        let pos = self.console.terminal_emulator.get_cursor_position();
-        assert_eq!(pos, (row, col), "Cursor position mismatch");
-    }
-    
-    pub fn assert_line_contains(&self, line: u16, expected: &str) {
-        let lines = self.console.terminal_emulator.get_screen_lines();
-        assert!(
-            lines[line as usize].contains(expected),
-            "Line {} does not contain '{}': '{}'", 
-            line, expected, lines[line as usize]
-        );
-    }
-}
-
-// Convenience macros
-macro_rules! assert_operations {
-    ($renderer:expr, [$($op:expr),*]) => {
-        let ops = $renderer.get_operations();
-        let expected = vec![$($op),*];
-        assert_eq!(ops, &expected, "Operation sequence mismatch");
-    };
-}
-```
-
-### 4. Snapshot Testing Integration
-
-Integration with the `insta` crate for snapshot testing.
-
-```rust
-pub struct SnapshotManager {
-    test_name: String,
-}
-
-impl SnapshotManager {
-    pub fn new(test_name: &str) -> Self {
-        Self {
-            test_name: test_name.to_string(),
+    pub fn capture_screen(&mut self, pty_output: &[u8]) -> Result<String, CaptureError> {
+        // Feed the output to terminal emulator
+        self.terminal.advance_bytes(pty_output);
+        
+        // Get the rendered screen
+        let mut content = self.terminal.get_screen_and_logs_as_text();
+        
+        if self.strip_ansi {
+            content = self.strip_ansi_codes(&content);
         }
+        
+        // Normalize content
+        content = self.normalize_content(&content);
+        
+        Ok(content)
     }
     
-    pub fn assert_terminal_snapshot(&self, renderer: &TestRenderer) {
-        let screen_contents = renderer.get_screen_contents();
-        insta::assert_snapshot!(
-            format!("{}_terminal", self.test_name),
-            screen_contents
-        );
+    fn strip_ansi_codes(&self, text: &str) -> String {
+        // Simple ANSI stripping - in real implementation use a proper library
+        let re = regex::Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap();
+        re.replace_all(text, "").to_string()
     }
     
-    pub fn assert_operations_snapshot(&self, renderer: &TestRenderer) {
-        let operations = renderer.get_operations();
-        let formatted = self.format_operations(operations);
-        insta::assert_snapshot!(
-            format!("{}_operations", self.test_name),
-            formatted
-        );
-    }
-    
-    fn format_operations(&self, operations: &[ConsoleOperation]) -> String {
-        operations
-            .iter()
-            .enumerate()
-            .map(|(i, op)| format!("{:2}: {:?}", i, op))
+    fn normalize_content(&self, text: &str) -> String {
+        text.lines()
+            .map(|line| line.trim_end())
             .collect::<Vec<_>>()
             .join("\n")
     }
 }
+
+pub struct SnapshotComparator {
+    snapshot_dir: PathBuf,
+    update_mode: bool,
+}
+
+impl SnapshotComparator {
+    pub fn new(snapshot_dir: PathBuf, update_mode: bool) -> Self {
+        Self {
+            snapshot_dir,
+            update_mode,
+        }
+    }
+    
+    pub fn compare_or_update(&self, snapshot: &Snapshot) -> Result<ComparisonResult, CompareError> {
+        let snapshot_path = self.snapshot_dir.join(format!("{}.snap.txt", snapshot.name));
+        
+        if self.update_mode {
+            fs::write(&snapshot_path, &snapshot.content)?;
+            return Ok(ComparisonResult::Updated);
+        }
+        
+        if !snapshot_path.exists() {
+            return Ok(ComparisonResult::Missing);
+        }
+        
+        let expected = fs::read_to_string(&snapshot_path)?;
+        
+        if expected == snapshot.content {
+            Ok(ComparisonResult::Match)
+        } else {
+            Ok(ComparisonResult::Mismatch {
+                expected,
+                actual: snapshot.content.clone(),
+                diff: self.compute_diff(&expected, &snapshot.content),
+            })
+        }
+    }
+    
+    fn compute_diff(&self, expected: &str, actual: &str) -> String {
+        // Simple unified diff - in real implementation use a proper diff library
+        format!("--- expected\n+++ actual\n{}", 
+               self.simple_diff(expected, actual))
+    }
+    
+    fn simple_diff(&self, expected: &str, actual: &str) -> String {
+        let expected_lines: Vec<&str> = expected.lines().collect();
+        let actual_lines: Vec<&str> = actual.lines().collect();
+        
+        let mut diff = String::new();
+        let max_lines = expected_lines.len().max(actual_lines.len());
+        
+        for i in 0..max_lines {
+            let exp_line = expected_lines.get(i).unwrap_or(&"");
+            let act_line = actual_lines.get(i).unwrap_or(&"");
+            
+            if exp_line != act_line {
+                diff.push_str(&format!("-{}\n+{}\n", exp_line, act_line));
+            }
+        }
+        
+        diff
+    }
+}
+
+#[derive(Debug)]
+pub enum ComparisonResult {
+    Match,
+    Mismatch { expected: String, actual: String, diff: String },
+    Missing,
+    Updated,
+}
 ```
 
-### 5. go-prompt Compatibility Validation
+### 5. Cross-Language Validation
 
-Tools for comparing replkit output with go-prompt reference behavior.
+Tools for ensuring consistent behavior across different language bindings.
 
 ```rust
-pub struct CompatibilityValidator {
-    reference_data: HashMap<String, ReferenceOutput>,
+pub struct CrossLanguageValidator {
+    test_cases: HashMap<String, TestCase>,
 }
 
 #[derive(Debug, Clone)]
-pub struct ReferenceOutput {
-    pub scenario: String,
-    pub terminal_output: String,
-    pub cursor_position: (u16, u16),
-    pub operations: Vec<String>, // Simplified operation descriptions
+pub struct TestCase {
+    pub name: String,
+    pub description: String,
+    pub step_file: PathBuf,
+    pub language_configs: HashMap<String, LanguageConfig>,
 }
 
-impl CompatibilityValidator {
-    pub fn load_references() -> Self {
-        // Load reference outputs from files or embedded data
-        let reference_data = Self::load_reference_files();
-        Self { reference_data }
-    }
-    
-    pub fn validate_scenario(&self, scenario: &str, renderer: &TestRenderer) -> CompatibilityResult {
-        let reference = self.reference_data.get(scenario)
-            .expect(&format!("No reference data for scenario: {}", scenario));
-        
-        let actual_output = renderer.get_screen_contents();
-        let actual_cursor = renderer.console.terminal_emulator.get_cursor_position();
-        
-        CompatibilityResult {
-            scenario: scenario.to_string(),
-            matches: actual_output == reference.terminal_output && 
-                    actual_cursor == reference.cursor_position,
-            differences: self.compute_differences(&reference, &actual_output, actual_cursor),
+#[derive(Debug, Clone)]
+pub struct LanguageConfig {
+    pub command: CommandConfig,
+    pub expected_behavior: ExpectedBehavior,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExpectedBehavior {
+    pub should_match_reference: bool,
+    pub allowed_differences: Vec<String>,
+}
+
+impl CrossLanguageValidator {
+    pub fn new() -> Self {
+        Self {
+            test_cases: HashMap::new(),
         }
     }
     
-    fn compute_differences(&self, reference: &ReferenceOutput, actual: &str, cursor: (u16, u16)) -> Vec<Difference> {
+    pub fn load_test_cases<P: AsRef<Path>>(&mut self, test_dir: P) -> Result<(), ValidatorError> {
+        let entries = fs::read_dir(test_dir)?;
+        
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+            
+            if path.extension().and_then(|s| s.to_str()) == Some("yaml") {
+                let test_case: TestCase = serde_yaml::from_str(&fs::read_to_string(&path)?)?;
+                self.test_cases.insert(test_case.name.clone(), test_case);
+            }
+        }
+        
+        Ok(())
+    }
+    
+    pub async fn validate_cross_language(
+        &self,
+        test_case_name: &str,
+    ) -> Result<ValidationReport, ValidatorError> {
+        let test_case = self.test_cases.get(test_case_name)
+            .ok_or_else(|| ValidatorError::TestCaseNotFound(test_case_name.to_string()))?;
+        
+        let mut results = HashMap::new();
+        
+        for (language, config) in &test_case.language_configs {
+            let snapshot_result = self.run_test_for_language(test_case, language, config).await?;
+            results.insert(language.clone(), snapshot_result);
+        }
+        
+        Ok(ValidationReport {
+            test_case: test_case.name.clone(),
+            language_results: results,
+            consistency_check: self.check_consistency(&results),
+        })
+    }
+    
+    async fn run_test_for_language(
+        &self,
+        test_case: &TestCase,
+        language: &str,
+        config: &LanguageConfig,
+    ) -> Result<LanguageTestResult, ValidatorError> {
+        // Create PTY manager for this language
+        let mut pty_manager = PtyManager::new(80, 24)?;
+        pty_manager.spawn_command(&config.command)?;
+        
+        // Load and execute steps
+        let step_definition: StepDefinition = serde_yaml::from_str(
+            &fs::read_to_string(&test_case.step_file)?
+        )?;
+        
+        let screen_capturer = ScreenCapturer::new(80, 24, true);
+        let mut executor = StepExecutor::new(pty_manager, screen_capturer);
+        
+        let snapshots = executor.execute_steps(&step_definition.steps).await?;
+        
+        Ok(LanguageTestResult {
+            language: language.to_string(),
+            snapshots,
+            success: true,
+        })
+    }
+    
+    fn check_consistency(&self, results: &HashMap<String, LanguageTestResult>) -> ConsistencyReport {
+        if results.len() < 2 {
+            return ConsistencyReport { consistent: true, differences: Vec::new() };
+        }
+        
+        let languages: Vec<&String> = results.keys().collect();
+        let reference_lang = languages[0];
+        let reference_snapshots = &results[reference_lang].snapshots;
+        
         let mut differences = Vec::new();
         
-        if actual != reference.terminal_output {
-            differences.push(Difference::TerminalOutput {
-                expected: reference.terminal_output.clone(),
-                actual: actual.to_string(),
-            });
+        for lang in &languages[1..] {
+            let lang_snapshots = &results[*lang].snapshots;
+            
+            for (i, (ref_snap, lang_snap)) in reference_snapshots.iter()
+                .zip(lang_snapshots.iter()).enumerate() {
+                
+                if ref_snap.content != lang_snap.content {
+                    differences.push(ConsistencyDifference {
+                        snapshot_index: i,
+                        reference_language: reference_lang.clone(),
+                        other_language: (*lang).clone(),
+                        difference_summary: format!(
+                            "Content differs between {} and {}",
+                            reference_lang, lang
+                        ),
+                    });
+                }
+            }
         }
         
-        if cursor != reference.cursor_position {
-            differences.push(Difference::CursorPosition {
-                expected: reference.cursor_position,
-                actual: cursor,
-            });
+        ConsistencyReport {
+            consistent: differences.is_empty(),
+            differences,
         }
-        
-        differences
     }
 }
 
 #[derive(Debug)]
-pub struct CompatibilityResult {
-    pub scenario: String,
-    pub matches: bool,
-    pub differences: Vec<Difference>,
+pub struct ValidationReport {
+    pub test_case: String,
+    pub language_results: HashMap<String, LanguageTestResult>,
+    pub consistency_check: ConsistencyReport,
 }
 
 #[derive(Debug)]
-pub enum Difference {
-    TerminalOutput { expected: String, actual: String },
-    CursorPosition { expected: (u16, u16), actual: (u16, u16) },
+pub struct LanguageTestResult {
+    pub language: String,
+    pub snapshots: Vec<Snapshot>,
+    pub success: bool,
+}
+
+#[derive(Debug)]
+pub struct ConsistencyReport {
+    pub consistent: bool,
+    pub differences: Vec<ConsistencyDifference>,
+}
+
+#[derive(Debug)]
+pub struct ConsistencyDifference {
+    pub snapshot_index: usize,
+    pub reference_language: String,
+    pub other_language: String,
+    pub difference_summary: String,
 }
 ```
 
 ## Data Models
 
-### Test Configuration
+### Main Application State
 
 ```rust
-#[derive(Debug, Clone)]
-pub struct TestConfig {
-    pub terminal_size: (u16, u16),
-    pub capture_mode: CaptureMode,
-    pub enable_snapshots: bool,
-    pub enable_compatibility_checks: bool,
+#[derive(Debug)]
+pub struct SnapshotTestRunner {
+    pub config: RunConfig,
+    pub pty_manager: Option<PtyManager>,
+    pub step_executor: Option<StepExecutor>,
+    pub snapshot_comparator: SnapshotComparator,
 }
 
-impl Default for TestConfig {
-    fn default() -> Self {
-        Self {
-            terminal_size: (80, 24),
-            capture_mode: CaptureMode::Both,
-            enable_snapshots: true,
-            enable_compatibility_checks: true,
+#[derive(Debug, Clone)]
+pub struct RunConfig {
+    pub command: CommandConfig,
+    pub working_directory: Option<PathBuf>,
+    pub environment: HashMap<String, String>,
+    pub terminal_size: (u16, u16),
+    pub timeout: Duration,
+    pub update_snapshots: bool,
+    pub strip_ansi: bool,
+    pub snapshot_directory: PathBuf,
+}
+
+impl RunConfig {
+    pub fn from_cli_args(args: &Commands) -> Result<Self, ConfigError> {
+        match args {
+            Commands::Run {
+                cmd,
+                workdir,
+                env_vars,
+                winsize,
+                steps: _,
+                compare,
+                update,
+                timeout,
+                strip_ansi,
+            } => {
+                let (cols, rows) = Self::parse_window_size(winsize)?;
+                let environment = Self::parse_env_vars(env_vars)?;
+                let timeout_duration = Self::parse_duration(timeout)?;
+                
+                Ok(Self {
+                    command: CommandConfig {
+                        exec: cmd.split_whitespace().map(|s| s.to_string()).collect(),
+                        workdir: workdir.clone(),
+                        env: if environment.is_empty() { None } else { Some(environment.clone()) },
+                    },
+                    working_directory: workdir.clone(),
+                    environment,
+                    terminal_size: (cols, rows),
+                    timeout: timeout_duration,
+                    update_snapshots: *update,
+                    strip_ansi: *strip_ansi,
+                    snapshot_directory: compare.clone(),
+                })
+            }
         }
     }
-}
-```
-
-### Test Scenarios
-
-```rust
-#[derive(Debug, Clone)]
-pub struct TestScenario {
-    pub name: String,
-    pub description: String,
-    pub setup: Box<dyn Fn(&mut TestRenderer)>,
-    pub expected_operations: Option<Vec<ConsoleOperation>>,
-    pub validation: Box<dyn Fn(&TestRenderer) -> bool>,
+    
+    fn parse_window_size(winsize: &str) -> Result<(u16, u16), ConfigError> {
+        let parts: Vec<&str> = winsize.split('x').collect();
+        if parts.len() != 2 {
+            return Err(ConfigError::InvalidWindowSize(winsize.to_string()));
+        }
+        
+        let cols = parts[0].parse::<u16>()
+            .map_err(|_| ConfigError::InvalidWindowSize(winsize.to_string()))?;
+        let rows = parts[1].parse::<u16>()
+            .map_err(|_| ConfigError::InvalidWindowSize(winsize.to_string()))?;
+        
+        Ok((cols, rows))
+    }
+    
+    fn parse_env_vars(env_vars: &[String]) -> Result<HashMap<String, String>, ConfigError> {
+        let mut env = HashMap::new();
+        
+        for var in env_vars {
+            let parts: Vec<&str> = var.splitn(2, '=').collect();
+            if parts.len() != 2 {
+                return Err(ConfigError::InvalidEnvironmentVariable(var.clone()));
+            }
+            env.insert(parts[0].to_string(), parts[1].to_string());
+        }
+        
+        Ok(env)
+    }
+    
+    fn parse_duration(duration_str: &str) -> Result<Duration, ConfigError> {
+        // Simple duration parsing - in real implementation use a proper parser
+        if duration_str.ends_with('s') {
+            let seconds = duration_str.trim_end_matches('s').parse::<u64>()
+                .map_err(|_| ConfigError::InvalidDuration(duration_str.to_string()))?;
+            Ok(Duration::from_secs(seconds))
+        } else if duration_str.ends_with("ms") {
+            let millis = duration_str.trim_end_matches("ms").parse::<u64>()
+                .map_err(|_| ConfigError::InvalidDuration(duration_str.to_string()))?;
+            Ok(Duration::from_millis(millis))
+        } else {
+            Err(ConfigError::InvalidDuration(duration_str.to_string()))
+        }
+    }
 }
 ```
 
@@ -453,12 +817,27 @@ mod integration_tests {
 }
 ```
 
-## Implementation Plan Integration
+This tool will enable confident development and refactoring of replkit by ensuring consistent behavior across all language bindings through automated snapshot testing. See `tasks.md` for detailed implementation roadmap.
 
-This design supports the implementation plan by providing:
+## Dependencies and Requirements
 
-1. **Incremental Development**: Components can be built and tested independently
-2. **go-prompt Compatibility**: Reference validation ensures compatibility
-3. **Regression Prevention**: Snapshot tests catch unintended changes
+### Core Dependencies
+- `clap` - CLI argument parsing
+- `serde` + `serde_yaml` - Configuration serialization
+- `portable-pty` - Cross-platform PTY management
+- `termwiz` - Terminal emulation and screen capture
+- `tokio` - Async runtime for timeouts and I/O
+- `thiserror` - Structured error handling
+- `regex` - Pattern matching for wait conditions
 
-The framework will enable confident refactoring of the renderer while maintaining compatibility with the proven go-prompt implementation.
+### Development Dependencies
+- `tempfile` - Temporary files for testing
+- `assert_cmd` - CLI testing utilities
+- `predicates` - Test assertions
+- `mockall` - Mocking for unit tests
+
+### Optional Dependencies
+- `tracing` - Structured logging and diagnostics
+- `serde_json` - JSON output format support
+- `colored` - Colored terminal output
+- `indicatif` - Progress bars and spinners
