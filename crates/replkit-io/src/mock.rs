@@ -3,7 +3,7 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use replkit_core::{KeyEvent, Key};
+use replkit_core::KeyEvent;
 use crate::{ConsoleInput, ConsoleOutput, ConsoleResult, ConsoleError, RawModeGuard,
            ConsoleCapabilities, OutputCapabilities, BackendType, TextStyle, ClearType};
 

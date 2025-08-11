@@ -52,10 +52,9 @@
 //!     .expect("Failed to create prompt");
 //! ```
 
-use replkit_core::{Buffer, Document, error::BufferError, Key, KeyParser};
-use replkit_io::{ConsoleInput, ConsoleOutput, ConsoleError};
-use crate::{Suggestion, completion::Completor, renderer::Renderer};
-
+use crate::{completion::Completor, renderer::Renderer, Suggestion};
+use replkit_core::{error::BufferError, Buffer, Document, Key, KeyParser};
+use replkit_io::{ConsoleError, ConsoleInput, ConsoleOutput};
 
 /// Error types specific to prompt operations
 #[derive(Debug, Clone)]
@@ -74,9 +73,9 @@ impl std::fmt::Display for PromptError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PromptError::Interrupted => write!(f, "Prompt was interrupted"),
-            PromptError::IoError(msg) => write!(f, "I/O error: {}", msg),
-            PromptError::InvalidConfiguration(msg) => write!(f, "Invalid configuration: {}", msg),
-            PromptError::BufferError(err) => write!(f, "Buffer error: {}", err),
+            PromptError::IoError(msg) => write!(f, "I/O error: {msg}"),
+            PromptError::InvalidConfiguration(msg) => write!(f, "Invalid configuration: {msg}"),
+            PromptError::BufferError(err) => write!(f, "Buffer error: {err}"),
         }
     }
 }
@@ -247,7 +246,10 @@ impl Prompt {
     /// Get the current document state
     pub fn document(&self) -> Document {
         // Create a new document from the buffer's current state
-        Document::with_text(self.buffer.text().to_string(), self.buffer.cursor_position())
+        Document::with_text(
+            self.buffer.text().to_string(),
+            self.buffer.cursor_position(),
+        )
     }
 
     /// Get completions for the current document state
@@ -332,12 +334,12 @@ impl Prompt {
     ///
     /// let mut prompt = Prompt::builder().build().unwrap();
     /// prompt.insert_text("hello world");
-    /// 
+    ///
     /// // Use buffer for advanced operations
     /// let buffer = prompt.buffer_mut();
     /// buffer.cursor_left(6); // Move to after "hello"
     /// buffer.insert_text(" beautiful", false, true);
-    /// 
+    ///
     /// assert_eq!(prompt.document().text(), "hello beautiful world");
     /// ```
     pub fn buffer_mut(&mut self) -> &mut Buffer {
@@ -385,24 +387,28 @@ impl Prompt {
     pub fn input(&mut self) -> PromptResult<String> {
         // Initialize the input session
         self.buffer.set_text(String::new());
-        
+
         // Enable raw mode first for proper terminal control
         let _raw_guard = self.input.enable_raw_mode()?;
-        
+
         // Update terminal size in renderer
         if let Ok((cols, rows)) = self.input.get_window_size() {
             self.renderer.update_terminal_size(cols, rows);
         }
-        
+
         // Initialize renderer with current cursor position
-        self.renderer.initialize().map_err(|e| PromptError::IoError(e.to_string()))?;
-        
+        self.renderer
+            .initialize()
+            .map_err(|e| PromptError::IoError(e.to_string()))?;
+
         // Render initial prompt
-        self.renderer.render_prompt(&self.prefix, &self.document())?;
-        
+        self.renderer
+            .render_prompt(&self.prefix, &self.document())?;
+
         // Main input loop
         loop {
-            match self.input.read_key_timeout(Some(100)) { // 100ms timeout
+            match self.input.read_key_timeout(Some(100)) {
+                // 100ms timeout
                 Ok(Some(key_event)) => {
                     match key_event.key {
                         Key::Enter => {
@@ -411,21 +417,21 @@ impl Prompt {
                                 self.completion_manager.reset();
                                 self.renderer.clear_completions().ok();
                             }
-                            
+
                             // Move cursor to end of line and add newline
                             self.renderer.move_cursor_to_end_of_line()?;
                             self.renderer.write_newline()?;
-                            
+
                             // Return the entered text
                             return Ok(self.buffer.text().to_string());
-                        },
+                        }
                         Key::ControlC => {
                             if self.completion_manager.is_visible() {
                                 self.completion_manager.reset();
                                 self.renderer.clear_completions().ok();
                             }
                             return Err(PromptError::Interrupted);
-                        },
+                        }
                         Key::Backspace => {
                             // Delete character before cursor
                             if self.buffer.cursor_position() > 0 {
@@ -434,9 +440,10 @@ impl Prompt {
                                     self.completion_manager.reset();
                                     self.renderer.clear_completions().ok();
                                 }
-                                self.renderer.render_prompt(&self.prefix, &self.document())?;
+                                self.renderer
+                                    .render_prompt(&self.prefix, &self.document())?;
                             }
-                        },
+                        }
                         Key::Tab => {
                             if self.completion_manager.is_visible() {
                                 // Tab again: select completion
@@ -445,16 +452,17 @@ impl Prompt {
                                     let doc = self.document();
                                     let word_start = doc.find_start_of_word();
                                     let word_len = doc.cursor_position() - word_start;
-                                    
+
                                     // Delete current word and insert selected completion
                                     self.buffer.delete_before_cursor(word_len);
                                     self.buffer.insert_text(&selected.text, false, true);
                                 }
-                                
+
                                 // Hide completions
                                 self.completion_manager.hide();
                                 self.renderer.clear_completions().ok();
-                                self.renderer.render_prompt(&self.prefix, &self.document())?;
+                                self.renderer
+                                    .render_prompt(&self.prefix, &self.document())?;
                             } else {
                                 // First Tab: show completions
                                 let suggestions = self.get_completions();
@@ -462,60 +470,62 @@ impl Prompt {
                                     self.completion_manager.update_suggestions(suggestions);
                                     let selected_idx = self.completion_manager.selected_index();
                                     self.renderer.render_completions_with_selection(
-                                        self.completion_manager.suggestions(), 
-                                        selected_idx as usize
+                                        self.completion_manager.suggestions(),
+                                        selected_idx as usize,
                                     )?;
                                 }
                             }
-                        },
+                        }
                         Key::Up => {
                             if self.completion_manager.is_visible() {
                                 // Navigate up in completion menu
                                 self.completion_manager.previous();
                                 let selected_idx = self.completion_manager.selected_index();
                                 self.renderer.render_completions_with_selection(
-                                    self.completion_manager.suggestions(), 
-                                    selected_idx as usize
+                                    self.completion_manager.suggestions(),
+                                    selected_idx as usize,
                                 )?;
                             }
-                        },
+                        }
                         Key::Down => {
                             if self.completion_manager.is_visible() {
                                 // Navigate down in completion menu
                                 self.completion_manager.next();
                                 let selected_idx = self.completion_manager.selected_index();
                                 self.renderer.render_completions_with_selection(
-                                    self.completion_manager.suggestions(), 
-                                    selected_idx as usize
+                                    self.completion_manager.suggestions(),
+                                    selected_idx as usize,
                                 )?;
                             }
-                        },
+                        }
                         Key::Left => {
                             if self.completion_manager.is_visible() {
                                 // Hide completions when moving cursor
                                 self.completion_manager.hide();
                                 self.renderer.clear_completions().ok();
                             }
-                            
+
                             // Move cursor left
                             if self.buffer.cursor_position() > 0 {
                                 self.buffer.cursor_left(1);
-                                self.renderer.render_prompt(&self.prefix, &self.document())?;
+                                self.renderer
+                                    .render_prompt(&self.prefix, &self.document())?;
                             }
-                        },
+                        }
                         Key::Right => {
                             if self.completion_manager.is_visible() {
                                 // Hide completions when moving cursor
                                 self.completion_manager.hide();
                                 self.renderer.clear_completions().ok();
                             }
-                            
+
                             // Move cursor right
                             if self.buffer.cursor_position() < self.buffer.text().len() {
                                 self.buffer.cursor_right(1);
-                                self.renderer.render_prompt(&self.prefix, &self.document())?;
+                                self.renderer
+                                    .render_prompt(&self.prefix, &self.document())?;
                             }
-                        },
+                        }
                         _ => {
                             // Handle text input from key events
                             if let Some(text) = &key_event.text {
@@ -524,7 +534,8 @@ impl Prompt {
                                     self.completion_manager.reset();
                                     self.renderer.clear_completions().ok();
                                 }
-                                self.renderer.render_prompt(&self.prefix, &self.document())?;
+                                self.renderer
+                                    .render_prompt(&self.prefix, &self.document())?;
                             }
                         }
                     }
@@ -538,7 +549,7 @@ impl Prompt {
                         self.completion_manager.reset();
                         self.renderer.clear_completions().ok();
                     }
-                    return Err(PromptError::IoError(format!("Input error: {}", e)));
+                    return Err(PromptError::IoError(format!("Input error: {e}")));
                 }
             }
         }
@@ -646,9 +657,9 @@ impl PromptBuilder {
     ///     .build()
     ///     .unwrap();
     /// ```
-    pub fn with_completer<C>(mut self, completer: C) -> Self 
-    where 
-        C: Completor + 'static
+    pub fn with_completer<C>(mut self, completer: C) -> Self
+    where
+        C: Completor + 'static,
     {
         self.completer = Some(Box::new(completer));
         self
@@ -755,7 +766,7 @@ impl PromptBuilder {
             None => replkit_io::create_console_output()?,
         };
 
-        // Get or create console input  
+        // Get or create console input
         let console_input = match self.console_input {
             Some(input) => input,
             None => replkit_io::create_console_input()?,
@@ -796,10 +807,7 @@ mod tests {
 
     #[test]
     fn test_prompt_builder_with_prefix() {
-        let prompt = PromptBuilder::new()
-            .with_prefix("$ ")
-            .build()
-            .unwrap();
+        let prompt = PromptBuilder::new().with_prefix("$ ").build().unwrap();
         assert_eq!(prompt.prefix(), "$ ");
     }
 
@@ -889,14 +897,14 @@ mod tests {
     #[test]
     fn test_prompt_buffer_access() {
         let mut prompt = PromptBuilder::new().build().unwrap();
-        
+
         prompt.insert_text("hello world").unwrap();
-        
+
         // Test direct buffer manipulation
         let buffer = prompt.buffer_mut();
         buffer.cursor_left(6); // Move to after "hello"
         buffer.insert_text(" beautiful", false, true);
-        
+
         assert_eq!(prompt.document().text(), "hello beautiful world");
     }
 

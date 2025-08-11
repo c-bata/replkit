@@ -17,7 +17,8 @@ fn completer(document: &Document) -> Vec<Suggestion> {
     ]
     .into_iter()
     .filter(|s| {
-        document.get_word_before_cursor()
+        document
+            .get_word_before_cursor()
             .chars()
             .zip(s.text.chars())
             .all(|(a, b)| a.to_lowercase().eq(b.to_lowercase()))
@@ -27,14 +28,14 @@ fn completer(document: &Document) -> Vec<Suggestion> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Please select table.");
-    
+
     let mut prompt = Prompt::builder()
         .with_prefix("> ")
         .with_completer(completer)
         .build()?;
-    
+
     let result = prompt.input()?;
     println!("You selected {}", result);
-    
+
     Ok(())
 }

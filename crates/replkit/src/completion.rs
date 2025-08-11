@@ -170,16 +170,14 @@ impl StaticCompleter {
 impl Completor for StaticCompleter {
     fn complete(&self, document: &Document) -> Vec<Suggestion> {
         let prefix = document.get_word_before_cursor().to_lowercase();
-        
+
         if prefix.is_empty() {
             return self.suggestions.clone();
         }
 
         self.suggestions
             .iter()
-            .filter(|suggestion| {
-                suggestion.text.to_lowercase().starts_with(&prefix)
-            })
+            .filter(|suggestion| suggestion.text.to_lowercase().starts_with(&prefix))
             .cloned()
             .collect()
     }
@@ -259,9 +257,7 @@ mod tests {
 
     #[test]
     fn test_static_completer_from_strings() {
-        let completer = StaticCompleter::from_strings(vec![
-            "cat", "cd", "cp", "chmod"
-        ]);
+        let completer = StaticCompleter::from_strings(vec!["cat", "cd", "cp", "chmod"]);
 
         let doc = Document::with_text("c".to_string(), 1);
         let results = completer.complete(&doc);
@@ -275,9 +271,7 @@ mod tests {
 
     #[test]
     fn test_case_insensitive_matching() {
-        let completer = StaticCompleter::from_strings(vec![
-            "Hello", "HELP", "HeLLo"
-        ]);
+        let completer = StaticCompleter::from_strings(vec!["Hello", "HELP", "HeLLo"]);
 
         let doc = Document::with_text("hel".to_string(), 3);
         let results = completer.complete(&doc);
@@ -286,9 +280,8 @@ mod tests {
 
     #[test]
     fn test_trait_object_usage() {
-        let completer: Box<dyn Completor> = Box::new(StaticCompleter::from_strings(vec![
-            "test1", "test2"
-        ]));
+        let completer: Box<dyn Completor> =
+            Box::new(StaticCompleter::from_strings(vec!["test1", "test2"]));
 
         let doc = Document::with_text("test".to_string(), 4);
         let results = completer.complete(&doc);

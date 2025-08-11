@@ -105,7 +105,7 @@ impl ConsoleInput for UnixConsoleInput {
                     // No input available - this is expected for non-blocking read
                     Ok(None)
                 }
-                _ => Err(ConsoleError::IoError(format!("Read error: {}", error))),
+                _ => Err(ConsoleError::IoError(format!("Read error: {error}"))),
             }
         } else if result == 0 {
             // EOF reached
@@ -140,7 +140,7 @@ impl ConsoleInput for UnixConsoleInput {
                 };
                 
                 if poll_result == -1 {
-                    return Err(ConsoleError::IoError("Poll error".to_string()));
+                    Err(ConsoleError::IoError("Poll error".to_string()))
                 } else if poll_result == 0 {
                     // Timeout expired - check if parser has incomplete sequences to flush
                     let mut parser = self.key_parser.lock().unwrap();

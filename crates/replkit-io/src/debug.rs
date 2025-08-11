@@ -29,10 +29,10 @@ fn init_logger() {
                 {
                     Ok(file) => {
                         *LOG_FILE.lock().unwrap() = Some(file);
-                        eprintln!("replkit debug log enabled: {}", log_path);
+                        eprintln!("replkit debug log enabled: {log_path}");
                     }
                     Err(e) => {
-                        eprintln!("Failed to open debug log file {}: {}", log_path, e);
+                        eprintln!("Failed to open debug log file {log_path}: {e}");
                     }
                 }
             }
@@ -50,8 +50,8 @@ pub fn write_log(msg: &str) {
                 .unwrap_or_default()
                 .as_secs();
             
-            if let Err(e) = writeln!(file, "[{}] {}", timestamp, msg) {
-                eprintln!("Failed to write to debug log: {}", e);
+            if let Err(e) = writeln!(file, "[{timestamp}] {msg}") {
+                eprintln!("Failed to write to debug log: {e}");
             } else {
                 let _ = file.flush(); // Immediately flush
             }

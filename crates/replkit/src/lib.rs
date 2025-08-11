@@ -43,43 +43,48 @@
 
 // Re-export low-level primitives from replkit-core
 pub use replkit_core::{
-    // Core text manipulation
-    Document, Buffer,
-    // Key handling
-    Key, KeyEvent, KeyParser, ParserState,
+    // Console trait definitions
+    console::{
+        BackendType, ClearType, Color, ConsoleCapabilities, ConsoleError, ConsoleInput,
+        ConsoleOutput, ConsoleResult, EventLoopError, OutputCapabilities, RawModeGuard,
+        SafeTextFilter, SanitizationPolicy, TextStyle,
+    },
     // Error handling
     error::{BufferError, BufferResult},
     // Unicode utilities
-    unicode::{rune_count, display_width, rune_slice, byte_index_from_rune_index, char_at_rune_index},
-    // Console trait definitions
-    console::{
-        ConsoleOutput, ConsoleInput, ConsoleError, ConsoleResult,
-        TextStyle, Color, ClearType, OutputCapabilities, BackendType,
-        RawModeGuard, SafeTextFilter, SanitizationPolicy,
-        EventLoopError, ConsoleCapabilities
+    unicode::{
+        byte_index_from_rune_index, char_at_rune_index, display_width, rune_count, rune_slice,
     },
+    Buffer,
+    // Core text manipulation
+    Document,
+    // Key handling
+    Key,
+    KeyEvent,
+    KeyParser,
+    ParserState,
 };
 
 // Re-export I/O implementations from replkit-io
 pub use replkit_io::*;
 
 // High-level components (defined in this crate)
-pub mod suggestion;
 pub mod completion;
+pub mod prelude;
 pub mod prompt;
 pub mod renderer;
-pub mod prelude;
+pub mod suggestion;
 
 // Re-export high-level components for convenience
-pub use suggestion::Suggestion;
 pub use completion::{Completor, StaticCompleter};
 pub use prompt::{Prompt, PromptBuilder, PromptError, PromptResult};
 pub use renderer::Renderer;
+pub use suggestion::Suggestion;
 
 /// Convenient re-exports for common usage patterns
 ///
 /// Import everything you need with `use replkit::prelude::*;`
-/// 
+///
 /// For implementation, see the prelude module in prelude.rs
 
 /// Convenience functions for common use cases
@@ -97,9 +102,7 @@ pub mod convenience {
     /// // Now ready to use: prompt.input().unwrap();
     /// ```
     pub fn simple_prompt(prefix: &str) -> crate::PromptResult<Prompt> {
-        Prompt::builder()
-            .with_prefix(prefix)
-            .build()
+        Prompt::builder().with_prefix(prefix).build()
     }
 
     /// Create a prompt with static string completions
@@ -114,8 +117,8 @@ pub mod convenience {
     /// ]).unwrap();
     /// ```
     pub fn prompt_with_completions<S: Into<String>>(
-        prefix: &str, 
-        completions: Vec<S>
+        prefix: &str,
+        completions: Vec<S>,
     ) -> crate::PromptResult<Prompt> {
         let completer = StaticCompleter::from_strings(completions);
         Prompt::builder()
@@ -143,10 +146,7 @@ pub mod convenience {
     ///     }
     /// }).unwrap();
     /// ```
-    pub fn prompt_with_completer<F>(
-        prefix: &str,
-        completer: F
-    ) -> crate::PromptResult<Prompt>
+    pub fn prompt_with_completer<F>(prefix: &str, completer: F) -> crate::PromptResult<Prompt>
     where
         F: Fn(&Document) -> Vec<Suggestion> + 'static,
     {
@@ -164,23 +164,23 @@ mod tests {
     #[test]
     fn test_prelude_imports() {
         use crate::prelude::*;
-        
+
         // Test that all major types are available
         let _doc = Document::new();
         let _buffer = Buffer::new();
         let _suggestion = Suggestion::new("test", "description");
         let _completer = StaticCompleter::from_strings(vec!["test"]);
         let _prompt = Prompt::builder().build().unwrap();
-        
+
         // Test unicode utilities
         let _count = rune_count("hello");
         let _width = display_width("hello");
         let _slice = rune_slice("hello", 0, 3);
-        
+
         // Test key types
         let _key = Key::Enter;
         let _parser = KeyParser::new();
-        
+
         // Test error types
         let _error = BufferError::invalid_cursor_position(10, 5);
         let _result: BufferResult<String> = Ok("test".to_string());
@@ -218,7 +218,7 @@ mod tests {
         let _suggestion = Suggestion::new("test", "desc");
         let _completer = StaticCompleter::from_strings(vec!["test"]);
         let _prompt = Prompt::builder().build().unwrap();
-        
+
         // Test that error types are available
         let _buffer_error = BufferError::invalid_cursor_position(1, 0);
         let _prompt_error = PromptError::Interrupted;

@@ -12,14 +12,14 @@
 //! // Low-level text manipulation
 //! let doc = Document::new();
 //! let mut buffer = Buffer::new();
-//! 
+//!
 //! // Key parsing
 //! let mut parser = KeyParser::new();
 //! ```
 
 // Core text manipulation types
-pub use crate::document::Document;
 pub use crate::buffer::Buffer;
+pub use crate::document::Document;
 
 // Key input handling
 pub use crate::key::{Key, KeyEvent};
@@ -29,21 +29,11 @@ pub use crate::key_parser::{KeyParser, ParserState};
 pub use crate::error::{BufferError, BufferResult};
 
 // Unicode utilities (commonly used for text processing)
-pub use crate::unicode::{
-    rune_count, 
-    display_width, 
-    rune_slice
-};
+pub use crate::unicode::{display_width, rune_count, rune_slice};
 
 // Console I/O trait definitions (implementations are in replkit-io)
 pub use crate::console::{
-    ConsoleInput, 
-    ConsoleOutput, 
-    ConsoleError, 
-    ConsoleResult,
-    TextStyle,
-    Color,
-    ClearType
+    ClearType, Color, ConsoleError, ConsoleInput, ConsoleOutput, ConsoleResult, TextStyle,
 };
 
 // Common result types for ergonomic error handling
@@ -58,17 +48,17 @@ mod tests {
         // Test that low-level types are available through prelude
         let _doc = Document::new();
         let _buffer = Buffer::new();
-        
+
         // Test unicode utilities
         let text = "hello";
         let _count = rune_count(text);
         let _width = display_width(text);
         let _slice = rune_slice(text, 0, 2);
-        
+
         // Test key types
         let _key = Key::Enter;
         let _parser = KeyParser::new();
-        
+
         // Test error types
         let _error = BufferError::invalid_cursor_position(10, 5);
         let _result: Result<String> = Ok("test".to_string());

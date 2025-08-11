@@ -3,8 +3,8 @@
 //! Usage: cargo run --example debug_key_input
 //! Press Ctrl+C to exit.
 
-use replkit_io::{ConsoleInput, ConsoleError};
 use replkit_core::{Key, KeyEvent};
+use replkit_io::{ConsoleError, ConsoleInput};
 use std::io::{self, Write};
 
 /// Wrapper to ensure proper cleanup of console input
@@ -65,10 +65,10 @@ fn display_key_event(event: &KeyEvent) {
     let raw_bytes = format_bytes(&event.raw_bytes);
 
     // Use \r\n for proper line endings in raw mode
-    print!("Key: {} | Raw: {} | Text: {:?}\r\n", 
-             key_name, 
-             raw_bytes, 
-             event.text);
+    print!(
+        "Key: {} | Raw: {} | Text: {:?}\r\n",
+        key_name, raw_bytes, event.text
+    );
     let _ = io::stdout().flush();
 }
 
@@ -116,10 +116,11 @@ fn main() -> io::Result<()> {
 
     // Main input loop using new API
     loop {
-        match input.read_key_timeout(Some(50)) { // 50ms timeout for better Escape key detection
+        match input.read_key_timeout(Some(50)) {
+            // 50ms timeout for better Escape key detection
             Ok(Some(key_event)) => {
                 display_key_event(&key_event);
-                
+
                 // Exit on Ctrl+C
                 if key_event.key == Key::ControlC {
                     print!("Received Ctrl+C, shutting down...\r\n");
