@@ -433,10 +433,26 @@ impl Renderer {
         Ok(())
     }
 
-    /// Clear completion suggestions from display (simplified)
+    /// Clear completion suggestions from display (go-prompt style)
     pub fn clear_completions(&mut self) -> io::Result<()> {
-        // Simple implementation - just reset the counter
-        self.last_completion_lines = 0;
+        if self.last_completion_lines > 0 {
+            // Move down to the completion area and clear it
+            for _ in 0..self.last_completion_lines {
+                self.console
+                    .move_cursor_relative(1, 0)
+                    .map_err(console_error_to_io_error)?;
+                self.console
+                    .clear(ClearType::CurrentLine)
+                    .map_err(console_error_to_io_error)?;
+            }
+            
+            // Move back up to the original position
+            self.console
+                .move_cursor_relative(-(self.last_completion_lines as i16), 0)
+                .map_err(console_error_to_io_error)?;
+            
+            self.last_completion_lines = 0;
+        }
         self.console.flush().map_err(console_error_to_io_error)?;
         Ok(())
     }
@@ -459,12 +475,23 @@ impl Renderer {
         Ok(())
     }
 
-    /// Write a newline character
+    /// Write a newline character (go-prompt style)
     pub fn write_newline(&mut self) -> io::Result<()> {
+        // Clear any completion lines first
+        if self.last_completion_lines > 0 {
+            // Clear from cursor down to remove completion menu
+            self.console
+                .clear(ClearType::FromCursor)
+                .map_err(console_error_to_io_error)?;
+            self.last_completion_lines = 0;
+        }
+        
+        // Write newline
         self.console
             .write_text("\n")
             .map_err(console_error_to_io_error)?;
-        // Reset previous cursor position
+        
+        // Reset previous cursor position to start of new line
         self.previous_cursor = 0;
         self.console.flush().map_err(console_error_to_io_error)?;
         Ok(())

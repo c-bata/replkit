@@ -511,14 +511,15 @@ impl Prompt {
                             // If completing, apply selected completion first (go-prompt default case)
                             self.apply_completion_if_completing()?;
                             
+                            // Re-render the prompt to get correct cursor position
+                            self.renderer.render_prompt(&self.prefix, &self.document())?;
+                            
                             // Clear completions and move to next line
                             if self.completion_manager.is_visible() {
                                 self.completion_manager.reset();
-                                self.renderer.clear_completions().ok();
                             }
 
-                            // Move cursor to end of line and add newline
-                            self.renderer.move_cursor_to_end_of_line()?;
+                            // Write newline (this will clear completion menu automatically)
                             self.renderer.write_newline()?;
 
                             // Return the entered text
