@@ -1,5 +1,8 @@
 use clap::Parser;
-use replkit_snapshot::{Cli, Commands, RunConfig, StepDefinition, PtyManager, StepExecutor, Result};
+use replkit_snapshot::{
+    Cli, Commands, RunConfig, StepDefinition, PtyManager, StepExecutor, 
+    SnapshotComparator, ComparisonAction, Result
+};
 use std::process;
 
 #[tokio::main]
@@ -107,8 +110,9 @@ async fn run_snapshot_test(config: RunConfig) -> Result<()> {
         println!("Process has already completed");
     }
     
-    // Initialize step executor
-    let mut step_executor = StepExecutor::new(pty_manager);
+    // Initialize step executor with screen capturer
+    let terminal_size = (step_definition.tty.cols, step_definition.tty.rows);
+    let mut step_executor = StepExecutor::new(pty_manager, terminal_size)?;
     
     // Execute all steps
     println!("\nExecuting {} steps...", step_definition.steps.len());
@@ -146,15 +150,102 @@ async fn run_snapshot_test(config: RunConfig) -> Result<()> {
                     } else {
                         preview.to_string()
                     };
-                    println!("    Output: {:?}", preview);
+                    println!("    Raw output: {:?}", preview);
+                }
+            }
+            
+            if let Some(snapshot) = &result.snapshot {
+                println!("    Snapshot: {} chars, {}x{}", 
+                    snapshot.content.len(),
+                    snapshot.terminal_size.0,
+                    snapshot.terminal_size.1
+                );
+                if !snapshot.content.trim().is_empty() {
+                    let lines: Vec<&str> = snapshot.content.lines().collect();
+                    println!("    Screen content ({} lines):", lines.len());
+                    for (i, line) in lines.iter().take(3).enumerate() {
+                        println!("      [{}] {:?}", i + 1, line);
+                    }
+                    if lines.len() > 3 {
+                        println!("      ... ({} more lines)", lines.len() - 3);
+                    }
                 }
             }
         }
     }
     
-    // TODO: Implement snapshot comparison
-    println!("\n[TODO] Snapshot comparison not yet implemented");
-    println!("Step execution is now functional!");
+    // Collect snapshots from execution results
+    let snapshots: Vec<_> = execution_results
+        .iter()
+        .filter_map(|result| result.snapshot.as_ref())
+        .cloned()
+        .collect();
+    
+    if !snapshots.is_empty() {
+        println!("\n=== Snapshot Comparison ===");
+        
+        // Initialize snapshot comparator
+        let comparator = SnapshotComparator::new(
+            config.snapshot_directory.clone(),
+            config.update_snapshots
+        )?;
+        
+        println!("Comparing {} snapshots against golden files...", snapshots.len());
+        println!("Snapshot directory: {}", config.snapshot_directory.display());
+        println!("Update mode: {}", config.update_snapshots);
+        
+        // Compare all snapshots
+        let comparison_results = comparator.compare_multiple_snapshots(&snapshots)?;
+        
+        // Display comparison results
+        let mut all_passed = true;
+        for result in &comparison_results {
+            let status = if result.matches { "✓" } else { "✗" };
+            println!("  {} Snapshot '{}': {:?}", 
+                status, 
+                result.snapshot_name, 
+                result.action_taken
+            );
+            
+            if !result.matches {
+                all_passed = false;
+                if let Some(diff) = &result.diff {
+                    println!("    {}", diff.replace('\n', "\n    "));
+                }
+            } else if let Some(diff) = &result.diff {
+                // Show diff for updated files
+                match &result.action_taken {
+                    ComparisonAction::Updated => {
+                        println!("    Updated with changes:");
+                        println!("    {}", diff.replace('\n', "\n    "));
+                    },
+                    ComparisonAction::Created => {
+                        println!("    Created new golden file: {}", result.golden_file_path.display());
+                    },
+                    _ => {}
+                }
+            }
+        }
+        
+        // Summary
+        let passed_count = comparison_results.iter().filter(|r| r.matches).count();
+        let failed_count = comparison_results.len() - passed_count;
+        
+        println!("\n=== Comparison Summary ===");
+        println!("Snapshots passed: {}", passed_count);
+        println!("Snapshots failed: {}", failed_count);
+        
+        if !all_passed {
+            println!("\nSome snapshots failed comparison!");
+            println!("Run with --update to update golden files.");
+            std::process::exit(1);
+        } else {
+            println!("\nAll snapshots match their golden files! ✓");
+        }
+    } else {
+        println!("\n=== No Snapshots to Compare ===");
+        println!("No snapshot steps were executed.");
+    }
     
     Ok(())
 }

@@ -1,11 +1,13 @@
 use std::time::Duration;
 use tokio::time::sleep;
+use crate::capture::{ScreenCapturer, Snapshot};
 use crate::config::{Step, InputSpec, SnapshotConfig};
 use crate::error::{ExecutionError, Result};
 use crate::pty::{PtyManager, key_spec_to_bytes};
 
 pub struct StepExecutor {
     pty_manager: PtyManager,
+    screen_capturer: ScreenCapturer,
 }
 
 #[derive(Debug, Clone)]
@@ -14,13 +16,18 @@ pub struct ExecutionResult {
     pub step_name: String,
     pub success: bool,
     pub output: Option<Vec<u8>>,
+    pub snapshot: Option<Snapshot>,
     pub duration: Duration,
     pub error: Option<String>,
 }
 
 impl StepExecutor {
-    pub fn new(pty_manager: PtyManager) -> Self {
-        Self { pty_manager }
+    pub fn new(pty_manager: PtyManager, terminal_size: (u16, u16)) -> Result<Self> {
+        let screen_capturer = ScreenCapturer::new(terminal_size.0, terminal_size.1, true)?;
+        Ok(Self { 
+            pty_manager,
+            screen_capturer,
+        })
     }
     
     pub async fn execute_steps(&mut self, steps: &[Step]) -> Result<Vec<ExecutionResult>> {
@@ -33,11 +40,12 @@ impl StepExecutor {
             println!("Executing step {}: {}", index + 1, step_name);
             
             let result = match self.execute_single_step(step).await {
-                Ok(output) => ExecutionResult {
+                Ok((output, snapshot)) => ExecutionResult {
                     step_index: index,
                     step_name: step_name.clone(),
                     success: true,
                     output,
+                    snapshot,
                     duration: start_time.elapsed(),
                     error: None,
                 },
@@ -48,6 +56,7 @@ impl StepExecutor {
                         step_name: step_name.clone(),
                         success: false,
                         output: None,
+                        snapshot: None,
                         duration: start_time.elapsed(),
                         error: Some(e.to_string()),
                     }
@@ -66,31 +75,38 @@ impl StepExecutor {
         Ok(results)
     }
     
-    async fn execute_single_step(&mut self, step: &Step) -> Result<Option<Vec<u8>>> {
+    async fn execute_single_step(&mut self, step: &Step) -> Result<(Option<Vec<u8>>, Option<Snapshot>)> {
+        // First, feed any new PTY output to the screen capturer
+        self.update_screen_from_pty().await?;
+        
         match step {
             Step::Send { send } => {
                 self.execute_send(send).await?;
-                Ok(None)
+                // After sending input, capture any immediate output
+                self.update_screen_from_pty().await?;
+                Ok((None, None))
             },
             Step::WaitIdle { wait_idle } => {
                 self.execute_wait_idle(wait_idle).await?;
-                Ok(None)
+                // After waiting, capture any output that arrived
+                self.update_screen_from_pty().await?;
+                Ok((None, None))
             },
             Step::WaitRegex { wait_for_regex } => {
                 self.execute_wait_regex(wait_for_regex).await?;
-                Ok(None)
+                Ok((None, None))
             },
             Step::WaitExit { wait_exit } => {
                 self.execute_wait_exit(wait_exit).await?;
-                Ok(None)
+                Ok((None, None))
             },
             Step::Snapshot { snapshot } => {
-                let output = self.capture_snapshot(snapshot).await?;
-                Ok(Some(output))
+                let (output, snap) = self.capture_snapshot(snapshot).await?;
+                Ok((Some(output), Some(snap)))
             },
             Step::Sleep { sleep } => {
                 self.execute_sleep(sleep).await?;
-                Ok(None)
+                Ok((None, None))
             },
         }
     }
@@ -166,19 +182,41 @@ impl StepExecutor {
         }
     }
     
-    async fn capture_snapshot(&mut self, snapshot_config: &SnapshotConfig) -> Result<Vec<u8>> {
-        println!("  Capturing snapshot: \"{}\"", snapshot_config.name);
+    async fn update_screen_from_pty(&mut self) -> Result<()> {
+        // Try to read any available output from PTY
+        let output = self.pty_manager.drain_output(Duration::from_millis(50)).await?;
         
-        // Drain all available output with short timeout
-        let output = self.pty_manager.drain_output(Duration::from_millis(100)).await?;
-        
-        if output.is_empty() {
-            println!("  No output captured for snapshot (this is normal for completed processes)");
-        } else {
-            println!("  Captured {} bytes of output", output.len());
+        if !output.is_empty() {
+            // Feed the output to the screen capturer
+            self.screen_capturer.feed_data(&output)?;
         }
         
-        Ok(output)
+        Ok(())
+    }
+    
+    async fn capture_snapshot(&mut self, snapshot_config: &SnapshotConfig) -> Result<(Vec<u8>, Snapshot)> {
+        println!("  Capturing snapshot: \"{}\"", snapshot_config.name);
+        
+        // Make sure we have the latest output
+        self.update_screen_from_pty().await?;
+        
+        // Get raw output for debugging
+        let raw_output = self.pty_manager.drain_output(Duration::from_millis(10)).await?;
+        
+        // Create snapshot from current screen state
+        let snapshot = self.screen_capturer.capture_snapshot(snapshot_config, Some(raw_output.clone()))?;
+        
+        println!("  Captured snapshot with {} characters", snapshot.content.len());
+        if !snapshot.content.trim().is_empty() {
+            let preview = if snapshot.content.len() > 100 {
+                format!("{}...", &snapshot.content[..100])
+            } else {
+                snapshot.content.clone()
+            };
+            println!("  Preview: {:?}", preview);
+        }
+        
+        Ok((raw_output, snapshot))
     }
     
     async fn execute_sleep(&mut self, sleep_duration: &str) -> Result<()> {
@@ -255,7 +293,7 @@ mod tests {
     #[test]
     fn test_get_step_name() {
         let pty_manager = PtyManager::new(80, 24).unwrap();
-        let executor = StepExecutor::new(pty_manager);
+        let executor = StepExecutor::new(pty_manager, (80, 24)).unwrap();
         
         let step = Step::Send { 
             send: InputSpec::Text("hello world".to_string()) 
@@ -274,7 +312,7 @@ mod tests {
     #[tokio::test]
     async fn test_execute_sleep() {
         let pty_manager = PtyManager::new(80, 24).unwrap();
-        let mut executor = StepExecutor::new(pty_manager);
+        let mut executor = StepExecutor::new(pty_manager, (80, 24)).unwrap();
         
         let start_time = std::time::Instant::now();
         executor.execute_sleep("100ms").await.unwrap();
@@ -288,7 +326,7 @@ mod tests {
     #[tokio::test]
     async fn test_execute_send_text_basic() {
         let pty_manager = PtyManager::new(80, 24).unwrap();
-        let mut executor = StepExecutor::new(pty_manager);
+        let mut executor = StepExecutor::new(pty_manager, (80, 24)).unwrap();
         
         let input_spec = InputSpec::Text("hello".to_string());
         let result = executor.execute_send(&input_spec).await;
@@ -299,7 +337,7 @@ mod tests {
     #[tokio::test]
     async fn test_execute_steps_basic() {
         let pty_manager = PtyManager::new(80, 24).unwrap();
-        let mut executor = StepExecutor::new(pty_manager);
+        let mut executor = StepExecutor::new(pty_manager, (80, 24)).unwrap();
         
         let steps = vec![
             Step::Sleep { sleep: "10ms".to_string() }, // Very short sleep

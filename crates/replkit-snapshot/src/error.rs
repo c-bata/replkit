@@ -16,6 +16,12 @@ pub enum SnapshotError {
     #[error("Snapshot comparison failed: {0}")]
     CompareError(#[from] CompareError),
     
+    #[error("Snapshot comparison error: {0}")]
+    ComparisonError(#[from] ComparisonError),
+    
+    #[error("Screen capture error: {0}")]
+    CaptureError(#[from] CaptureError),
+    
     #[error("File I/O error: {0}")]
     IoError(#[from] std::io::Error),
     
@@ -87,6 +93,21 @@ pub enum CaptureError {
     
     #[error("Content normalization failed: {0}")]
     NormalizationError(String),
+}
+
+#[derive(Debug, Error)]
+pub enum ComparisonError {
+    #[error("Golden file missing: {0}")]
+    GoldenFileMissing(String),
+    
+    #[error("Golden file I/O error: {0}")]
+    IoError(String),
+    
+    #[error("Snapshot comparison failed: {0}")]
+    ComparisonFailed(String),
+    
+    #[error("Invalid golden file format: {0}")]
+    InvalidFormat(String),
 }
 
 pub type Result<T, E = SnapshotError> = std::result::Result<T, E>;

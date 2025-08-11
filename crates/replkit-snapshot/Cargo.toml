@@ -14,27 +14,27 @@ path = "src/main.rs"
 
 [dependencies]
 # CLI and configuration
-clap = { version = "4.0", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 
 # PTY and terminal handling
-portable-pty = "0.8"
-termwiz = "0.22"
+portable-pty = "0.9"
+termwiz = "0.23"
 
 # Async runtime
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.47", features = ["full"] }
 
 # Error handling
-thiserror = "1.0"
+thiserror = "2.0"
 
 # Pattern matching
-regex = "1.0"
+regex = "1.11"
 
 [dev-dependencies]
-tempfile = "3.0"
+tempfile = "3.20"
 assert_cmd = "2.0"
-predicates = "3.0"
+predicates = "3.1"
 
 [features]
 default = []

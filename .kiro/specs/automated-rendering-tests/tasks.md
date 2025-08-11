@@ -34,7 +34,7 @@
   - Add basic wait conditions (waitIdle)
   - Create step execution tests
 
-- [ ] 5. Screen Capture
+- [x] 5. Screen Capture
   - Add `termwiz` dependency for terminal emulation
   - Implement `ScreenCapturer` for output capture
   - Add terminal state management and screen buffer reading
@@ -42,7 +42,7 @@
   - Add ANSI code stripping functionality
   - Create screen capture tests
 
-- [ ] 6. Snapshot Comparison
+- [x] 6. Snapshot Comparison
   - Implement `SnapshotComparator` for file comparison
   - Add golden file loading and saving
   - Create basic diff computation and display
