@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. Set up basic test infrastructure
+- [x] 1. Set up basic test infrastructure
   - Create test module structure in `crates/replkit/tests/`
   - Add termwiz and insta dependencies to Cargo.toml
   - Create basic test configuration and error types
