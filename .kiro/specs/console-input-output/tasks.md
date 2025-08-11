@@ -1,253 +1,117 @@
 # Implementation Plan
 
-- [x] 1. Fix architectural issue: Move console traits to replkit-core
-  - Create `crates/replkit-core/src/console.rs` with ConsoleInput and ConsoleOutput traits from design document
-  - Add ConsoleError, ConsoleResult, and related error types as specified in design
-  - Define ConsoleCapabilities, OutputCapabilities, BackendType, TextStyle, Color, ClearType, and RawModeGuard types
-  - Update `crates/replkit-core/src/lib.rs` to export new console module
-  - Update `crates/replkit-io/src/lib.rs` to import traits from replkit-core instead of defining them locally
-  - Update all platform implementations (unix.rs, windows.rs) to use traits from replkit-core
-  - Update examples/debug_key_input.rs to import ConsoleInput from replkit-core
-  - Update Cargo.toml dependencies: replkit-io should depend on replkit-core
-  - **REASON**: Design specifies traits in replkit-core for proper architectural separation
-  - _Requirements: 1.1, 1.2, 1.3, 9.1, 9.2_
+## Current Status
 
-- [x] 2. Update replkit-io crate structure to match design
-  - ~~Create `crates/replkit-io/` directory with Cargo.toml~~ ✓
-  - ~~Set up platform-specific dependencies (libc for Unix, winapi for Windows, wasm-bindgen for WASM)~~ ✓
-  - ~~Create basic module structure: lib.rs, unix.rs, windows/, wasm.rs, mock.rs~~ ✓ (partial)
-  - Update trait signatures to match design document (enable_raw_mode should return RawModeGuard, not mutate self)
-  - Add factory functions: create_console_io(), create_console_input(), create_console_output()
-  - Add missing modules: mock.rs, wasm.rs
-  - Update method signatures to match design (remove &mut self requirements)
-  - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6_
+The console I/O system has been redesigned to use **synchronous, non-blocking methods** instead of async event loops. Core traits are implemented in `replkit-core`, platform implementations in `replkit-io`, and basic functionality is working across Unix and Windows.
 
-- [x] 3. Implement mock console input for testing
-  - Create `crates/replkit-io/src/mock.rs` with MockConsoleInput implementation
-  - Add input queue management with VecDeque for simulating key sequences
-  - Implement ConsoleInput trait methods with proper state tracking
-  - Add test helper methods: queue_key_event(), queue_text_input(), process_queued_events()
-  - Implement thread-safe callback storage and invocation
-  - Write comprehensive unit tests for mock input functionality
-  - _Requirements: 8.1, 8.2, 8.3, 12.1, 12.2_
+## Remaining Tasks
 
-- [x] 4. Implement mock console output for testing
-  - Extend `crates/replkit-io/src/mock.rs` with MockConsoleOutput implementation
-  - Add output capture with Vec<u8> buffer and styled output tracking
-  - Implement ConsoleOutput trait methods with state simulation
-  - Add test helper methods: get_output(), get_styled_output(), clear_output()
-  - Track cursor position, styling, and terminal state changes
-  - Write unit tests for output capture and state tracking
-  - _Requirements: 8.1, 8.2, 8.3, 12.1, 12.2_
+### Core Platform Implementation
 
-- [x] 5. Implement Unix console input
-  - ~~Create `crates/replkit-io/src/unix.rs` with UnixConsoleInput implementation~~
-  - ~~Set up termios-based raw mode configuration with proper error handling~~
-  - ~~Implement non-blocking input reading using poll() system call~~
-  - ~~Create self-pipe for clean event loop shutdown signaling~~
-  - ~~Integrate with existing KeyParser for key event generation~~
-  - ~~Add SIGWINCH handling for window resize detection~~
-  - **COMPLETE**: UnixVtConsoleInput implemented with termios, poll(), and KeyParser integration
-  - Write platform-specific tests for Unix input functionality (TODO)
-  - _Requirements: 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 3.1, 3.2, 3.3, 4.1, 4.2, 4.3_
+- [ ] **1. Implement Unix synchronous input methods**
+  - Update `crates/replkit-io/src/unix.rs` to implement new synchronous API
+  - Implement `try_read_key()` using `poll()` with 0 timeout
+  - Implement `read_key_timeout()` using `select()` for timeout support
+  - Remove old event loop and callback-based code
+  - Fix any compilation issues with the new trait methods
+  - Add proper error handling for system call failures
+  - _Requirements: Non-blocking I/O, WASM compatibility, simplified architecture_
 
-- [x] 6. Implement Unix console output
-  - Extend `crates/replkit-io/src/unix.rs` with UnixConsoleOutput implementation
-  - Add ANSI escape sequence generation for cursor control and styling
-  - Implement color support (16-color, 256-color, and true color)
-  - Add text styling support (bold, italic, underline, etc.)
-  - Implement screen clearing and cursor positioning
-  - Add output buffering for efficient terminal updates
-  - Write tests for ANSI sequence generation and output functionality
-  - _Requirements: 1.1, 1.2, 1.3, 10.1, 10.2, 10.3, 10.4_
+- [ ] **2. Implement Windows synchronous input methods**
+  - Update `crates/replkit-io/src/windows.rs` to implement new synchronous API
+  - Implement `try_read_key()` using `PeekConsoleInput` + `ReadConsoleInput`
+  - Implement `read_key_timeout()` using `WaitForSingleObject` for timeout support
+  - Remove old event loop and callback-based code
+  - Handle both VT and Legacy console modes in a single implementation
+  - Add proper error handling for Win32 API failures
+  - _Requirements: Cross-platform consistency, timeout support_
 
-- [x] 7. Replace existing vt100_debug examples with ConsoleInput-based implementation
-  - ~~Replace `examples/vt100_debug.rs` with ConsoleInput-based key event display~~
-  - ~~Remove platform-specific raw mode setup and replace with ConsoleInput::enable_raw_mode()~~
-  - ~~Replace manual select/poll loops with ConsoleInput event callbacks~~
-  - ~~Add cross-platform support (Unix + Windows) using the same codebase~~
-  - ~~Display key events in the same format as original for compatibility~~
-  - ~~Add graceful shutdown with Ctrl+C handling and proper terminal restoration~~
-  - **COMPLETE**: examples/debug_key_input.rs implemented with ConsoleInput abstraction
-  - Test on available platforms to validate ConsoleInput implementation correctness (TODO)
-  - _Requirements: 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 5.1, 5.2, 5.3_
+- [ ] **3. Implement WASM synchronous input methods**
+  - Create or update `crates/replkit-io/src/wasm.rs` with new synchronous API
+  - Implement `try_read_key()` using internal event queue
+  - Implement `read_key_timeout()` to return `UnsupportedFeature` error
+  - Add methods for host to queue key events: `queue_key_event()`
+  - Add methods for host to update window size: `set_window_size()`
+  - Remove any async/threading code that doesn't work in WASM
+  - _Requirements: WASM compatibility, host integration_
 
-- [x] 8. Validate cross-platform vt100_debug functionality
-  - (skipped) Test replaced vt100_debug example on Unix platforms
-  - (skipped) Verify key event detection matches original implementation behavior
-  - (skipped) Test graceful shutdown and terminal restoration
-  - (skipped) Document any behavioral differences from original implementation
-  - (skipped) Create baseline for Windows testing once Windows implementation is complete
-  - _Requirements: 1.1, 1.2, 1.3, 12.1, 12.2_
+- [ ] **4. Fix mock implementation for new API**
+  - Update `crates/replkit-io/src/mock.rs` to match new synchronous trait
+  - Remove old event loop, callback methods, and thread-based code
+  - Simplify to basic queue-based `try_read_key()` and `read_key_timeout()` 
+  - Ensure mock works with new testing patterns
+  - Add helper methods for testing: `queue_text_input()`, `clear_queue()`
+  - _Requirements: Testing support, API consistency_
 
-- [x] 9. Implement Windows VT console input
-  - Create `crates/replkit-io/src/windows/vt.rs` with WindowsVtConsoleInput implementation
-  - Enable VT input mode using SetConsoleMode with ENABLE_VIRTUAL_TERMINAL_INPUT
-  - Implement non-blocking input reading using WaitForMultipleObjects
-  - Integrate with KeyParser for VT sequence processing
-  - Add console buffer size change detection for resize events
-  - Handle VT mode setup failures with clear error reporting
-  - Write Windows-specific tests for VT input functionality
-  - _Requirements: 1.1, 1.2, 1.3, 6.1, 6.2, 6.3, 6.4_
+### Platform Integration and Testing
 
-- [ ] 10. Implement Windows VT console output
-  - Extend `crates/replkit-io/src/windows/vt.rs` with WindowsVtConsoleOutput implementation
-  - Enable VT output mode using ENABLE_VIRTUAL_TERMINAL_PROCESSING
-  - Reuse Unix ANSI sequence generation for VT-compatible output
-  - Add Windows-specific cursor position querying if available
-  - Implement proper error handling for VT mode failures
-  - Write tests for Windows VT output functionality
-  - _Requirements: 1.1, 1.2, 1.3, 6.1, 6.2, 6.3, 6.4_
+- [ ] **5. Fix compilation errors across all platforms**
+  - Ensure all crates compile successfully on Unix/Linux
+  - Ensure all crates compile successfully on Windows 
+  - Fix any trait method signature mismatches
+  - Remove dead code related to old async design
+  - Update dependencies if needed for new implementation
+  - _Requirements: Platform compatibility, build system_
 
-- [ ] 11. Test Windows vt100_debug functionality
-  - Test vt100_debug example on Windows with VT implementation
-  - Verify key event detection works correctly on Windows Terminal and PowerShell
-  - Test fallback behavior on legacy Windows environments
-  - Compare key event output with Unix version for consistency
-  - Document Windows-specific behaviors and limitations
-  - _Requirements: 6.1, 6.2, 6.3, 12.1, 12.2_
+- [ ] **6. Add comprehensive synchronous API tests**
+  - Write unit tests for `try_read_key()` behavior (blocking/non-blocking)
+  - Write unit tests for `read_key_timeout()` with various timeout values
+  - Test error conditions and edge cases for new methods
+  - Add integration tests using mock implementation
+  - Test window size queries and error handling
+  - Verify raw mode guard still works correctly
+  - _Requirements: Quality assurance, regression prevention_
 
-- [x] 12. Implement Windows Legacy console input
-  - ~~Create `crates/replkit-io/src/windows.rs` with WindowsLegacyConsoleInput implementation~~
-  - ~~Use ReadConsoleInputW to receive KEY_EVENT_RECORD and WINDOW_BUFFER_SIZE_EVENT~~
-  - ~~Implement direct key mapping from virtual keys to Key enum values~~
-  - ~~Handle modifier keys (Ctrl, Alt, Shift) and special key combinations~~
-  - ~~Add proper Unicode character handling for text input~~
-  - ~~Bypass KeyParser for structured Windows console events~~
-  - **COMPLETE**: WindowsLegacyConsoleInput implemented with Win32 Console API
-  - Write tests for Windows legacy key mapping and event handling (TODO)
-  - _Requirements: 1.1, 1.2, 1.3, 6.1, 6.2, 6.3, 6.4, 6.5_
+### Language Bindings and External Integration
 
-- [ ] 13. Implement Windows Legacy console output
-  - Extend `crates/replkit-io/src/windows/legacy.rs` with WindowsLegacyConsoleOutput implementation
-  - Use Win32 Console API functions for cursor control and text output
-  - Implement color support using SetConsoleTextAttribute
-  - Add screen buffer manipulation for clearing and scrolling
-  - Handle console buffer resizing and coordinate system differences
-  - Provide fallback implementations for unsupported styling features
-  - Write tests for Windows legacy output functionality
-  - _Requirements: 1.1, 1.2, 1.3, 6.1, 6.2, 6.3, 6.4, 6.5_
+- [ ] **7. Create WASM output bridge for Go bindings**
+  - Create `crates/replkit-wasm/src/lib.rs` with console output functions
+  - Export `wasm_output_command()` function for JSON-based command protocol
+  - Implement JSON serialization for all `ConsoleOutput` operations
+  - Support commands: WriteText, SetStyle, MoveCursorTo, Clear, Flush, etc.
+  - Create Go wrapper in `bindings/go/wasm_output.go` to call WASM functions
+  - Add proper error handling and status codes
+  - _Requirements: Go-WASM integration, cross-platform rendering_
 
-- [ ] 14. Implement WASM Bridge for ConsoleOutput
-  - Create `crates/replkit-wasm` to house the WASM-specific logic.
-  - Expose a single `wasm_output_command` function to the host.
-  - Implement a JSON-based command protocol for all `ConsoleOutput` methods (e.g., `WriteText`, `SetStyle`, `Flush`).
-  - The function will deserialize the JSON command and dispatch it to a global `ConsoleOutput` instance (e.g., `UnixConsoleOutput`).
-  - Ensure the Rust `ConsoleOutput` implementation is included in the WASM build.
-  - Write unit tests for the JSON command serialization and deserialization.
-  - _Requirements: 7.1, 7.2, 7.3, 11.1, 11.2, 11.3_
+- [ ] **8. Update Python bindings for synchronous API**
+  - Update `crates/replkit-pyo3/src/console.rs` for new trait methods
+  - Remove callback-based methods and event loop management
+  - Expose `try_read_key()` and `read_key_timeout()` to Python
+  - Add proper Python exception handling for new error types
+  - Update Python examples to use synchronous methods
+  - Test Python bindings on available platforms
+  - _Requirements: Python ecosystem compatibility, synchronous API_
 
-- [ ] 15. Create Go Bindings for Console I/O (Hybrid Approach)
-  - **Sub-task: Native Go ConsoleInput**
-    - In `bindings/go/`, implement a native `ConsoleInput` interface in Go.
-    - Use platform-specific build tags (`_unix.go`, `_windows.go`) for implementation.
-    - **Unix:** Use `termios` for raw mode and `select`/`epoll` for non-blocking I/O.
-    - **Windows:** Use Win32 Console API (`ReadConsoleInput`, `SetConsoleMode`).
-    - Implement an event loop and expose key/resize events via Go channels.
-  - **Sub-task: Go ConsoleOutput Wrapper for WASM**
-    - In `bindings/go/`, implement a `ConsoleOutput` interface that wraps the WASM module.
-    - Create Go structs for the JSON command protocol.
-    - Implement methods (`WriteText`, `SetStyle`, etc.) that serialize the command to JSON and call the `wasm_output_command` function.
-    - Integrate a WASM runtime (e.g., Wasmer, Wasmtime) to load and interact with the WASM module.
-  - **Sub-task: Integration and Example**
-    - Replace the existing Go `vt100_debug` example to use the new native `ConsoleInput` and WASM-based `ConsoleOutput`.
-    - Ensure proper resource management (closing channels, freeing WASM resources).
-  - _Requirements: 11.1, 11.2, 11.4, 11.5, 11.6_
+### Advanced Features and Optimizations
 
-- [ ] 14. Add comprehensive error handling and validation
-  - Implement detailed error messages for platform-specific failures
-  - Add error recovery mechanisms for terminal setup failures
-  - Create diagnostic information for unsupported features
-  - Implement proper error propagation across all platform implementations
-  - Add validation for terminal state consistency
-  - Write tests for error conditions and recovery scenarios
-  - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6_
+- [ ] **9. Add mouse event support**
+  - Extend `KeyEvent` to support mouse events or create `InputEvent` enum
+  - Implement mouse event detection in platform implementations
+  - Add mouse event parsing to key parsers where applicable
+  - Support mouse clicks, movement, and scroll events
+  - Add mouse event examples and documentation
+  - _Requirements: Rich terminal applications, modern terminal support_
 
-- [ ] 15. Implement thread safety and concurrent access
-  - Add proper synchronization for callback storage and invocation
-  - Implement thread-safe event loop management
-  - Add protection against concurrent raw mode operations
-  - Ensure safe cleanup of background threads and resources
-  - Add panic handling in user callbacks to prevent system corruption
-  - Write tests for concurrent access patterns and thread safety
-  - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6_
+- [ ] **10. Add bracketed paste support**
+  - Implement bracketed paste mode detection in terminal initialization
+  - Add paste event detection and content extraction
+  - Distinguish between typed and pasted content in key events
+  - Handle large paste content efficiently
+  - Add security considerations for paste content validation
+  - _Requirements: User experience, security, large content handling_
 
-- [ ] 16. Add cross-platform performance optimizations and resource management
-  - Implement efficient polling mechanisms using standard APIs (poll/select/WaitForMultipleObjects)
-  - Add output buffering strategies to reduce system call overhead across all platforms
-  - Optimize memory allocation patterns in hot paths (event processing, buffer management)
-  - Add resource cleanup and leak prevention for threads, file descriptors, and handles
-  - Implement proper background thread lifecycle management with clean shutdown
-  - Write performance benchmarks and resource usage tests for all platforms
-  - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6_
+- [ ] **11. Implement advanced terminal feature detection**
+  - Add runtime detection of terminal capabilities
+  - Detect true color, mouse support, bracketed paste availability
+  - Implement graceful fallback for unsupported features
+  - Add capability reporting to applications
+  - Cache capability detection results for performance
+  - _Requirements: Adaptive behavior, performance, compatibility_
 
-- [ ] 17. Create comprehensive integration tests with advanced testing strategies
-  - Write cross-platform integration tests using mock implementations
-  - Add Unix PTY-based tests using openpty() for realistic terminal simulation
-  - Create ANSI sequence golden tests using insta for snapshot testing
-  - Implement property-based tests for control sequence filtering using quickcheck
-  - Add Windows pipe-based tests for console size fallback mechanisms
-  - Write tests for complete input/output workflows and platform capability detection
-  - Add stress tests for high-frequency input and output operations
-  - Write tests for error recovery and graceful degradation
-  - Add tests for proper resource cleanup and memory management
-  - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6_
+## Notes
 
-- [ ] 18. Extend WASM serialization for console I/O
-  - Add WasmConsoleInputState and WasmConsoleOutputState to existing wasm.rs
-  - Implement serialization methods for console state transfer
-  - Create WASM-compatible event and command structures
-  - Add efficient serialization for high-frequency operations
-  - Test WASM compilation and serialization roundtrip
-  - _Requirements: 7.1, 7.2, 7.3, 11.1, 11.2, 11.3_
-
-- [x] 19. Create Go bindings and replace Go vt100_debug example (DEPRECATED)
-  - This task is superseded by task #15, which details the new hybrid implementation strategy.
-
-- [ ] 20. Create Python bindings and replace Python vt100_debug example
-  - Extend `crates/replkit-pyo3/` with PyConsoleInput and PyConsoleOutput classes
-  - Implement Python-native callback handling with proper GIL management
-  - Add Python exception handling for console errors
-  - Create Pythonic interfaces for styling and color management
-  - Replace existing Python vt100_debug example with ConsoleInput-based implementation
-  - Verify cross-platform compatibility (Unix + Windows) in Python
-  - Implement proper cleanup and resource management in Python bindings
-  - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6_
-
-- [ ] 21. Add platform-specific optimizations and unique features
-  - Implement Linux-specific optimizations (epoll, signalfd, eventfd)
-  - Add macOS-specific optimizations (kqueue, dispatch queues)
-  - Implement Windows-specific optimizations (IOCP, overlapped I/O)
-  - Add platform-unique features (Linux: inotify for config changes, Windows: console modes)
-  - Create runtime feature detection and capability reporting
-  - Add platform-specific configuration options and tuning parameters
-  - Implement graceful feature degradation with clear capability reporting
-  - Document platform differences, limitations, and performance characteristics
-  - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6_
-
-- [ ] 22. Create comprehensive examples and documentation
-  - Build `examples/cross_platform_demo.rs` showing all platform features
-  - Create `examples/styling_demo.rs` demonstrating color and text styling
-  - Add `examples/interactive_demo.rs` for real-time input/output interaction
-  - Write comprehensive rustdoc documentation for all public APIs
-  - Create platform-specific usage guides and troubleshooting information
-  - Add performance tuning and best practices documentation
-  - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6_
-
-- [ ] 23. Finalize testing framework and validation
-  - Create automated testing pipeline for all supported platforms
-  - Add property-based tests for console state consistency
-  - Implement visual testing framework for output validation
-  - Add regression tests for platform-specific behavior
-  - Create performance regression testing
-  - Add memory leak detection and resource usage validation
-  - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6_
-
-- [ ] 24. Polish API and prepare for integration
-  - Review and finalize public API design for consistency
-  - Add missing documentation and usage examples
-  - Implement any remaining error handling edge cases
-  - Add final performance optimizations based on benchmarking
-  - Create migration guide from other terminal libraries
-  - Prepare integration points for higher-level components (line editor, rendering system)
-  - _Requirements: 1.1, 1.2, 1.3, 9.1, 9.2, 9.3, 10.1, 10.2, 10.3_
+- **Completed tasks removed**: All tasks marked as complete in the previous version have been removed since the work is done
+- **Async design abandoned**: Tasks related to event loops, callbacks, and async patterns have been removed or updated
+- **Focus on simplicity**: New tasks emphasize the simpler synchronous design
+- **WASM compatibility**: All tasks consider WASM constraints and limitations
+- **Go-first bindings**: Go bindings get priority due to the project's Go focus
