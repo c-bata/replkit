@@ -25,7 +25,6 @@ impl Drop for UnixRawModeGuard {
 
 pub struct UnixConsoleInput {
     stdin_fd: i32,
-    raw_guard: Option<UnixRawModeGuard>,
     key_parser: Mutex<KeyParser>,
 }
 
@@ -33,7 +32,6 @@ impl UnixConsoleInput {
     pub fn new() -> io::Result<Self> {
         Ok(Self {
             stdin_fd: io::stdin().as_raw_fd(),
-            raw_guard: None,
             key_parser: Mutex::new(KeyParser::new()),
         })
     }

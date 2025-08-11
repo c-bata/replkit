@@ -45,7 +45,7 @@ impl WasmBridgeConsoleInput {
                 // For now, just a placeholder
                 Ok(())
             }
-            _ => Err(ConsoleError::WasmBridgeError(
+            _ => Err(ConsoleError::IoError(
                 format!("Unknown message type: {}", message)
             ))
         }
@@ -105,13 +105,6 @@ impl ConsoleInput for WasmBridgeConsoleInput {
             supports_raw_mode: true,
             supports_resize_events: true,
             supports_bracketed_paste: false,
-            supports_mouse_events: false,
-            supports_unicode: true,
-            platform_name: "WASM Bridge".to_string(),
-            backend_type: BackendType::WasmBridge,
-        }
-    }
-}
             supports_mouse_events: false,
             supports_unicode: true,
             platform_name: "WASM Bridge".to_string(),

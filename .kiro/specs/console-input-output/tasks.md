@@ -8,7 +8,7 @@ The console I/O system has been redesigned to use **synchronous, non-blocking me
 
 ### Core Platform Implementation
 
-- [ ] **1. Implement Unix synchronous input methods**
+- [x] **1. Implement Unix synchronous input methods**
   - Update `crates/replkit-io/src/unix.rs` to implement new synchronous API
   - Implement `try_read_key()` using `poll()` with 0 timeout
   - Implement `read_key_timeout()` using `select()` for timeout support
@@ -17,7 +17,7 @@ The console I/O system has been redesigned to use **synchronous, non-blocking me
   - Add proper error handling for system call failures
   - _Requirements: Non-blocking I/O, WASM compatibility, simplified architecture_
 
-- [ ] **2. Implement Windows synchronous input methods**
+- [x] **2. Implement Windows synchronous input methods**
   - Update `crates/replkit-io/src/windows.rs` to implement new synchronous API
   - Implement `try_read_key()` using `PeekConsoleInput` + `ReadConsoleInput`
   - Implement `read_key_timeout()` using `WaitForSingleObject` for timeout support
@@ -26,7 +26,7 @@ The console I/O system has been redesigned to use **synchronous, non-blocking me
   - Add proper error handling for Win32 API failures
   - _Requirements: Cross-platform consistency, timeout support_
 
-- [ ] **3. Implement WASM synchronous input methods**
+- [x] **3. Implement WASM synchronous input methods**
   - Create or update `crates/replkit-io/src/wasm.rs` with new synchronous API
   - Implement `try_read_key()` using internal event queue
   - Implement `read_key_timeout()` to return `UnsupportedFeature` error
@@ -35,7 +35,7 @@ The console I/O system has been redesigned to use **synchronous, non-blocking me
   - Remove any async/threading code that doesn't work in WASM
   - _Requirements: WASM compatibility, host integration_
 
-- [ ] **4. Fix mock implementation for new API**
+- [x] **4. Fix mock implementation for new API**
   - Update `crates/replkit-io/src/mock.rs` to match new synchronous trait
   - Remove old event loop, callback methods, and thread-based code
   - Simplify to basic queue-based `try_read_key()` and `read_key_timeout()` 
@@ -45,7 +45,7 @@ The console I/O system has been redesigned to use **synchronous, non-blocking me
 
 ### Platform Integration and Testing
 
-- [ ] **5. Fix compilation errors across all platforms**
+- [x] **5. Fix compilation errors across all platforms**
   - Ensure all crates compile successfully on Unix/Linux
   - Ensure all crates compile successfully on Windows 
   - Fix any trait method signature mismatches
@@ -53,7 +53,7 @@ The console I/O system has been redesigned to use **synchronous, non-blocking me
   - Update dependencies if needed for new implementation
   - _Requirements: Platform compatibility, build system_
 
-- [ ] **6. Add comprehensive synchronous API tests**
+- [-] **6. Add comprehensive synchronous API tests**
   - Write unit tests for `try_read_key()` behavior (blocking/non-blocking)
   - Write unit tests for `read_key_timeout()` with various timeout values
   - Test error conditions and edge cases for new methods

@@ -287,7 +287,9 @@ mod imp {
                 if buffer.EventType == KEY_EVENT {
                     let key_event = buffer.Event.KeyEvent;
                     if key_event.bKeyDown != 0 { // Only process key down events
-                        return Ok(Some(self.convert_key_event(&key_event)));
+                        if let Some(event) = Self::translate_key(&key_event) {
+                            return Ok(Some(event));
+                        }
                     }
                 }
                 
@@ -342,44 +344,6 @@ mod imp {
                 platform_name: "Windows Legacy".to_string(),
                 backend_type: BackendType::WindowsLegacy,
             }
-        }
-    }
-                    if wait == WAIT_FAILED { break; }
-                    if wait == WAIT_OBJECT_0 { // input ready
-                        // Drain available records (bounded)
-                        let mut buf: [INPUT_RECORD; 32] = [zeroed(); 32];
-                        if ReadConsoleInputW(h_input, buf.as_mut_ptr(), buf.len() as DWORD, &mut nread as *mut DWORD) == 0 {
-                            continue;
-                        }
-                        let count = nread as usize;
-                        for i in 0..count {
-                            let ir = &buf[i];
-                            match ir.EventType {
-                                KEY_EVENT => {
-                                    let kev = ir.Event.KeyEvent;
-                                    if let Some(ev) = super::imp::WindowsLegacyConsoleInput::translate_key(&kev) {
-                                        if let Ok(mut g) = key_cb.lock() { if let Some(cb) = g.as_mut() { (cb)(ev); } }
-                                    }
-                                }
-                                WINDOW_BUFFER_SIZE_EVENT => {
-                                    let sz = ir.Event.WindowBufferSizeEvent.dwSize;
-                                    if let Ok(mut g) = resize_cb.lock() { if let Some(cb) = g.as_mut() { (cb)(sz.X as u16, sz.Y as u16); } }
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                }
-            }));
-            Ok(())
-        
-        // Helper method to convert Windows key event to our KeyEvent
-        fn convert_key_event(&self, key_event: &KEY_EVENT_RECORD) -> KeyEvent {
-            // Use existing translate_key function
-            Self::translate_key(key_event).unwrap_or_else(|| {
-                // Fallback for undefined keys
-                KeyEvent::new(Key::NotDefined, Vec::new(), String::new())
-            })
         }
     }
     impl ConsoleOutput for WindowsVtConsoleOutput {

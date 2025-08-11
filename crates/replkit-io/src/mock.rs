@@ -52,6 +52,18 @@ impl MockConsoleInput {
             queue.clear();
         }
     }
+    
+    /// Queue text input as key events (convenience method for testing)
+    pub fn queue_text_input(&self, text: &str) {
+        for ch in text.chars() {
+            let key_event = KeyEvent::with_text(
+                replkit_core::Key::NotDefined,
+                vec![ch as u8],
+                ch.to_string()
+            );
+            self.queue_key_event(key_event);
+        }
+    }
 }
 
 impl ConsoleInput for MockConsoleInput {
