@@ -285,12 +285,10 @@ mod tests {
     use super::*;
     use replkit_core::{Key, Color};
     use std::sync::{Arc, Mutex};
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
     fn test_mock_console_input_creation() {
         let input = MockConsoleInput::new();
-        assert!(!input.is_running());
         assert_eq!(input.queued_event_count(), 0);
         
         let caps = input.get_capabilities();
@@ -313,29 +311,6 @@ mod tests {
         guard.restore().unwrap();
     }
 
-    #[test]
-    fn test_event_loop_state_management() {
-        let input = MockConsoleInput::new();
-        
-        // Initially stopped
-        assert!(!input.is_running());
-        
-        // Start event loop
-        input.start_event_loop().unwrap();
-        assert!(input.is_running());
-        
-        // Cannot start again
-        let result = input.start_event_loop();
-        assert!(matches!(result, Err(ConsoleError::EventLoopError(EventLoopError::AlreadyRunning))));
-        
-        // Stop event loop
-        input.stop_event_loop().unwrap();
-        assert!(!input.is_running());
-        
-        // Cannot stop again
-        let result = input.stop_event_loop();
-        assert!(matches!(result, Err(ConsoleError::EventLoopError(EventLoopError::NotRunning))));
-    }
 
     #[test]
     fn test_window_size() {
@@ -362,7 +337,14 @@ mod tests {
     fn test_queue_text_input() {
         let input = MockConsoleInput::new();
         
-        input.queue_text_input("hello");
+        // Queue individual character events
+        for ch in "hello".chars() {
+            input.queue_key_event(KeyEvent::with_text(
+                Key::NotDefined,
+                vec![ch as u8],
+                ch.to_string()
+            ));
+        }
         assert_eq!(input.queued_event_count(), 5);
         
         input.clear_queue();
@@ -379,131 +361,46 @@ mod tests {
             KeyEvent::simple(Key::Enter, vec![0x0D]),
         ];
         
-        input.queue_key_events(&events);
+        for event in events {
+            input.queue_key_event(event);
+        }
         assert_eq!(input.queued_event_count(), 3);
     }
 
     #[test]
-    fn test_key_callback_invocation() {
+    fn test_key_reading() {
         let input = MockConsoleInput::new();
-        let received_events = Arc::new(Mutex::new(Vec::new()));
-        let received_events_clone = Arc::clone(&received_events);
-        
-        // Register callback
-        input.on_key_pressed(Box::new(move |event| {
-            received_events_clone.lock().unwrap().push(event);
-        }));
         
         // Queue some events
-        let events = vec![
-            KeyEvent::with_text(Key::NotDefined, vec![b'x'], "x".to_string()),
-            KeyEvent::simple(Key::ControlY, vec![0x19]),
-        ];
-        input.queue_key_events(&events);
+        let event1 = KeyEvent::with_text(Key::NotDefined, vec![b'x'], "x".to_string());
+        let event2 = KeyEvent::simple(Key::ControlY, vec![0x19]);
         
-        // Process events
-        input.process_queued_events();
+        input.queue_key_event(event1.clone());
+        input.queue_key_event(event2.clone());
         
-        // Verify callback was called
-        let received = received_events.lock().unwrap();
-        assert_eq!(received.len(), 2);
-        assert_eq!(received[0].key, Key::NotDefined);
-        assert_eq!(received[0].text_or_empty(), "x");
-        assert_eq!(received[1].key, Key::ControlY);
-    }
-
-    #[test]
-    fn test_single_event_processing() {
-        let input = MockConsoleInput::new();
-        let call_count = Arc::new(AtomicUsize::new(0));
-        let call_count_clone = Arc::clone(&call_count);
-        
-        input.on_key_pressed(Box::new(move |_| {
-            call_count_clone.fetch_add(1, Ordering::Relaxed);
-        }));
-        
-        input.queue_text_input("abc");
-        assert_eq!(input.queued_event_count(), 3);
-        
-        // Process one event at a time
-        assert!(input.process_single_event());
-        assert_eq!(call_count.load(Ordering::Relaxed), 1);
-        assert_eq!(input.queued_event_count(), 2);
-        
-        assert!(input.process_single_event());
-        assert_eq!(call_count.load(Ordering::Relaxed), 2);
+        // Read events
+        let read1 = input.try_read_key().unwrap();
+        assert_eq!(read1.unwrap().key, Key::NotDefined);
         assert_eq!(input.queued_event_count(), 1);
         
-        assert!(input.process_single_event());
-        assert_eq!(call_count.load(Ordering::Relaxed), 3);
+        let read2 = input.try_read_key().unwrap();
+        assert_eq!(read2.unwrap().key, Key::ControlY);
         assert_eq!(input.queued_event_count(), 0);
         
-        // No more events to process
-        assert!(!input.process_single_event());
-        assert_eq!(call_count.load(Ordering::Relaxed), 3);
+        // No more events
+        let read3 = input.try_read_key().unwrap();
+        assert!(read3.is_none());
     }
 
-    #[test]
-    fn test_resize_callback() {
-        let input = MockConsoleInput::new();
-        let resize_events = Arc::new(Mutex::new(Vec::new()));
-        let resize_events_clone = Arc::clone(&resize_events);
-        
-        input.on_window_resize(Box::new(move |cols, rows| {
-            resize_events_clone.lock().unwrap().push((cols, rows));
-        }));
-        
-        input.simulate_resize(120, 30);
-        input.simulate_resize(100, 25);
-        
-        let events = resize_events.lock().unwrap();
-        assert_eq!(events.len(), 2);
-        assert_eq!(events[0], (120, 30));
-        assert_eq!(events[1], (100, 25));
-    }
 
-    #[test]
-    fn test_callback_panic_handling() {
-        let input = MockConsoleInput::new();
-        
-        // Register a callback that panics
-        input.on_key_pressed(Box::new(|_| {
-            panic!("Test panic in callback");
-        }));
-        
-        input.queue_key_event(KeyEvent::with_text(Key::NotDefined, vec![b'a'], "a".to_string()));
-        
-        // Processing should not panic even if callback does
-        input.process_queued_events();
-        
-        // Queue should be empty after processing
-        assert_eq!(input.queued_event_count(), 0);
-    }
 
-    #[test]
-    fn test_resize_callback_panic_handling() {
-        let input = MockConsoleInput::new();
-        
-        // Register a resize callback that panics
-        input.on_window_resize(Box::new(|_, _| {
-            panic!("Test panic in resize callback");
-        }));
-        
-        // Simulating resize should not panic even if callback does
-        input.simulate_resize(80, 24);
-    }
+
 
     #[test]
     fn test_thread_safety() {
         use std::thread;
         
         let input = Arc::new(MockConsoleInput::new());
-        let call_count = Arc::new(AtomicUsize::new(0));
-        let call_count_clone = Arc::clone(&call_count);
-        
-        input.on_key_pressed(Box::new(move |_| {
-            call_count_clone.fetch_add(1, Ordering::Relaxed);
-        }));
         
         let input_clone = Arc::clone(&input);
         let handle = thread::spawn(move || {
@@ -520,8 +417,12 @@ mod tests {
         handle.join().unwrap();
         
         assert_eq!(input.queued_event_count(), 10);
-        input.process_queued_events();
-        assert_eq!(call_count.load(Ordering::Relaxed), 10);
+        
+        // Read all events
+        for _ in 0..10 {
+            assert!(input.try_read_key().unwrap().is_some());
+        }
+        assert_eq!(input.queued_event_count(), 0);
     }
 
     // Tests for MockConsoleOutput
