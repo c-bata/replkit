@@ -1,4 +1,4 @@
-package keyparsing
+package replkit
 
 import (
 	"encoding/json"
@@ -367,7 +367,7 @@ func (b *Buffer) SwapCharactersBeforeCursor() error {
 }
 
 // Document returns the current Document for text analysis operations
-func (b *Buffer) Document() (*Document, error) {
+func (b *Buffer) Document() (*WasmDocument, error) {
 	if b == nil || b.parser == nil || b.parser.module == nil {
 		return nil, fmt.Errorf("buffer is nil or closed")
 	}
@@ -383,7 +383,7 @@ func (b *Buffer) Document() (*Document, error) {
 	}
 
 	documentID := uint32(results[0])
-	return &Document{
+	return &WasmDocument{
 		parser:     b.parser,
 		documentID: documentID,
 	}, nil
@@ -468,14 +468,14 @@ func (b *Buffer) Close() error {
 	return nil
 }
 
-// Document represents an immutable text document with cursor position for analysis
-type Document struct {
+// WasmDocument represents an immutable text document with cursor position for analysis
+type WasmDocument struct {
 	parser     *KeyParser
 	documentID uint32
 }
 
-// NewDocument creates a new empty Document
-func (p *KeyParser) NewDocument() (*Document, error) {
+// NewDocument creates a new empty WasmDocument
+func (p *KeyParser) NewDocument() (*WasmDocument, error) {
 	if p == nil || p.module == nil {
 		return nil, fmt.Errorf("parser is nil or closed")
 	}
@@ -491,14 +491,14 @@ func (p *KeyParser) NewDocument() (*Document, error) {
 	}
 
 	documentID := uint32(results[0])
-	return &Document{
+	return &WasmDocument{
 		parser:     p,
 		documentID: documentID,
 	}, nil
 }
 
 // NewDocumentWithText creates a new Document with the specified text and cursor position
-func (p *KeyParser) NewDocumentWithText(text string, cursorPosition int) (*Document, error) {
+func (p *KeyParser) NewDocumentWithText(text string, cursorPosition int) (*WasmDocument, error) {
 	if p == nil || p.module == nil {
 		return nil, fmt.Errorf("parser is nil or closed")
 	}
@@ -520,14 +520,14 @@ func (p *KeyParser) NewDocumentWithText(text string, cursorPosition int) (*Docum
 	}
 
 	documentID := uint32(results[0])
-	return &Document{
+	return &WasmDocument{
 		parser:     p,
 		documentID: documentID,
 	}, nil
 }
 
 // NewDocumentWithTextAndKey creates a new Document with text, cursor position, and last key
-func (p *KeyParser) NewDocumentWithTextAndKey(text string, cursorPosition int, lastKey *Key) (*Document, error) {
+func (p *KeyParser) NewDocumentWithTextAndKey(text string, cursorPosition int, lastKey *Key) (*WasmDocument, error) {
 	if p == nil || p.module == nil {
 		return nil, fmt.Errorf("parser is nil or closed")
 	}
@@ -556,14 +556,14 @@ func (p *KeyParser) NewDocumentWithTextAndKey(text string, cursorPosition int, l
 	}
 
 	documentID := uint32(results[0])
-	return &Document{
+	return &WasmDocument{
 		parser:     p,
 		documentID: documentID,
 	}, nil
 }
 
 // Text returns the document text
-func (d *Document) Text() (string, error) {
+func (d *WasmDocument) Text() (string, error) {
 	if d == nil || d.parser == nil || d.parser.module == nil {
 		return "", fmt.Errorf("document is nil or closed")
 	}
@@ -578,7 +578,7 @@ func (d *Document) Text() (string, error) {
 }
 
 // CursorPosition returns the cursor position in rune index
-func (d *Document) CursorPosition() (int, error) {
+func (d *WasmDocument) CursorPosition() (int, error) {
 	if d == nil || d.parser == nil || d.parser.module == nil {
 		return 0, fmt.Errorf("document is nil or closed")
 	}
@@ -592,7 +592,7 @@ func (d *Document) CursorPosition() (int, error) {
 }
 
 // DisplayCursorPosition returns the display cursor position accounting for Unicode width
-func (d *Document) DisplayCursorPosition() (int, error) {
+func (d *WasmDocument) DisplayCursorPosition() (int, error) {
 	if d == nil || d.parser == nil || d.parser.module == nil {
 		return 0, fmt.Errorf("document is nil or closed")
 	}
@@ -611,7 +611,7 @@ func (d *Document) DisplayCursorPosition() (int, error) {
 }
 
 // TextBeforeCursor returns the text before the cursor
-func (d *Document) TextBeforeCursor() (string, error) {
+func (d *WasmDocument) TextBeforeCursor() (string, error) {
 	if d == nil || d.parser == nil || d.parser.module == nil {
 		return "", fmt.Errorf("document is nil or closed")
 	}
@@ -635,7 +635,7 @@ func (d *Document) TextBeforeCursor() (string, error) {
 }
 
 // TextAfterCursor returns the text after the cursor
-func (d *Document) TextAfterCursor() (string, error) {
+func (d *WasmDocument) TextAfterCursor() (string, error) {
 	if d == nil || d.parser == nil || d.parser.module == nil {
 		return "", fmt.Errorf("document is nil or closed")
 	}
@@ -659,7 +659,7 @@ func (d *Document) TextAfterCursor() (string, error) {
 }
 
 // GetWordBeforeCursor returns the word before the cursor
-func (d *Document) GetWordBeforeCursor() (string, error) {
+func (d *WasmDocument) GetWordBeforeCursor() (string, error) {
 	if d == nil || d.parser == nil || d.parser.module == nil {
 		return "", fmt.Errorf("document is nil or closed")
 	}
@@ -683,7 +683,7 @@ func (d *Document) GetWordBeforeCursor() (string, error) {
 }
 
 // GetWordAfterCursor returns the word after the cursor
-func (d *Document) GetWordAfterCursor() (string, error) {
+func (d *WasmDocument) GetWordAfterCursor() (string, error) {
 	if d == nil || d.parser == nil || d.parser.module == nil {
 		return "", fmt.Errorf("document is nil or closed")
 	}
@@ -707,7 +707,7 @@ func (d *Document) GetWordAfterCursor() (string, error) {
 }
 
 // CurrentLine returns the current line text
-func (d *Document) CurrentLine() (string, error) {
+func (d *WasmDocument) CurrentLine() (string, error) {
 	if d == nil || d.parser == nil || d.parser.module == nil {
 		return "", fmt.Errorf("document is nil or closed")
 	}
@@ -731,7 +731,7 @@ func (d *Document) CurrentLine() (string, error) {
 }
 
 // LineCount returns the number of lines in the document
-func (d *Document) LineCount() (int, error) {
+func (d *WasmDocument) LineCount() (int, error) {
 	if d == nil || d.parser == nil || d.parser.module == nil {
 		return 0, fmt.Errorf("document is nil or closed")
 	}
@@ -750,7 +750,7 @@ func (d *Document) LineCount() (int, error) {
 }
 
 // CursorPositionRow returns the cursor row (0-based)
-func (d *Document) CursorPositionRow() (int, error) {
+func (d *WasmDocument) CursorPositionRow() (int, error) {
 	if d == nil || d.parser == nil || d.parser.module == nil {
 		return 0, fmt.Errorf("document is nil or closed")
 	}
@@ -769,7 +769,7 @@ func (d *Document) CursorPositionRow() (int, error) {
 }
 
 // CursorPositionCol returns the cursor column (0-based)
-func (d *Document) CursorPositionCol() (int, error) {
+func (d *WasmDocument) CursorPositionCol() (int, error) {
 	if d == nil || d.parser == nil || d.parser.module == nil {
 		return 0, fmt.Errorf("document is nil or closed")
 	}
@@ -788,7 +788,7 @@ func (d *Document) CursorPositionCol() (int, error) {
 }
 
 // ToWasmState serializes the document state for WASM interop
-func (d *Document) ToWasmState() (*WasmDocumentState, error) {
+func (d *WasmDocument) ToWasmState() (*WasmDocumentState, error) {
 	if d == nil || d.parser == nil || d.parser.module == nil {
 		return nil, fmt.Errorf("document is nil or closed")
 	}
@@ -812,7 +812,7 @@ func (d *Document) ToWasmState() (*WasmDocumentState, error) {
 }
 
 // DocumentFromWasmState creates a new Document from serialized state
-func (p *KeyParser) DocumentFromWasmState(state *WasmDocumentState) (*Document, error) {
+func (p *KeyParser) DocumentFromWasmState(state *WasmDocumentState) (*WasmDocument, error) {
 	if p == nil || p.module == nil {
 		return nil, fmt.Errorf("parser is nil or closed")
 	}
@@ -839,14 +839,14 @@ func (p *KeyParser) DocumentFromWasmState(state *WasmDocumentState) (*Document, 
 	}
 
 	documentID := uint32(results[0])
-	return &Document{
+	return &WasmDocument{
 		parser:     p,
 		documentID: documentID,
 	}, nil
 }
 
 // Close releases the document resources
-func (d *Document) Close() error {
+func (d *WasmDocument) Close() error {
 	if d == nil || d.parser == nil || d.parser.module == nil {
 		return nil // Already closed
 	}

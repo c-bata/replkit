@@ -1,6 +1,6 @@
-// Package keyparsing provides Go bindings for the replkit console I/O library.
+// Package replkit provides Go bindings for the replkit console I/O library.
 // This package uses WASM runtime (wazero) to interface with the Rust implementation.
-package keyparsing
+package replkit
 
 import (
 	"context"
