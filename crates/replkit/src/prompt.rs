@@ -160,22 +160,46 @@ impl CompletionManager {
         self.visible = false;
     }
 
+    /// Returns whether the CompletionManager is actively selecting a completion (go-prompt's Completing)
+    pub fn completing(&self) -> bool {
+        self.selected_index != -1
+    }
+
     pub fn update_suggestions(&mut self, suggestions: Vec<Suggestion>) {
         self.suggestions = suggestions;
-        self.selected_index = if self.suggestions.is_empty() { -1 } else { 0 };
+        // Don't automatically select first item - wait for Tab key (go-prompt style)
+        if self.suggestions.is_empty() {
+            self.selected_index = -1;
+        }
+        // Keep current selection if still valid
+        else if self.selected_index >= self.suggestions.len() as i32 {
+            self.selected_index = -1;
+        }
         self.visible = !self.suggestions.is_empty();
     }
 
     pub fn next(&mut self) {
         if !self.suggestions.is_empty() {
-            self.selected_index = (self.selected_index + 1) % (self.suggestions.len() as i32);
+            if self.selected_index == -1 {
+                // First Tab press - start selecting from 0 (go-prompt style)
+                self.selected_index = 0;
+            } else {
+                // Cycle through suggestions
+                self.selected_index = (self.selected_index + 1) % (self.suggestions.len() as i32);
+            }
         }
     }
 
     pub fn previous(&mut self) {
         if !self.suggestions.is_empty() {
-            let len = self.suggestions.len() as i32;
-            self.selected_index = (self.selected_index - 1 + len) % len;
+            if self.selected_index == -1 {
+                // First BackTab press - start selecting from last item (go-prompt style)
+                self.selected_index = (self.suggestions.len() as i32) - 1;
+            } else {
+                // Cycle through suggestions backwards
+                let len = self.suggestions.len() as i32;
+                self.selected_index = (self.selected_index - 1 + len) % len;
+            }
         }
     }
 
@@ -282,23 +306,43 @@ impl Prompt {
 
     /// Update and render completions (go-prompt style auto-completion)
     fn update_and_render_completions(&mut self) -> PromptResult<()> {
-        // Always render the prompt first (go-prompt pattern)
-        self.renderer
-            .render_prompt(&self.prefix, &self.document())?;
-            
         let suggestions = self.get_completions();
         if !suggestions.is_empty() {
             self.completion_manager.update_suggestions(suggestions);
-            let selected_idx = self.completion_manager.selected_index();
-            self.renderer.render_completions_with_selection(
-                self.completion_manager.suggestions(),
-                selected_idx as usize,
-            )?;
         } else {
             // Clear completions if no suggestions
             if self.completion_manager.is_visible() {
                 self.completion_manager.reset();
-                self.renderer.clear_completions().ok();
+            }
+        }
+        
+        self.render_with_completion_preview()?;
+        Ok(())
+    }
+
+    /// Render prompt with completion preview (go-prompt style)
+    fn render_with_completion_preview(&mut self) -> PromptResult<()> {
+        // Always render the prompt first (go-prompt pattern)
+        self.renderer
+            .render_prompt(&self.prefix, &self.document())?;
+            
+        // Render completions if visible
+        if self.completion_manager.is_visible() {
+            if self.completion_manager.completing() {
+                // Show completions with selection
+                let selected_idx = self.completion_manager.selected_index();
+                self.renderer.render_completions_with_selection(
+                    self.completion_manager.suggestions(),
+                    selected_idx as usize,
+                )?;
+                
+                // Render preview of selected completion (go-prompt style)
+                if let Some(selected) = self.completion_manager.get_selected() {
+                    self.renderer.render_completion_preview(&self.document(), selected)?;
+                }
+            } else {
+                // Show completions without selection
+                self.renderer.render_completions(self.completion_manager.suggestions())?;
             }
         }
         Ok(())
@@ -457,6 +501,20 @@ impl Prompt {
                             return Err(PromptError::Interrupted);
                         }
                         Key::Backspace => {
+                            // If completing, apply selected completion first (go-prompt default case)
+                            if self.completion_manager.completing() {
+                                if let Some(selected) = self.completion_manager.get_selected() {
+                                    let doc = self.document();
+                                    let word_start = doc.find_start_of_word();
+                                    let word_len = doc.cursor_position() - word_start;
+                                    
+                                    // Delete current word and insert selected completion
+                                    self.buffer.delete_before_cursor(word_len);
+                                    self.buffer.insert_text(&selected.text, false, true);
+                                }
+                                self.completion_manager.reset();
+                            }
+                            
                             // Delete character before cursor
                             if self.buffer.cursor_position() > 0 {
                                 self.buffer.delete_before_cursor(1);
@@ -465,60 +523,39 @@ impl Prompt {
                             }
                         }
                         Key::Tab => {
-                            if self.completion_manager.is_visible() {
-                                // Tab again: select completion
+                            // Tab always calls completion.Next() (go-prompt style)
+                            self.completion_manager.next();
+                            self.render_with_completion_preview()?;
+                        }
+                        Key::Up => {
+                            // Up key only works when actively completing (go-prompt style)
+                            if self.completion_manager.completing() {
+                                self.completion_manager.previous();
+                                self.render_with_completion_preview()?;
+                            }
+                        }
+                        Key::Down => {
+                            // Down key only works when actively completing (go-prompt style)
+                            if self.completion_manager.completing() {
+                                self.completion_manager.next();
+                                self.render_with_completion_preview()?;
+                            }
+                        }
+                        Key::Left => {
+                            // If completing, apply selected completion first (go-prompt default case)
+                            if self.completion_manager.completing() {
                                 if let Some(selected) = self.completion_manager.get_selected() {
-                                    // Get the current word to replace
                                     let doc = self.document();
                                     let word_start = doc.find_start_of_word();
                                     let word_len = doc.cursor_position() - word_start;
-
+                                    
                                     // Delete current word and insert selected completion
                                     self.buffer.delete_before_cursor(word_len);
                                     self.buffer.insert_text(&selected.text, false, true);
                                 }
-
-                                // Hide completions
-                                self.completion_manager.hide();
-                                self.renderer.clear_completions().ok();
-                                self.renderer
-                                    .render_prompt(&self.prefix, &self.document())?;
-                            } else {
-                                // First Tab: show completions
-                                let suggestions = self.get_completions();
-                                if !suggestions.is_empty() {
-                                    self.completion_manager.update_suggestions(suggestions);
-                                    let selected_idx = self.completion_manager.selected_index();
-                                    self.renderer.render_completions_with_selection(
-                                        self.completion_manager.suggestions(),
-                                        selected_idx as usize,
-                                    )?;
-                                }
+                                self.completion_manager.reset();
                             }
-                        }
-                        Key::Up => {
-                            if self.completion_manager.is_visible() {
-                                // Navigate up in completion menu
-                                self.completion_manager.previous();
-                                let selected_idx = self.completion_manager.selected_index();
-                                self.renderer.render_completions_with_selection(
-                                    self.completion_manager.suggestions(),
-                                    selected_idx as usize,
-                                )?;
-                            }
-                        }
-                        Key::Down => {
-                            if self.completion_manager.is_visible() {
-                                // Navigate down in completion menu
-                                self.completion_manager.next();
-                                let selected_idx = self.completion_manager.selected_index();
-                                self.renderer.render_completions_with_selection(
-                                    self.completion_manager.suggestions(),
-                                    selected_idx as usize,
-                                )?;
-                            }
-                        }
-                        Key::Left => {
+                            
                             // Move cursor left
                             if self.buffer.cursor_position() > 0 {
                                 self.buffer.cursor_left(1);
@@ -527,6 +564,20 @@ impl Prompt {
                             }
                         }
                         Key::Right => {
+                            // If completing, apply selected completion first (go-prompt default case)
+                            if self.completion_manager.completing() {
+                                if let Some(selected) = self.completion_manager.get_selected() {
+                                    let doc = self.document();
+                                    let word_start = doc.find_start_of_word();
+                                    let word_len = doc.cursor_position() - word_start;
+                                    
+                                    // Delete current word and insert selected completion
+                                    self.buffer.delete_before_cursor(word_len);
+                                    self.buffer.insert_text(&selected.text, false, true);
+                                }
+                                self.completion_manager.reset();
+                            }
+                            
                             // Move cursor right
                             if self.buffer.cursor_position() < self.buffer.text().len() {
                                 self.buffer.cursor_right(1);
@@ -537,6 +588,21 @@ impl Prompt {
                         _ => {
                             // Handle text input from key events
                             if let Some(text) = &key_event.text {
+                                // If completing, apply selected completion first (go-prompt default case)
+                                if self.completion_manager.completing() {
+                                    if let Some(selected) = self.completion_manager.get_selected() {
+                                        let doc = self.document();
+                                        let word_start = doc.find_start_of_word();
+                                        let word_len = doc.cursor_position() - word_start;
+                                        
+                                        // Delete current word and insert selected completion
+                                        self.buffer.delete_before_cursor(word_len);
+                                        self.buffer.insert_text(&selected.text, false, true);
+                                    }
+                                    self.completion_manager.reset();
+                                }
+                                
+                                // Insert the new text
                                 self.buffer.insert_text(text, false, true);
                                 // Auto-show completions after text input (go-prompt style)
                                 self.update_and_render_completions()?;

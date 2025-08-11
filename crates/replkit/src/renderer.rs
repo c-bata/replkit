@@ -472,7 +472,55 @@ impl Renderer {
 
     // Temporarily removed complex methods to focus on basic functionality
 
-    // Complex methods temporarily removed
+    /// Render completion preview (go-prompt style)
+    pub fn render_completion_preview(&mut self, document: &Document, suggestion: &Suggestion) -> io::Result<()> {
+        // Find word boundary for replacement
+        let word_start = document.find_start_of_word();
+        let word_len = document.cursor_position() - word_start;
+        
+        // Move cursor back to start of word
+        if word_len > 0 {
+            let cursor = self.previous_cursor;
+            self.previous_cursor = self.backward(cursor, word_len)?;
+        }
+
+        // Render suggestion with preview styling (go-prompt previewSuggestionTextColor)
+        self.console
+            .set_style(&TextStyle {
+                foreground: Some(Color::BrightBlack),
+                ..Default::default()
+            })
+            .map_err(console_error_to_io_error)?;
+
+        self.console
+            .write_text(&suggestion.text)
+            .map_err(console_error_to_io_error)?;
+
+        self.console
+            .reset_style()
+            .map_err(console_error_to_io_error)?;
+
+        // Update cursor position
+        self.previous_cursor += display_width(&suggestion.text);
+
+        // Render rest of the line
+        let rest = document.text_after_cursor();
+        if !rest.is_empty() {
+            self.console
+                .write_text(rest)
+                .map_err(console_error_to_io_error)?;
+
+            // Handle line wrapping for the complete line
+            let total_width = display_width(&suggestion.text) + display_width(rest);
+            self.handle_line_wrap(total_width)?;
+
+            // Move cursor back to correct position
+            self.previous_cursor = self.backward(self.previous_cursor, display_width(rest))?;
+        }
+
+        self.console.flush().map_err(console_error_to_io_error)?;
+        Ok(())
+    }
 
     /// Convert character position to screen coordinates (go-prompt's toPos)
     fn to_pos(&self, cursor: usize) -> (usize, usize) {
