@@ -1,0 +1,59 @@
+[package]
+name = "replkit-snapshot"
+version = "0.1.0"
+edition = "2021"
+authors = ["c-bata"]
+description = "CLI tool for automated snapshot testing of terminal applications built with replkit"
+license = "MIT"
+repository = "https://github.com/c-bata/replkit"
+readme = "README.md"
+
+[[bin]]
+name = "replkit-snapshot"
+path = "src/main.rs"
+
+[dependencies]
+# CLI and configuration
+clap = { version = "4.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+
+# PTY and terminal handling
+portable-pty = "0.8"
+termwiz = "0.22"
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# Error handling
+thiserror = "1.0"
+
+# Pattern matching
+regex = "1.0"
+
+[dev-dependencies]
+tempfile = "3.0"
+assert_cmd = "2.0"
+predicates = "3.0"
+
+[features]
+default = []
+tracing = ["dep:tracing", "dep:tracing-subscriber"]
+json-output = ["dep:serde_json"]
+colored-output = ["dep:colored"]
+
+[dependencies.tracing]
+version = "0.1"
+optional = true
+
+[dependencies.tracing-subscriber]
+version = "0.3"
+optional = true
+
+[dependencies.serde_json]
+version = "1.0"
+optional = true
+
+[dependencies.colored]
+version = "2.0"
+optional = true

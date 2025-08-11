@@ -2,7 +2,7 @@
 
 ## Phase 1: Core CLI Tool (MVP)
 
-- [ ] 1. Basic CLI Structure
+- [x] 1. Basic CLI Structure
   - Set up cargo project structure for `replkit-snapshot`
   - Add clap dependency and implement CLI argument parsing
   - Create basic command structure (`run` subcommand)

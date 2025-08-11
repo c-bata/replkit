@@ -5,6 +5,7 @@ members = [
     "crates/replkit-wasm",
     "crates/replkit-pyo3",
     "crates/replkit-io",
+    "crates/replkit-snapshot",
 ]
 resolver = "2"
 
