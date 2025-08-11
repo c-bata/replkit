@@ -48,7 +48,7 @@
   - Add utilities for loading and comparing reference data
   - _Requirements: 6.1, 6.4_
 
-- [ ] 9. Read the go-prompt's render.go and update renderer.rs to align with the go-prompt's escape sequences.
+- [x] 9. Read the go-prompt's render.go and update renderer.rs to align with the go-prompt's escape sequences.
   - _Requirements: 6.3, 6.4_
 
 - [ ] 10. Create snapshot testing integration
