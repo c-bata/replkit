@@ -1456,6 +1456,8 @@ impl Document {
 
         unicode::rune_slice(&self.text, line_start, end_pos)
     }
+
+
 }
 
 impl Default for Document {

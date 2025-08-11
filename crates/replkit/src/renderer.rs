@@ -474,14 +474,14 @@ impl Renderer {
 
     /// Render completion preview (go-prompt style)
     pub fn render_completion_preview(&mut self, document: &Document, suggestion: &Suggestion) -> io::Result<()> {
-        // Find word boundary for replacement
-        let word_start = document.find_start_of_word();
-        let word_len = document.cursor_position() - word_start;
+        // Get the word that would be replaced using separator-based logic
+        let word = document.get_word_before_cursor_until_separator(" \t\n");
+        let word_width = display_width(word);
         
         // Move cursor back to start of word
-        if word_len > 0 {
+        if word_width > 0 {
             let cursor = self.previous_cursor;
-            self.previous_cursor = self.backward(cursor, word_len)?;
+            self.previous_cursor = self.backward(cursor, word_width)?;
         }
 
         // Render suggestion with preview styling (go-prompt previewSuggestionTextColor)

@@ -142,6 +142,8 @@ pub struct CompletionManager {
     visible: bool,
     /// Maximum number of suggestions to display
     max_suggestions: usize,
+    /// Word separator for completion (go-prompt style)
+    word_separator: String,
 }
 
 impl CompletionManager {
@@ -151,7 +153,13 @@ impl CompletionManager {
             selected_index: -1,
             visible: false,
             max_suggestions,
+            word_separator: " \t\n".to_string(), // Default separators like go-prompt
         }
+    }
+
+    /// Get the word separator
+    pub fn word_separator(&self) -> &str {
+        &self.word_separator
     }
 
     pub fn reset(&mut self) {
@@ -302,6 +310,26 @@ impl Prompt {
             Some(completer) => completer.complete(&self.document()),
             None => Vec::new(),
         }
+    }
+
+    /// Apply selected completion if completing (go-prompt default case behavior)
+    fn apply_completion_if_completing(&mut self) -> PromptResult<()> {
+        if self.completion_manager.completing() {
+            if let Some(selected) = self.completion_manager.get_selected() {
+                let doc = self.document();
+                let word = doc.get_word_before_cursor_until_separator(
+                    self.completion_manager.word_separator()
+                );
+                
+                if !word.is_empty() {
+                    // Delete current word and insert selected completion
+                    self.buffer.delete_before_cursor(word.len());
+                    self.buffer.insert_text(&selected.text, false, true);
+                }
+            }
+            self.completion_manager.reset();
+        }
+        Ok(())
     }
 
     /// Update and render completions (go-prompt style auto-completion)
@@ -480,6 +508,9 @@ impl Prompt {
                 Ok(Some(key_event)) => {
                     match key_event.key {
                         Key::Enter => {
+                            // If completing, apply selected completion first (go-prompt default case)
+                            self.apply_completion_if_completing()?;
+                            
                             // Clear completions and move to next line
                             if self.completion_manager.is_visible() {
                                 self.completion_manager.reset();
@@ -502,18 +533,7 @@ impl Prompt {
                         }
                         Key::Backspace => {
                             // If completing, apply selected completion first (go-prompt default case)
-                            if self.completion_manager.completing() {
-                                if let Some(selected) = self.completion_manager.get_selected() {
-                                    let doc = self.document();
-                                    let word_start = doc.find_start_of_word();
-                                    let word_len = doc.cursor_position() - word_start;
-                                    
-                                    // Delete current word and insert selected completion
-                                    self.buffer.delete_before_cursor(word_len);
-                                    self.buffer.insert_text(&selected.text, false, true);
-                                }
-                                self.completion_manager.reset();
-                            }
+                            self.apply_completion_if_completing()?;
                             
                             // Delete character before cursor
                             if self.buffer.cursor_position() > 0 {
@@ -543,18 +563,7 @@ impl Prompt {
                         }
                         Key::Left => {
                             // If completing, apply selected completion first (go-prompt default case)
-                            if self.completion_manager.completing() {
-                                if let Some(selected) = self.completion_manager.get_selected() {
-                                    let doc = self.document();
-                                    let word_start = doc.find_start_of_word();
-                                    let word_len = doc.cursor_position() - word_start;
-                                    
-                                    // Delete current word and insert selected completion
-                                    self.buffer.delete_before_cursor(word_len);
-                                    self.buffer.insert_text(&selected.text, false, true);
-                                }
-                                self.completion_manager.reset();
-                            }
+                            self.apply_completion_if_completing()?;
                             
                             // Move cursor left
                             if self.buffer.cursor_position() > 0 {
@@ -565,18 +574,7 @@ impl Prompt {
                         }
                         Key::Right => {
                             // If completing, apply selected completion first (go-prompt default case)
-                            if self.completion_manager.completing() {
-                                if let Some(selected) = self.completion_manager.get_selected() {
-                                    let doc = self.document();
-                                    let word_start = doc.find_start_of_word();
-                                    let word_len = doc.cursor_position() - word_start;
-                                    
-                                    // Delete current word and insert selected completion
-                                    self.buffer.delete_before_cursor(word_len);
-                                    self.buffer.insert_text(&selected.text, false, true);
-                                }
-                                self.completion_manager.reset();
-                            }
+                            self.apply_completion_if_completing()?;
                             
                             // Move cursor right
                             if self.buffer.cursor_position() < self.buffer.text().len() {
@@ -589,18 +587,7 @@ impl Prompt {
                             // Handle text input from key events
                             if let Some(text) = &key_event.text {
                                 // If completing, apply selected completion first (go-prompt default case)
-                                if self.completion_manager.completing() {
-                                    if let Some(selected) = self.completion_manager.get_selected() {
-                                        let doc = self.document();
-                                        let word_start = doc.find_start_of_word();
-                                        let word_len = doc.cursor_position() - word_start;
-                                        
-                                        // Delete current word and insert selected completion
-                                        self.buffer.delete_before_cursor(word_len);
-                                        self.buffer.insert_text(&selected.text, false, true);
-                                    }
-                                    self.completion_manager.reset();
-                                }
+                                self.apply_completion_if_completing()?;
                                 
                                 // Insert the new text
                                 self.buffer.insert_text(text, false, true);
