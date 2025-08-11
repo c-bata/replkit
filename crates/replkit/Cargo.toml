@@ -24,3 +24,11 @@ default = []
 
 # Optional features for advanced functionality
 wasm = ["replkit-core/wasm"]
+
+[[example]]
+name = "executor_example"
+path = "examples/executor_example.rs"
+
+[[example]]
+name = "sql_prompt"
+path = "examples/sql_prompt.rs"

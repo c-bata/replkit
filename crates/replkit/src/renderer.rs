@@ -208,8 +208,12 @@ impl Renderer {
         }
 
         let max_suggestions = 10;
-        let window_height = suggestions.len().min(max_suggestions);
-        let display_suggestions = &suggestions[..window_height];
+        let has_more = suggestions.len() > max_suggestions;
+        // When there are more suggestions, we show max_suggestions actual suggestions + 1 "more" line
+        let display_count = if has_more { max_suggestions } else { suggestions.len().min(max_suggestions) };
+        // Total window height includes the "more" line when has_more is true
+        let window_height = if has_more { max_suggestions + 1 } else { display_count };
+        let display_suggestions = &suggestions[..display_count];
 
         // Format suggestions with consistent width (go-prompt style)
         let available_width = self.terminal_size.0.saturating_sub(3) as usize; // -3 for prefix + scrollbar
@@ -286,6 +290,51 @@ impl Renderer {
                 display_width(&formatted_suggestion.description) + 1; // +1 for scrollbar
             self.console
                 .move_cursor_relative(0, -(total_width as i16))
+                .map_err(console_error_to_io_error)?;
+        }
+
+        // Render "more" line if there are additional suggestions
+        if has_more {
+            // Move down one line for the "more" indicator
+            self.console
+                .move_cursor_relative(1, 0)
+                .map_err(console_error_to_io_error)?;
+
+            // Set styling for "more" line
+            self.console
+                .set_style(&TextStyle {
+                    foreground: Some(Color::BrightBlack),
+                    background: Some(Color::Cyan),
+                    ..Default::default()
+                })
+                .map_err(console_error_to_io_error)?;
+
+            let more_text = format!("... {} more", suggestions.len() - display_count);
+            let padded_more = format!("{:<width$}", more_text, width = available_width);
+            
+            self.console
+                .write_text(&padded_more)
+                .map_err(console_error_to_io_error)?;
+
+            // Add scrollbar space
+            self.console
+                .set_style(&TextStyle {
+                    background: Some(Color::BrightBlack),
+                    ..Default::default()
+                })
+                .map_err(console_error_to_io_error)?;
+
+            self.console
+                .write_text(" ")
+                .map_err(console_error_to_io_error)?;
+
+            self.console
+                .reset_style()
+                .map_err(console_error_to_io_error)?;
+
+            // Move cursor back to beginning of line
+            self.console
+                .move_cursor_relative(0, -((available_width + 1) as i16))
                 .map_err(console_error_to_io_error)?;
         }
 

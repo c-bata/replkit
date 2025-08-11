@@ -40,6 +40,9 @@ pub use replkit_core::{
 // Re-export high-level components from this crate
 pub use crate::{
     Completor,
+    // Executor and exit checker traits
+    Executor,
+    ExitChecker,
     // Prompt system
     Prompt,
     PromptBuilder,

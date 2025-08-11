@@ -56,6 +56,53 @@ use crate::{completion::Completor, renderer::Renderer, Suggestion};
 use replkit_core::{error::BufferError, Buffer, Document, Key, KeyParser};
 use replkit_io::{ConsoleError, ConsoleInput, ConsoleOutput};
 
+/// Executor is called when user inputs text and presses Enter.
+/// Similar to go-prompt's Executor func(string).
+pub trait Executor {
+    /// Execute the given input string.
+    /// 
+    /// # Arguments
+    /// * `input` - The user input string to execute
+    /// 
+    /// # Returns
+    /// Returns `Ok(())` to continue the prompt loop, or `Err(PromptError)` to exit.
+    fn execute(&mut self, input: &str) -> PromptResult<()>;
+}
+
+/// ExitChecker is called after user input to check if prompt must stop and exit the run loop.
+/// Similar to go-prompt's ExitChecker func(in string, breakline bool) bool.
+pub trait ExitChecker {
+    /// Check if the prompt should exit based on the input.
+    /// 
+    /// # Arguments
+    /// * `input` - The current input string
+    /// * `breakline` - Whether this check is after pressing Enter (true) or during typing (false)
+    /// 
+    /// # Returns
+    /// Returns `true` if the prompt should exit, `false` to continue.
+    fn should_exit(&self, input: &str, breakline: bool) -> bool;
+}
+
+// Implement Executor for closures
+impl<F> Executor for F
+where
+    F: for<'a> FnMut(&'a str) -> PromptResult<()>,
+{
+    fn execute(&mut self, input: &str) -> PromptResult<()> {
+        self(input)
+    }
+}
+
+// Implement ExitChecker for closures
+impl<F> ExitChecker for F
+where
+    F: Fn(&str, bool) -> bool,
+{
+    fn should_exit(&self, input: &str, breakline: bool) -> bool {
+        self(input, breakline)
+    }
+}
+
 /// Error types specific to prompt operations
 #[derive(Debug, Clone)]
 pub enum PromptError {
@@ -251,6 +298,8 @@ pub struct Prompt {
     key_parser: KeyParser,
     /// Completion manager for handling suggestion navigation
     completion_manager: CompletionManager,
+    /// Optional exit checker for determining when to exit the run loop
+    exit_checker: Option<Box<dyn ExitChecker>>,
 }
 
 impl Prompt {
@@ -612,6 +661,200 @@ impl Prompt {
             }
         }
     }
+
+    /// Run the prompt with an executor in a continuous loop
+    ///
+    /// This method implements the go-prompt style `Run()` functionality where
+    /// the executor is called for each line of input. The loop continues until
+    /// the exit checker returns true or an error occurs.
+    ///
+    /// # Arguments
+    ///
+    /// * `executor` - Function or closure that processes each line of input
+    ///
+    /// # Behavior
+    ///
+    /// - Displays the prompt and waits for user input
+    /// - When Enter is pressed, calls the executor with the input
+    /// - Continues the loop after executor returns
+    /// - Checks exit conditions using the configured exit checker
+    /// - Handles Ctrl+C as interruption
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use replkit::prelude::*;
+    ///
+    /// let mut prompt = Prompt::builder()
+    ///     .with_prefix(">>> ")
+    ///     .build()
+    ///     .unwrap();
+    ///
+    /// prompt.run(|input| {
+    ///     println!("You entered: {}", input);
+    ///     if input == "quit" {
+    ///         return Err(PromptError::Interrupted);
+    ///     }
+    ///     Ok(())
+    /// }).unwrap();
+    /// ```
+    pub fn run<E>(&mut self, mut executor: E) -> PromptResult<()>
+    where
+        E: Executor,
+    {
+        // Enable raw mode for the entire session
+        let _raw_guard = self.input.enable_raw_mode()?;
+
+        // Update terminal size in renderer
+        if let Ok((cols, rows)) = self.input.get_window_size() {
+            self.renderer.update_terminal_size(cols, rows);
+        }
+
+        // Initialize renderer
+        self.renderer
+            .initialize()
+            .map_err(|e| PromptError::IoError(e.to_string()))?;
+
+        loop {
+            // Reset buffer for new input
+            self.buffer.set_text(String::new());
+            self.completion_manager.reset();
+
+            // Render initial prompt
+            self.renderer
+                .render_prompt(&self.prefix, &self.document())?;
+
+            // Input loop for current line
+            let input_result = loop {
+                match self.input.read_key_timeout(Some(100)) {
+                    Ok(Some(key_event)) => {
+                        match key_event.key {
+                            Key::Enter => {
+                                // If completing, apply selected completion first
+                                self.apply_completion_if_completing()?;
+                                
+                                // Get the final input
+                                let input = self.buffer.text().to_string();
+                                
+                                // Clear completions and move to next line
+                                if self.completion_manager.is_visible() {
+                                    self.completion_manager.reset();
+                                }
+                                self.renderer.write_newline()?;
+                                
+                                // Check exit condition before executing (immediate exit)
+                                if let Some(exit_checker) = &self.exit_checker {
+                                    if exit_checker.should_exit(&input, false) {
+                                        return Ok(());
+                                    }
+                                }
+                                
+                                break Ok(input);
+                            }
+                            Key::ControlC => {
+                                if self.completion_manager.is_visible() {
+                                    self.completion_manager.reset();
+                                    self.renderer.clear_completions().ok();
+                                }
+                                return Err(PromptError::Interrupted);
+                            }
+                            Key::ControlD => {
+                                // Ctrl+D on empty line exits (go-prompt behavior)
+                                if self.buffer.text().is_empty() {
+                                    return Ok(());
+                                }
+                            }
+                            Key::Backspace => {
+                                self.apply_completion_if_completing()?;
+                                if self.buffer.cursor_position() > 0 {
+                                    self.buffer.delete_before_cursor(1);
+                                    self.update_and_render_completions()?;
+                                }
+                            }
+                            Key::Tab => {
+                                self.completion_manager.next();
+                                self.render_with_completion_preview()?;
+                            }
+                            Key::Up => {
+                                if self.completion_manager.completing() {
+                                    self.completion_manager.previous();
+                                    self.render_with_completion_preview()?;
+                                }
+                            }
+                            Key::Down => {
+                                if self.completion_manager.completing() {
+                                    self.completion_manager.next();
+                                    self.render_with_completion_preview()?;
+                                }
+                            }
+                            Key::Left => {
+                                self.apply_completion_if_completing()?;
+                                if self.buffer.cursor_position() > 0 {
+                                    self.buffer.cursor_left(1);
+                                    self.update_and_render_completions()?;
+                                }
+                            }
+                            Key::Right => {
+                                self.apply_completion_if_completing()?;
+                                if self.buffer.cursor_position() < self.buffer.text().len() {
+                                    self.buffer.cursor_right(1);
+                                    self.update_and_render_completions()?;
+                                }
+                            }
+                            _ => {
+                                if let Some(text) = &key_event.text {
+                                    self.apply_completion_if_completing()?;
+                                    self.buffer.insert_text(text, false, true);
+                                    self.update_and_render_completions()?;
+                                    
+                                    // Check exit condition during typing (non-breakline)
+                                    if let Some(exit_checker) = &self.exit_checker {
+                                        if exit_checker.should_exit(self.buffer.text(), false) {
+                                            return Ok(());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        // Timeout - continue loop
+                        continue;
+                    }
+                    Err(e) => {
+                        if self.completion_manager.is_visible() {
+                            self.completion_manager.reset();
+                            self.renderer.clear_completions().ok();
+                        }
+                        break Err(PromptError::IoError(format!("Input error: {e}")));
+                    }
+                }
+            };
+
+            // Handle the input result
+            match input_result {
+                Ok(input) => {
+                    // Execute the input
+                    if let Err(e) = executor.execute(&input) {
+                        // If executor returns error, exit the run loop
+                        return Err(e);
+                    }
+                    
+                    // Check exit condition after execution (breakline = true)
+                    if let Some(exit_checker) = &self.exit_checker {
+                        if exit_checker.should_exit(&input, true) {
+                            return Ok(());
+                        }
+                    }
+                    
+                    // Continue to next iteration
+                }
+                Err(e) => {
+                    return Err(e);
+                }
+            }
+        }
+    }
 }
 
 /// Builder for configuring and creating `Prompt` instances
@@ -635,6 +878,7 @@ pub struct PromptBuilder {
     completer: Option<Box<dyn Completor>>,
     console_output: Option<Box<dyn ConsoleOutput>>,
     console_input: Option<Box<dyn ConsoleInput>>,
+    exit_checker: Option<Box<dyn ExitChecker>>,
 }
 
 impl PromptBuilder {
@@ -660,6 +904,7 @@ impl PromptBuilder {
             completer: None,
             console_output: None,
             console_input: None,
+            exit_checker: None,
         }
     }
 
@@ -720,6 +965,37 @@ impl PromptBuilder {
         C: Completor + 'static,
     {
         self.completer = Some(Box::new(completer));
+        self
+    }
+
+    /// Set an exit checker to determine when the prompt should exit
+    ///
+    /// The exit checker is called in two scenarios:
+    /// 1. During typing (breakline = false) - for immediate exit without executing
+    /// 2. After pressing Enter (breakline = true) - for exit after execution
+    ///
+    /// # Arguments
+    ///
+    /// * `exit_checker` - Any type implementing the `ExitChecker` trait
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use replkit::prelude::*;
+    ///
+    /// // Exit when user types "quit"
+    /// let prompt = PromptBuilder::new()
+    ///     .with_exit_checker(|input: &str, _breakline: bool| {
+    ///         input == "quit"
+    ///     })
+    ///     .build()
+    ///     .unwrap();
+    /// ```
+    pub fn with_exit_checker<E>(mut self, exit_checker: E) -> Self
+    where
+        E: ExitChecker + 'static,
+    {
+        self.exit_checker = Some(Box::new(exit_checker));
         self
     }
 
@@ -841,6 +1117,7 @@ impl PromptBuilder {
             input: console_input,
             key_parser: KeyParser::new(),
             completion_manager: CompletionManager::new(10),
+            exit_checker: self.exit_checker,
         })
     }
 }
@@ -968,11 +1245,22 @@ mod tests {
 
     #[test]
     fn test_prompt_error_handling() {
-        let mut prompt = PromptBuilder::new().build().unwrap();
+        // Test error conversion from BufferError
+        let buffer_error = BufferError::invalid_cursor_position(10, 5);
+        let prompt_error: PromptError = buffer_error.into();
+        assert!(matches!(prompt_error, PromptError::BufferError(_)));
 
-        // Test that input() returns appropriate error for now
-        let result = prompt.input();
-        assert!(matches!(result, Err(PromptError::InvalidConfiguration(_))));
+        // Test error conversion from std::io::Error
+        let io_error = std::io::Error::new(std::io::ErrorKind::BrokenPipe, "pipe broken");
+        let prompt_error: PromptError = io_error.into();
+        assert!(matches!(prompt_error, PromptError::IoError(_)));
+        
+        // Test that we can create different error types
+        let interrupted = PromptError::Interrupted;
+        assert!(matches!(interrupted, PromptError::Interrupted));
+        
+        let invalid_config = PromptError::InvalidConfiguration("test".to_string());
+        assert!(matches!(invalid_config, PromptError::InvalidConfiguration(_)));
     }
 
     #[test]
@@ -1009,5 +1297,55 @@ mod tests {
         let io_error = std::io::Error::new(std::io::ErrorKind::BrokenPipe, "pipe broken");
         let prompt_error: PromptError = io_error.into();
         assert!(matches!(prompt_error, PromptError::IoError(_)));
+    }
+
+    #[test]
+    fn test_executor_trait() {
+        // Test that closures implement Executor
+        let mut counter = 0;
+        let mut executor = |input: &str| -> PromptResult<()> {
+            counter += 1;
+            if input == "error" {
+                Err(PromptError::Interrupted)
+            } else {
+                Ok(())
+            }
+        };
+
+        assert!(executor.execute("hello").is_ok());
+        assert!(executor.execute("error").is_err());
+        assert_eq!(counter, 2);
+    }
+
+    #[test]
+    fn test_exit_checker_trait() {
+        // Test that closures implement ExitChecker
+        let exit_checker = |input: &str, breakline: bool| -> bool {
+            if breakline {
+                input == "quit"
+            } else {
+                input == "exit"
+            }
+        };
+
+        assert!(!exit_checker.should_exit("hello", false));
+        assert!(!exit_checker.should_exit("hello", true));
+        assert!(exit_checker.should_exit("exit", false));
+        assert!(exit_checker.should_exit("quit", true));
+        assert!(!exit_checker.should_exit("quit", false));
+        assert!(!exit_checker.should_exit("exit", true));
+    }
+
+    #[test]
+    fn test_prompt_builder_with_exit_checker() {
+        let prompt = PromptBuilder::new()
+            .with_prefix("$ ")
+            .with_exit_checker(|input: &str, _breakline: bool| input == "quit")
+            .build()
+            .unwrap();
+
+        assert_eq!(prompt.prefix(), "$ ");
+        // Exit checker is private, so we can't test it directly here
+        // but it will be tested in integration tests
     }
 }

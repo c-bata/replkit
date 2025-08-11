@@ -77,7 +77,7 @@ pub mod suggestion;
 
 // Re-export high-level components for convenience
 pub use completion::{Completor, StaticCompleter};
-pub use prompt::{Prompt, PromptBuilder, PromptError, PromptResult};
+pub use prompt::{Executor, ExitChecker, Prompt, PromptBuilder, PromptError, PromptResult};
 pub use renderer::Renderer;
 pub use suggestion::Suggestion;
 
