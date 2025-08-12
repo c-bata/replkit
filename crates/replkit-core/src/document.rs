@@ -1056,12 +1056,10 @@ impl Document {
             return indexes;
         }
 
-        let mut current_index = 0;
-        for ch in self.text.chars() {
+        for (current_index, ch) in self.text.chars().enumerate() {
             if ch == '\n' {
                 indexes.push(current_index + 1);
             }
-            current_index += 1;
         }
 
         indexes
@@ -2221,35 +2219,35 @@ mod tests {
     fn test_on_last_line() {
         // Multi-line document
         let doc = Document::with_text("line1\nline2\nline3".to_string(), 2); // First line
-        assert_eq!(doc.on_last_line(), false);
+        assert!(!doc.on_last_line());
 
         let doc2 = Document::with_text("line1\nline2\nline3".to_string(), 8); // Second line
-        assert_eq!(doc2.on_last_line(), false);
+        assert!(!doc2.on_last_line());
 
         let doc3 = Document::with_text("line1\nline2\nline3".to_string(), 14); // Third line
-        assert_eq!(doc3.on_last_line(), true);
+        assert!(doc3.on_last_line());
 
         // Single line document
         let doc4 = Document::with_text("single line".to_string(), 5);
-        assert_eq!(doc4.on_last_line(), true);
+        assert!(doc4.on_last_line());
 
         // Empty document
         let doc5 = Document::with_text("".to_string(), 0);
-        assert_eq!(doc5.on_last_line(), true);
+        assert!(doc5.on_last_line());
 
         // Document with trailing newline
         let doc6 = Document::with_text("line1\nline2\n".to_string(), 6); // Second line
-        assert_eq!(doc6.on_last_line(), false);
+        assert!(!doc6.on_last_line());
 
         let doc7 = Document::with_text("line1\nline2\n".to_string(), 12); // Empty third line
-        assert_eq!(doc7.on_last_line(), true);
+        assert!(doc7.on_last_line());
 
         // Unicode text
         let doc8 = Document::with_text("こんにちは\n世界".to_string(), 2); // First line
-        assert_eq!(doc8.on_last_line(), false);
+        assert!(!doc8.on_last_line());
 
         let doc9 = Document::with_text("こんにちは\n世界".to_string(), 7); // Second line
-        assert_eq!(doc9.on_last_line(), true);
+        assert!(doc9.on_last_line());
     }
 
     #[test]
@@ -2349,7 +2347,7 @@ mod tests {
         assert_eq!(doc.get_cursor_right_position(1), 0);
         assert_eq!(doc.get_cursor_up_position(1, None), 0);
         assert_eq!(doc.get_cursor_down_position(1, None), 0);
-        assert_eq!(doc.on_last_line(), true);
+        assert!(doc.on_last_line());
         assert_eq!(doc.get_end_of_line_position(), 0);
         assert_eq!(doc.leading_whitespace_in_current_line(), "");
 
@@ -2368,7 +2366,7 @@ mod tests {
         assert_eq!(doc4.get_cursor_right_position(1), 0); // Empty line
         assert_eq!(doc4.get_cursor_up_position(1, None), -1); // Move to first empty line
         assert_eq!(doc4.get_cursor_down_position(1, None), 1); // Move to third empty line
-        assert_eq!(doc4.on_last_line(), false);
+        assert!(!doc4.on_last_line());
         assert_eq!(doc4.get_end_of_line_position(), 1); // End of empty line
 
         // Very long line

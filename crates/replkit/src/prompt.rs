@@ -188,7 +188,7 @@ pub struct CompletionManager {
     /// Whether completion menu is currently visible
     visible: bool,
     /// Maximum number of suggestions to display
-    max_suggestions: usize,
+    _max_suggestions: usize,
     /// Word separator for completion (go-prompt style)
     word_separator: String,
 }
@@ -199,7 +199,7 @@ impl CompletionManager {
             suggestions: Vec::new(),
             selected_index: -1,
             visible: false,
-            max_suggestions,
+            _max_suggestions: max_suggestions,
             word_separator: " \t\n".to_string(), // Default separators like go-prompt
         }
     }
@@ -223,11 +223,8 @@ impl CompletionManager {
     pub fn update_suggestions(&mut self, suggestions: Vec<Suggestion>) {
         self.suggestions = suggestions;
         // Don't automatically select first item - wait for Tab key (go-prompt style)
-        if self.suggestions.is_empty() {
-            self.selected_index = -1;
-        }
-        // Keep current selection if still valid
-        else if self.selected_index >= self.suggestions.len() as i32 {
+        // Reset selection if suggestions are empty or selection is out of bounds
+        if self.suggestions.is_empty() || self.selected_index >= self.suggestions.len() as i32 {
             self.selected_index = -1;
         }
         self.visible = !self.suggestions.is_empty();
@@ -295,7 +292,7 @@ pub struct Prompt {
     /// Console input for keyboard events
     input: Box<dyn ConsoleInput>,
     /// Key parser for processing input
-    key_parser: KeyParser,
+    _key_parser: KeyParser,
     /// Completion manager for handling suggestion navigation
     completion_manager: CompletionManager,
     /// Optional exit checker for determining when to exit the run loop
@@ -838,10 +835,7 @@ impl Prompt {
             match input_result {
                 Ok(input) => {
                     // Execute the input
-                    if let Err(e) = executor.execute(&input) {
-                        // If executor returns error, exit the run loop
-                        return Err(e);
-                    }
+                    executor.execute(&input)?;
 
                     // Check exit condition after execution (breakline = true)
                     if let Some(exit_checker) = &self.exit_checker {
@@ -1118,7 +1112,7 @@ impl PromptBuilder {
             buffer: Buffer::new(),
             renderer,
             input: console_input,
-            key_parser: KeyParser::new(),
+            _key_parser: KeyParser::new(),
             completion_manager: CompletionManager::new(10),
             exit_checker: self.exit_checker,
         })

@@ -86,7 +86,7 @@ pub use suggestion::Suggestion;
 /// Import everything you need with `use replkit::prelude::*;`
 ///
 /// For implementation, see the prelude module in prelude.rs
-
+///
 /// Convenience functions for common use cases
 pub mod convenience {
     use crate::prelude::*;

@@ -25,8 +25,9 @@ static mut ALLOCATIONS: Option<HashMap<usize, usize>> = None;
 // Helper function to initialize allocations map
 fn init_allocations() {
     unsafe {
-        if ALLOCATIONS.is_none() {
-            ALLOCATIONS = Some(HashMap::new());
+        let allocations = &raw mut ALLOCATIONS;
+        if (*allocations).is_none() {
+            *allocations = Some(HashMap::new());
         }
     }
 }
@@ -85,8 +86,9 @@ fn serialize_events(events: Vec<WasmKeyEvent>) -> u64 {
 // Initialize the global parser storage
 fn init_parsers() {
     unsafe {
-        if PARSERS.is_none() {
-            PARSERS = Some(HashMap::new());
+        let parsers = &raw mut PARSERS;
+        if (*parsers).is_none() {
+            *parsers = Some(HashMap::new());
         }
     }
 }
@@ -109,8 +111,12 @@ pub extern "C" fn new_parser() -> u32 {
     id
 }
 
+/// Feed input data to a parser
+///
+/// # Safety
+/// The caller must ensure that `data_ptr` points to a valid memory region of at least `data_len` bytes.
 #[no_mangle]
-pub extern "C" fn feed(parser_id: u32, data_ptr: *const u8, data_len: u32) -> u64 {
+pub unsafe extern "C" fn feed(parser_id: u32, data_ptr: *const u8, data_len: u32) -> u64 {
     init_parsers();
 
     let data = unsafe { slice::from_raw_parts(data_ptr, data_len as usize) };
@@ -194,8 +200,9 @@ pub extern "C" fn free(ptr: *mut c_void) {
 // Initialize buffer storage
 fn init_buffers() {
     unsafe {
-        if BUFFERS.is_none() {
-            BUFFERS = Some(HashMap::new());
+        let buffers = &raw mut BUFFERS;
+        if (*buffers).is_none() {
+            *buffers = Some(HashMap::new());
         }
     }
 }
@@ -203,8 +210,9 @@ fn init_buffers() {
 // Initialize document storage
 fn init_documents() {
     unsafe {
-        if DOCUMENTS.is_none() {
-            DOCUMENTS = Some(HashMap::new());
+        let documents = &raw mut DOCUMENTS;
+        if (*documents).is_none() {
+            *documents = Some(HashMap::new());
         }
     }
 }
@@ -269,8 +277,12 @@ pub extern "C" fn new_buffer() -> u32 {
     id
 }
 
+/// Insert text into a buffer
+///
+/// # Safety
+/// The caller must ensure that `text_ptr` points to a valid UTF-8 memory region of at least `text_len` bytes.
 #[no_mangle]
-pub extern "C" fn buffer_insert_text(
+pub unsafe extern "C" fn buffer_insert_text(
     buffer_id: u32,
     text_ptr: *const u8,
     text_len: u32,
@@ -409,8 +421,12 @@ pub extern "C" fn buffer_cursor_down(buffer_id: u32, count: u32) -> u32 {
     }
 }
 
+/// Set the text content of a buffer
+///
+/// # Safety
+/// The caller must ensure that `text_ptr` points to a valid UTF-8 memory region of at least `text_len` bytes.
 #[no_mangle]
-pub extern "C" fn buffer_set_text(buffer_id: u32, text_ptr: *const u8, text_len: u32) -> u32 {
+pub unsafe extern "C" fn buffer_set_text(buffer_id: u32, text_ptr: *const u8, text_len: u32) -> u32 {
     init_buffers();
 
     let text = unsafe {
@@ -471,8 +487,12 @@ pub extern "C" fn buffer_new_line(buffer_id: u32, copy_margin: u32) -> u32 {
     }
 }
 
+/// Join the next line to the current line with a separator
+///
+/// # Safety
+/// The caller must ensure that `separator_ptr` points to a valid UTF-8 memory region of at least `separator_len` bytes.
 #[no_mangle]
-pub extern "C" fn buffer_join_next_line(
+pub unsafe extern "C" fn buffer_join_next_line(
     buffer_id: u32,
     separator_ptr: *const u8,
     separator_len: u32,
@@ -537,8 +557,12 @@ pub extern "C" fn buffer_to_wasm_state(buffer_id: u32) -> u64 {
     }
 }
 
+/// Create a buffer from a serialized WASM state
+///
+/// # Safety
+/// The caller must ensure that `state_ptr` points to a valid UTF-8 JSON memory region of at least `state_len` bytes.
 #[no_mangle]
-pub extern "C" fn buffer_from_wasm_state(state_ptr: *const u8, state_len: u32) -> u32 {
+pub unsafe extern "C" fn buffer_from_wasm_state(state_ptr: *const u8, state_len: u32) -> u32 {
     init_buffers();
 
     let state_json = unsafe {
@@ -627,8 +651,12 @@ pub extern "C" fn new_document() -> u32 {
     id
 }
 
+/// Create a document with text
+///
+/// # Safety
+/// The caller must ensure that `text_ptr` points to a valid UTF-8 memory region of at least `text_len` bytes.
 #[no_mangle]
-pub extern "C" fn document_with_text(
+pub unsafe extern "C" fn document_with_text(
     text_ptr: *const u8,
     text_len: u32,
     cursor_position: u32,
@@ -656,8 +684,12 @@ pub extern "C" fn document_with_text(
     id
 }
 
+/// Create a document with text and optional key
+///
+/// # Safety
+/// The caller must ensure that `text_ptr` points to a valid UTF-8 memory region of at least `text_len` bytes.
 #[no_mangle]
-pub extern "C" fn document_with_text_and_key(
+pub unsafe extern "C" fn document_with_text_and_key(
     text_ptr: *const u8,
     text_len: u32,
     cursor_position: u32,
@@ -869,8 +901,12 @@ pub extern "C" fn document_to_wasm_state(document_id: u32) -> u64 {
     }
 }
 
+/// Create a document from a serialized WASM state
+///
+/// # Safety
+/// The caller must ensure that `state_ptr` points to a valid UTF-8 JSON memory region of at least `state_len` bytes.
 #[no_mangle]
-pub extern "C" fn document_from_wasm_state(state_ptr: *const u8, state_len: u32) -> u32 {
+pub unsafe extern "C" fn document_from_wasm_state(state_ptr: *const u8, state_len: u32) -> u32 {
     init_documents();
 
     let state_json = unsafe {

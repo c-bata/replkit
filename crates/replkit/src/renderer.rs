@@ -619,6 +619,7 @@ impl Renderer {
     }
 
     /// Calculate how many terminal lines the given width will occupy
+    #[allow(dead_code)]
     fn calculate_line_count(&self, width: usize) -> u16 {
         let cols = self.terminal_size.0 as usize;
         if cols == 0 {

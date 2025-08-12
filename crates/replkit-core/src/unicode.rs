@@ -179,9 +179,9 @@ mod tests {
         assert_eq!(display_width("a\u{200B}b"), 2); // a + zero-width + b
 
         // Control characters
-        // Tab width is implementation-dependent, but should be non-negative
-        let tab_width = display_width("\t");
-        assert!(tab_width == 0 || tab_width > 0); // Either 0 or positive
+        // Tab width is implementation-dependent
+        let _tab_width = display_width("\t");
+        // Tab width is always non-negative since display_width returns usize
         assert_eq!(display_width("\n"), 0); // Newline has no display width
     }
 

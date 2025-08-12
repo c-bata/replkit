@@ -60,8 +60,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // The exit checker will handle the actual exit
             }
             _ => {
-                if input.starts_with("echo ") {
-                    let text = &input[5..]; // Remove "echo " prefix
+                if let Some(text) = input.strip_prefix("echo ") {
+                    // Remove "echo " prefix
                     println!("Echo: {}", text);
                 } else {
                     println!(

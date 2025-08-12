@@ -17,13 +17,14 @@ impl ConsoleInputGuard {
     fn new(input: Box<dyn ConsoleInput>) -> io::Result<Self> {
         let raw_guard = input
             .enable_raw_mode()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("raw mode error: {}", e)))?;
+            .map_err(|e| io::Error::other(format!("raw mode error: {}", e)))?;
         Ok(Self {
             input,
             _raw_guard: Some(raw_guard),
         })
     }
 
+    #[allow(dead_code)]
     fn try_read_key(&self) -> Result<Option<KeyEvent>, ConsoleError> {
         self.input.try_read_key()
     }
@@ -102,7 +103,7 @@ fn main() -> io::Result<()> {
     println!();
 
     let input_impl = make_input()
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("init error: {}", e)))?;
+        .map_err(|e| io::Error::other(format!("init error: {}", e)))?;
     let input = ConsoleInputGuard::new(input_impl)?;
 
     // Display current window size

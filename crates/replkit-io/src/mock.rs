@@ -286,7 +286,7 @@ impl ConsoleOutput for MockConsoleOutput {
 mod tests {
     use super::*;
     use replkit_core::{Color, Key};
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     #[test]
     fn test_mock_console_input_creation() {
