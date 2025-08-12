@@ -17,11 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut prompt = Prompt::builder()
         .with_prefix("cmd> ")
         .with_completer(StaticCompleter::from_strings(vec![
-            "help",
-            "echo",
-            "quit",
-            "status",
-            "version",
+            "help", "echo", "quit", "status", "version",
         ]))
         .with_exit_checker(|input: &str, breakline: bool| {
             // Exit immediately when user types "quit" (before pressing Enter)
@@ -39,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Run the prompt with an executor
     let result = prompt.run(|input: &str| -> PromptResult<()> {
         let input = input.trim();
-        
+
         if input.is_empty() {
             return Ok(());
         }
@@ -68,7 +64,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let text = &input[5..]; // Remove "echo " prefix
                     println!("Echo: {}", text);
                 } else {
-                    println!("Unknown command: {}. Type 'help' for available commands.", input);
+                    println!(
+                        "Unknown command: {}. Type 'help' for available commands.",
+                        input
+                    );
                 }
             }
         }

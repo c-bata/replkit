@@ -19,12 +19,14 @@ fn completer(document: &Document) -> Vec<Suggestion> {
             description: "Combine users with specific rules".to_string(),
         },
     ];
-    
+
     let word_before_cursor = document.get_word_before_cursor();
     suggestions
         .into_iter()
         .filter(|s| {
-            s.text.to_lowercase().starts_with(&word_before_cursor.to_lowercase())
+            s.text
+                .to_lowercase()
+                .starts_with(&word_before_cursor.to_lowercase())
         })
         .collect()
 }

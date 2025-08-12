@@ -60,10 +60,10 @@ use replkit_io::{ConsoleError, ConsoleInput, ConsoleOutput};
 /// Similar to go-prompt's Executor func(string).
 pub trait Executor {
     /// Execute the given input string.
-    /// 
+    ///
     /// # Arguments
     /// * `input` - The user input string to execute
-    /// 
+    ///
     /// # Returns
     /// Returns `Ok(())` to continue the prompt loop, or `Err(PromptError)` to exit.
     fn execute(&mut self, input: &str) -> PromptResult<()>;
@@ -73,11 +73,11 @@ pub trait Executor {
 /// Similar to go-prompt's ExitChecker func(in string, breakline bool) bool.
 pub trait ExitChecker {
     /// Check if the prompt should exit based on the input.
-    /// 
+    ///
     /// # Arguments
     /// * `input` - The current input string
     /// * `breakline` - Whether this check is after pressing Enter (true) or during typing (false)
-    /// 
+    ///
     /// # Returns
     /// Returns `true` if the prompt should exit, `false` to continue.
     fn should_exit(&self, input: &str, breakline: bool) -> bool;
@@ -367,9 +367,9 @@ impl Prompt {
             if let Some(selected) = self.completion_manager.get_selected() {
                 let doc = self.document();
                 let word = doc.get_word_before_cursor_until_separator(
-                    self.completion_manager.word_separator()
+                    self.completion_manager.word_separator(),
                 );
-                
+
                 if !word.is_empty() {
                     // Delete current word and insert selected completion
                     self.buffer.delete_before_cursor(word.len());
@@ -392,7 +392,7 @@ impl Prompt {
                 self.completion_manager.reset();
             }
         }
-        
+
         self.render_with_completion_preview()?;
         Ok(())
     }
@@ -402,7 +402,7 @@ impl Prompt {
         // Always render the prompt first (go-prompt pattern)
         self.renderer
             .render_prompt(&self.prefix, &self.document())?;
-            
+
         // Render completions if visible
         if self.completion_manager.is_visible() {
             if self.completion_manager.completing() {
@@ -412,14 +412,16 @@ impl Prompt {
                     self.completion_manager.suggestions(),
                     selected_idx as usize,
                 )?;
-                
+
                 // Render preview of selected completion (go-prompt style)
                 if let Some(selected) = self.completion_manager.get_selected() {
-                    self.renderer.render_completion_preview(&self.document(), selected)?;
+                    self.renderer
+                        .render_completion_preview(&self.document(), selected)?;
                 }
             } else {
                 // Show completions without selection
-                self.renderer.render_completions(self.completion_manager.suggestions())?;
+                self.renderer
+                    .render_completions(self.completion_manager.suggestions())?;
             }
         }
         Ok(())
@@ -559,10 +561,11 @@ impl Prompt {
                         Key::Enter => {
                             // If completing, apply selected completion first (go-prompt default case)
                             self.apply_completion_if_completing()?;
-                            
+
                             // Re-render the prompt to get correct cursor position
-                            self.renderer.render_prompt(&self.prefix, &self.document())?;
-                            
+                            self.renderer
+                                .render_prompt(&self.prefix, &self.document())?;
+
                             // Clear completions and move to next line
                             if self.completion_manager.is_visible() {
                                 self.completion_manager.reset();
@@ -584,7 +587,7 @@ impl Prompt {
                         Key::Backspace => {
                             // If completing, apply selected completion first (go-prompt default case)
                             self.apply_completion_if_completing()?;
-                            
+
                             // Delete character before cursor
                             if self.buffer.cursor_position() > 0 {
                                 self.buffer.delete_before_cursor(1);
@@ -614,7 +617,7 @@ impl Prompt {
                         Key::Left => {
                             // If completing, apply selected completion first (go-prompt default case)
                             self.apply_completion_if_completing()?;
-                            
+
                             // Move cursor left
                             if self.buffer.cursor_position() > 0 {
                                 self.buffer.cursor_left(1);
@@ -625,7 +628,7 @@ impl Prompt {
                         Key::Right => {
                             // If completing, apply selected completion first (go-prompt default case)
                             self.apply_completion_if_completing()?;
-                            
+
                             // Move cursor right
                             if self.buffer.cursor_position() < self.buffer.text().len() {
                                 self.buffer.cursor_right(1);
@@ -638,7 +641,7 @@ impl Prompt {
                             if let Some(text) = &key_event.text {
                                 // If completing, apply selected completion first (go-prompt default case)
                                 self.apply_completion_if_completing()?;
-                                
+
                                 // Insert the new text
                                 self.buffer.insert_text(text, false, true);
                                 // Auto-show completions after text input (go-prompt style)
@@ -732,23 +735,23 @@ impl Prompt {
                             Key::Enter => {
                                 // If completing, apply selected completion first
                                 self.apply_completion_if_completing()?;
-                                
+
                                 // Get the final input
                                 let input = self.buffer.text().to_string();
-                                
+
                                 // Clear completions and move to next line
                                 if self.completion_manager.is_visible() {
                                     self.completion_manager.reset();
                                 }
                                 self.renderer.write_newline()?;
-                                
+
                                 // Check exit condition before executing (immediate exit)
                                 if let Some(exit_checker) = &self.exit_checker {
                                     if exit_checker.should_exit(&input, false) {
                                         return Ok(());
                                     }
                                 }
-                                
+
                                 break Ok(input);
                             }
                             Key::ControlC => {
@@ -806,7 +809,7 @@ impl Prompt {
                                     self.apply_completion_if_completing()?;
                                     self.buffer.insert_text(text, false, true);
                                     self.update_and_render_completions()?;
-                                    
+
                                     // Check exit condition during typing (non-breakline)
                                     if let Some(exit_checker) = &self.exit_checker {
                                         if exit_checker.should_exit(self.buffer.text(), false) {
@@ -839,14 +842,14 @@ impl Prompt {
                         // If executor returns error, exit the run loop
                         return Err(e);
                     }
-                    
+
                     // Check exit condition after execution (breakline = true)
                     if let Some(exit_checker) = &self.exit_checker {
                         if exit_checker.should_exit(&input, true) {
                             return Ok(());
                         }
                     }
-                    
+
                     // Continue to next iteration
                 }
                 Err(e) => {
@@ -1254,13 +1257,16 @@ mod tests {
         let io_error = std::io::Error::new(std::io::ErrorKind::BrokenPipe, "pipe broken");
         let prompt_error: PromptError = io_error.into();
         assert!(matches!(prompt_error, PromptError::IoError(_)));
-        
+
         // Test that we can create different error types
         let interrupted = PromptError::Interrupted;
         assert!(matches!(interrupted, PromptError::Interrupted));
-        
+
         let invalid_config = PromptError::InvalidConfiguration("test".to_string());
-        assert!(matches!(invalid_config, PromptError::InvalidConfiguration(_)));
+        assert!(matches!(
+            invalid_config,
+            PromptError::InvalidConfiguration(_)
+        ));
     }
 
     #[test]

@@ -146,7 +146,7 @@ impl Renderer {
         self.console
             .write_text(prefix)
             .map_err(console_error_to_io_error)?;
-        
+
         // Reset to default color (go-prompt pattern)
         self.console
             .reset_style()
@@ -164,7 +164,7 @@ impl Renderer {
         self.console
             .write_text(line)
             .map_err(console_error_to_io_error)?;
-        
+
         self.console
             .reset_style()
             .map_err(console_error_to_io_error)?;
@@ -173,7 +173,7 @@ impl Renderer {
         let prefix_width = display_width(prefix);
         let line_width = display_width(line);
         let mut cursor = prefix_width + line_width;
-        
+
         // Handle line wrapping like go-prompt
         self.handle_line_wrap(cursor)?;
 
@@ -190,12 +190,12 @@ impl Renderer {
         self.console
             .set_cursor_visible(true)
             .map_err(console_error_to_io_error)?;
-        
+
         self.console.flush().map_err(console_error_to_io_error)?;
-        
+
         // Update previous cursor for next render (go-prompt style)
         self.previous_cursor = cursor;
-        
+
         // Update prompt line tracking for cleanup
         self.last_prompt_lines = 1; // Basic prompt is always 1 line
         Ok(())
@@ -210,9 +210,17 @@ impl Renderer {
         let max_suggestions = 10;
         let has_more = suggestions.len() > max_suggestions;
         // When there are more suggestions, we show max_suggestions actual suggestions + 1 "more" line
-        let display_count = if has_more { max_suggestions } else { suggestions.len().min(max_suggestions) };
+        let display_count = if has_more {
+            max_suggestions
+        } else {
+            suggestions.len().min(max_suggestions)
+        };
         // Total window height includes the "more" line when has_more is true
-        let window_height = if has_more { max_suggestions + 1 } else { display_count };
+        let window_height = if has_more {
+            max_suggestions + 1
+        } else {
+            display_count
+        };
         let display_suggestions = &suggestions[..display_count];
 
         // Format suggestions with consistent width (go-prompt style)
@@ -225,7 +233,7 @@ impl Renderer {
                 .write_text("\n")
                 .map_err(console_error_to_io_error)?;
         }
-        
+
         // Move cursor back up to start rendering completions
         for _ in 0..window_height {
             self.console
@@ -286,8 +294,9 @@ impl Renderer {
                 .map_err(console_error_to_io_error)?;
 
             // Move cursor back to beginning of line
-            let total_width = display_width(&formatted_suggestion.text) + 
-                display_width(&formatted_suggestion.description) + 1; // +1 for scrollbar
+            let total_width = display_width(&formatted_suggestion.text)
+                + display_width(&formatted_suggestion.description)
+                + 1; // +1 for scrollbar
             self.console
                 .move_cursor_relative(0, -(total_width as i16))
                 .map_err(console_error_to_io_error)?;
@@ -311,7 +320,7 @@ impl Renderer {
 
             let more_text = format!("... {} more", suggestions.len() - display_count);
             let padded_more = format!("{:<width$}", more_text, width = available_width);
-            
+
             self.console
                 .write_text(&padded_more)
                 .map_err(console_error_to_io_error)?;
@@ -372,7 +381,7 @@ impl Renderer {
                 .write_text("\n")
                 .map_err(console_error_to_io_error)?;
         }
-        
+
         // Move cursor back up to start rendering completions
         for _ in 0..window_height {
             self.console
@@ -388,7 +397,7 @@ impl Renderer {
                 .map_err(console_error_to_io_error)?;
 
             let is_selected = i == selected_index;
-            
+
             // Set styling based on selection for text
             if is_selected {
                 self.console
@@ -465,8 +474,9 @@ impl Renderer {
                 .map_err(console_error_to_io_error)?;
 
             // Move cursor back to beginning of line
-            let total_width = display_width(&formatted_suggestion.text) + 
-                display_width(&formatted_suggestion.description) + 1; // +1 for scrollbar
+            let total_width = display_width(&formatted_suggestion.text)
+                + display_width(&formatted_suggestion.description)
+                + 1; // +1 for scrollbar
             self.console
                 .move_cursor_relative(0, -(total_width as i16))
                 .map_err(console_error_to_io_error)?;
@@ -494,12 +504,12 @@ impl Renderer {
                     .clear(ClearType::CurrentLine)
                     .map_err(console_error_to_io_error)?;
             }
-            
+
             // Move back up to the original position
             self.console
                 .move_cursor_relative(-(self.last_completion_lines as i16), 0)
                 .map_err(console_error_to_io_error)?;
-            
+
             self.last_completion_lines = 0;
         }
         self.console.flush().map_err(console_error_to_io_error)?;
@@ -530,12 +540,12 @@ impl Renderer {
         self.console
             .clear(ClearType::FromCursor)
             .map_err(console_error_to_io_error)?;
-        
+
         // Write newline and carriage return to ensure cursor goes to beginning of next line
         self.console
             .write_text("\r\n")
             .map_err(console_error_to_io_error)?;
-        
+
         // Reset previous cursor position to start of new line
         self.previous_cursor = 0;
         self.last_completion_lines = 0;
@@ -546,11 +556,15 @@ impl Renderer {
     // Temporarily removed complex methods to focus on basic functionality
 
     /// Render completion preview (go-prompt style)
-    pub fn render_completion_preview(&mut self, document: &Document, suggestion: &Suggestion) -> io::Result<()> {
+    pub fn render_completion_preview(
+        &mut self,
+        document: &Document,
+        suggestion: &Suggestion,
+    ) -> io::Result<()> {
         // Get the word that would be replaced using separator-based logic
         let word = document.get_word_before_cursor_until_separator(" \t\n");
         let word_width = display_width(word);
-        
+
         // Move cursor back to start of word
         if word_width > 0 {
             let cursor = self.previous_cursor;
@@ -672,7 +686,11 @@ impl Renderer {
     }
 
     /// Format suggestions for consistent display width (go-prompt style)
-    fn format_suggestions_for_display(&self, suggestions: &[Suggestion], max_width: usize) -> Vec<FormattedSuggestion> {
+    fn format_suggestions_for_display(
+        &self,
+        suggestions: &[Suggestion],
+        max_width: usize,
+    ) -> Vec<FormattedSuggestion> {
         if suggestions.is_empty() {
             return Vec::new();
         }
@@ -695,17 +713,17 @@ impl Renderer {
             .min(remaining_width);
 
         let mut formatted = Vec::new();
-        
+
         for suggestion in suggestions {
             // Format text with consistent width
             let mut text = suggestion.text.clone();
             let text_width = display_width(&text);
-            
+
             if text_width > max_text_width {
                 // Truncate if too long
                 text = self.truncate_text(&text, max_text_width);
             }
-            
+
             // Pad to consistent width
             let padding_needed = max_text_width.saturating_sub(display_width(&text));
             text.push_str(&" ".repeat(padding_needed));
@@ -715,12 +733,12 @@ impl Renderer {
             if !suggestion.description.is_empty() && max_desc_width > 0 {
                 description = format!(" {}", suggestion.description);
                 let desc_width = display_width(&description);
-                
+
                 if desc_width > max_desc_width {
                     // Truncate if too long
                     description = self.truncate_text(&description, max_desc_width);
                 }
-                
+
                 // Pad to consistent width
                 let desc_padding = max_desc_width.saturating_sub(display_width(&description));
                 description.push_str(&" ".repeat(desc_padding));
@@ -740,10 +758,10 @@ impl Renderer {
         if max_width <= 3 {
             return "...".to_string();
         }
-        
+
         let mut result = String::new();
         let mut current_width = 0;
-        
+
         for ch in text.chars() {
             let ch_width = display_width(&ch.to_string());
             if current_width + ch_width > max_width - 3 {
@@ -753,7 +771,7 @@ impl Renderer {
             result.push(ch);
             current_width += ch_width;
         }
-        
+
         result
     }
 

@@ -12,10 +12,9 @@ pub mod debug;
 
 // Re-export core types and traits
 pub use replkit_core::{
-    KeyEvent, KeyParser,
-    ConsoleInput, ConsoleOutput, ConsoleError, ConsoleResult, EventLoopError,
-    RawModeGuard, ConsoleCapabilities, OutputCapabilities, BackendType,
-    TextStyle, Color, ClearType, SanitizationPolicy, SafeTextFilter
+    BackendType, ClearType, Color, ConsoleCapabilities, ConsoleError, ConsoleInput, ConsoleOutput,
+    ConsoleResult, EventLoopError, KeyEvent, KeyParser, OutputCapabilities, RawModeGuard,
+    SafeTextFilter, SanitizationPolicy, TextStyle,
 };
 
 // Helper function to convert io::Error to ConsoleError
@@ -37,25 +36,26 @@ pub fn create_console_input() -> ConsoleResult<Box<dyn ConsoleInput>> {
         let input = unix::UnixConsoleInput::new().map_err(io_error_to_console_error)?;
         Ok(Box::new(input))
     }
-    
+
     #[cfg(windows)]
     {
         // Try VT mode first, fall back to legacy
         match windows::WindowsVtConsoleInput::new() {
             Ok(vt_input) => Ok(Box::new(vt_input)),
             Err(_) => {
-                let legacy_input = windows::WindowsLegacyConsoleInput::new().map_err(io_error_to_console_error)?;
+                let legacy_input =
+                    windows::WindowsLegacyConsoleInput::new().map_err(io_error_to_console_error)?;
                 Ok(Box::new(legacy_input))
             }
         }
     }
-    
+
     #[cfg(target_arch = "wasm32")]
     {
         let input = wasm::WasmBridgeConsoleInput::new().map_err(io_error_to_console_error)?;
         Ok(Box::new(input))
     }
-    
+
     #[cfg(not(any(unix, windows, target_arch = "wasm32")))]
     {
         Err(ConsoleError::UnsupportedFeature {
@@ -72,25 +72,26 @@ pub fn create_console_output() -> ConsoleResult<Box<dyn ConsoleOutput>> {
         let output = unix::UnixConsoleOutput::new()?;
         Ok(Box::new(output))
     }
-    
+
     #[cfg(windows)]
     {
         // Try VT mode first, fall back to legacy
         match windows::WindowsVtConsoleOutput::new() {
             Ok(vt_output) => Ok(Box::new(vt_output)),
             Err(_) => {
-                let legacy_output = windows::WindowsLegacyConsoleOutput::new().map_err(io_error_to_console_error)?;
+                let legacy_output = windows::WindowsLegacyConsoleOutput::new()
+                    .map_err(io_error_to_console_error)?;
                 Ok(Box::new(legacy_output))
             }
         }
     }
-    
+
     #[cfg(target_arch = "wasm32")]
     {
         let output = wasm::WasmBridgeConsoleOutput::new().map_err(io_error_to_console_error)?;
         Ok(Box::new(output))
     }
-    
+
     #[cfg(not(any(unix, windows, target_arch = "wasm32")))]
     {
         Err(ConsoleError::UnsupportedFeature {
@@ -126,7 +127,10 @@ pub mod mock;
 pub use unix::{UnixConsoleInput, UnixConsoleOutput};
 
 #[cfg(windows)]
-pub use windows::{WindowsLegacyConsoleInput, WindowsVtConsoleInput, WindowsLegacyConsoleOutput, WindowsVtConsoleOutput};
+pub use windows::{
+    WindowsLegacyConsoleInput, WindowsLegacyConsoleOutput, WindowsVtConsoleInput,
+    WindowsVtConsoleOutput,
+};
 
 #[cfg(target_arch = "wasm32")]
 pub use wasm::{WasmBridgeConsoleInput, WasmBridgeConsoleOutput};

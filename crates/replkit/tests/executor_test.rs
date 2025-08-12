@@ -55,7 +55,7 @@ fn test_prompt_builder_with_executor_components() {
     assert!(prompt.is_ok());
     let prompt = prompt.unwrap();
     assert_eq!(prompt.prefix(), "test> ");
-    
+
     // Test that completions work
     let completions = prompt.get_completions();
     assert_eq!(completions.len(), 2);
@@ -104,10 +104,10 @@ fn test_prompt_with_all_features() {
 
     assert!(result.is_ok());
     let prompt = result.unwrap();
-    
+
     // Test basic functionality
     assert_eq!(prompt.prefix(), "full> ");
-    
+
     // Test completions
     let completions = prompt.get_completions();
     assert_eq!(completions.len(), 2);

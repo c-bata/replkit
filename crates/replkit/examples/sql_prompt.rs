@@ -17,9 +17,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let completer = |document: &Document| -> Vec<Suggestion> {
         let text = document.text().to_uppercase();
         let word = document.get_word_before_cursor().to_uppercase();
-        
+
         let mut suggestions = Vec::new();
-        
+
         // SQL keywords
         let keywords = vec![
             ("SELECT", "Select data from tables"),
@@ -33,21 +33,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ("SHOW TABLES", "List all tables"),
             ("EXIT", "Exit the SQL prompt"),
         ];
-        
+
         // Table names
         let tables = vec![
             ("users", "Store username and age"),
             ("articles", "Store article text posted by users"),
             ("comments", "Store comments on articles"),
         ];
-        
+
         // Add keyword suggestions
         for (keyword, description) in keywords {
             if keyword.starts_with(&word) {
                 suggestions.push(Suggestion::new(keyword.to_lowercase(), description));
             }
         }
-        
+
         // Add table suggestions if we're after FROM or similar
         if text.contains("FROM") || text.contains("UPDATE") || text.contains("INSERT INTO") {
             for (table, description) in tables {
@@ -56,27 +56,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        
+
         suggestions
     };
 
     let mut prompt = Prompt::builder()
         .with_prefix("sql> ")
         .with_completer(completer)
-        .with_exit_checker(|input: &str, _breakline: bool| {
-            input.trim().to_uppercase() == "EXIT"
-        })
+        .with_exit_checker(|input: &str, _breakline: bool| input.trim().to_uppercase() == "EXIT")
         .build()?;
 
     let result = prompt.run(|input: &str| -> PromptResult<()> {
         let input = input.trim();
-        
+
         if input.is_empty() {
             return Ok(());
         }
 
         let upper_input = input.to_uppercase();
-        
+
         match upper_input.as_str() {
             "SHOW TABLES" => {
                 println!("Tables:");

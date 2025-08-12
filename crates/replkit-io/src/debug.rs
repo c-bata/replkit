@@ -21,12 +21,8 @@ fn init_logger() {
                 } else {
                     "/tmp/replkit-debug.log"
                 };
-                
-                match OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(log_path)
-                {
+
+                match OpenOptions::new().create(true).append(true).open(log_path) {
                     Ok(file) => {
                         *LOG_FILE.lock().unwrap() = Some(file);
                         eprintln!("replkit debug log enabled: {log_path}");
@@ -42,14 +38,14 @@ fn init_logger() {
 
 pub fn write_log(msg: &str) {
     init_logger();
-    
+
     if let Ok(mut log_file_guard) = LOG_FILE.lock() {
         if let Some(ref mut file) = *log_file_guard {
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
-            
+
             if let Err(e) = writeln!(file, "[{timestamp}] {msg}") {
                 eprintln!("Failed to write to debug log: {e}");
             } else {

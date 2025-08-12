@@ -8,9 +8,11 @@ mod imp {
     use std::mem::zeroed;
     use std::ptr::{null, null_mut};
 
+    use crate::{
+        BackendType, ClearType, ConsoleCapabilities, ConsoleError, ConsoleInput, ConsoleOutput,
+        ConsoleResult, OutputCapabilities, RawModeGuard, TextStyle,
+    };
     use replkit_core::{Key, KeyEvent};
-    use crate::{ConsoleError, ConsoleInput, ConsoleOutput, ConsoleResult, RawModeGuard,
-               ConsoleCapabilities, OutputCapabilities, BackendType, TextStyle, ClearType};
 
     type BOOL = i32;
     type HANDLE = isize;
@@ -37,11 +39,19 @@ mod imp {
 
     #[repr(C)]
     #[derive(Copy, Clone)]
-    struct COORD { X: SHORT, Y: SHORT }
+    struct COORD {
+        X: SHORT,
+        Y: SHORT,
+    }
 
     #[repr(C)]
     #[derive(Copy, Clone)]
-    struct SMALL_RECT { Left: SHORT, Top: SHORT, Right: SHORT, Bottom: SHORT }
+    struct SMALL_RECT {
+        Left: SHORT,
+        Top: SHORT,
+        Right: SHORT,
+        Bottom: SHORT,
+    }
 
     #[repr(C)]
     #[derive(Copy, Clone)]
@@ -66,7 +76,9 @@ mod imp {
 
     #[repr(C)]
     #[derive(Copy, Clone)]
-    struct WINDOW_BUFFER_SIZE_RECORD { dwSize: COORD }
+    struct WINDOW_BUFFER_SIZE_RECORD {
+        dwSize: COORD,
+    }
 
     #[repr(C)]
     #[derive(Copy, Clone)]
@@ -77,19 +89,43 @@ mod imp {
 
     #[repr(C)]
     #[derive(Copy, Clone)]
-    struct INPUT_RECORD { EventType: WORD, Event: INPUT_EVENT }
+    struct INPUT_RECORD {
+        EventType: WORD,
+        Event: INPUT_EVENT,
+    }
 
     extern "system" {
         fn GetStdHandle(nStdHandle: DWORD) -> HANDLE;
         fn GetConsoleMode(hConsoleHandle: HANDLE, lpMode: *mut DWORD) -> BOOL;
         fn SetConsoleMode(hConsoleHandle: HANDLE, dwMode: DWORD) -> BOOL;
-        fn ReadConsoleInputW(hConsoleInput: HANDLE, lpBuffer: *mut INPUT_RECORD, nLength: DWORD, lpNumberOfEventsRead: *mut DWORD) -> BOOL;
-        fn GetNumberOfConsoleInputEvents(hConsoleInput: HANDLE, lpNumberOfEvents: *mut DWORD) -> BOOL;
+        fn ReadConsoleInputW(
+            hConsoleInput: HANDLE,
+            lpBuffer: *mut INPUT_RECORD,
+            nLength: DWORD,
+            lpNumberOfEventsRead: *mut DWORD,
+        ) -> BOOL;
+        fn GetNumberOfConsoleInputEvents(
+            hConsoleInput: HANDLE,
+            lpNumberOfEvents: *mut DWORD,
+        ) -> BOOL;
         fn WaitForSingleObject(hHandle: HANDLE, dwMilliseconds: DWORD) -> DWORD;
-        fn GetConsoleScreenBufferInfo(hConsoleOutput: HANDLE, lpConsoleScreenBufferInfo: *mut CONSOLE_SCREEN_BUFFER_INFO) -> BOOL;
-        fn CreateEventW(lpEventAttributes:*mut c_void, bManualReset: BOOL, bInitialState: BOOL, lpName: *const WCHAR) -> HANDLE;
+        fn GetConsoleScreenBufferInfo(
+            hConsoleOutput: HANDLE,
+            lpConsoleScreenBufferInfo: *mut CONSOLE_SCREEN_BUFFER_INFO,
+        ) -> BOOL;
+        fn CreateEventW(
+            lpEventAttributes: *mut c_void,
+            bManualReset: BOOL,
+            bInitialState: BOOL,
+            lpName: *const WCHAR,
+        ) -> HANDLE;
         fn SetEvent(hEvent: HANDLE) -> BOOL;
-        fn WaitForMultipleObjects(nCount: DWORD, lpHandles: *const HANDLE, bWaitAll: BOOL, dwMilliseconds: DWORD) -> DWORD;
+        fn WaitForMultipleObjects(
+            nCount: DWORD,
+            lpHandles: *const HANDLE,
+            bWaitAll: BOOL,
+            dwMilliseconds: DWORD,
+        ) -> DWORD;
     }
 
     pub use super::vt::WindowsVtConsoleInput;
@@ -104,12 +140,12 @@ mod imp {
         h_output: HANDLE,
     }
 
-
-    
     impl WindowsVtConsoleOutput {
-        pub fn new() -> io::Result<Self> { Ok(Self) }
+        pub fn new() -> io::Result<Self> {
+            Ok(Self)
+        }
     }
-    
+
     impl WindowsLegacyConsoleOutput {
         pub fn new() -> io::Result<Self> {
             unsafe {
@@ -125,14 +161,17 @@ mod imp {
         pub fn new() -> io::Result<Self> {
             unsafe {
                 let h_input = GetStdHandle(STD_INPUT_HANDLE);
-                if h_input == 0 || h_input == -1 { 
-                    return Err(io::Error::new(io::ErrorKind::Other, "GetStdHandle failed")); 
+                if h_input == 0 || h_input == -1 {
+                    return Err(io::Error::new(io::ErrorKind::Other, "GetStdHandle failed"));
                 }
 
                 // Save current console mode
                 let mut mode: DWORD = 0;
-                if GetConsoleMode(h_input, &mut mode as *mut DWORD) == 0 { 
-                    return Err(io::Error::new(io::ErrorKind::Other, "GetConsoleMode failed")); 
+                if GetConsoleMode(h_input, &mut mode as *mut DWORD) == 0 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Other,
+                        "GetConsoleMode failed",
+                    ));
                 }
 
                 Ok(Self {
@@ -144,7 +183,10 @@ mod imp {
 
         unsafe fn set_console_mode(&self, mode: DWORD) -> io::Result<()> {
             if SetConsoleMode(self.h_input, mode) == 0 {
-                return Err(io::Error::new(io::ErrorKind::Other, "SetConsoleMode failed"));
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    "SetConsoleMode failed",
+                ));
             }
             Ok(())
         }
@@ -153,33 +195,58 @@ mod imp {
             unsafe {
                 let mut info: CONSOLE_SCREEN_BUFFER_INFO = zeroed();
                 if GetConsoleScreenBufferInfo(self.h_input, &mut info as *mut _) == 0 {
-                    return Err(io::Error::new(io::ErrorKind::Other, "GetConsoleScreenBufferInfo failed"));
+                    return Err(io::Error::new(
+                        io::ErrorKind::Other,
+                        "GetConsoleScreenBufferInfo failed",
+                    ));
                 }
                 Ok((info.dwSize.X as u16, info.dwSize.Y as u16))
             }
         }
 
         fn translate_key(ev: &KEY_EVENT_RECORD) -> Option<KeyEvent> {
-            if ev.bKeyDown == 0 { return None; }
-            
+            if ev.bKeyDown == 0 {
+                return None;
+            }
+
             let ch = ev.UnicodeChar as u32;
             let vk = ev.wVirtualKeyCode;
-            
+
             // Handle control characters first (Ctrl+A..Z)
             if ch >= 1 && ch <= 26 {
                 let idx = (ch - 1) as u8;
                 let key = match idx {
-                    0 => Key::ControlA, 1 => Key::ControlB, 2 => Key::ControlC, 3 => Key::ControlD,
-                    4 => Key::ControlE, 5 => Key::ControlF, 6 => Key::ControlG, 7 => Key::ControlH,
-                    8 => Key::ControlI, 9 => Key::ControlJ, 10 => Key::ControlK, 11 => Key::ControlL,
-                    12 => Key::ControlM,13 => Key::ControlN,14 => Key::ControlO,15 => Key::ControlP,
-                    16 => Key::ControlQ,17 => Key::ControlR,18 => Key::ControlS,19 => Key::ControlT,
-                    20 => Key::ControlU,21 => Key::ControlV,22 => Key::ControlW,23 => Key::ControlX,
-                    24 => Key::ControlY,25 => Key::ControlZ, _ => Key::NotDefined
+                    0 => Key::ControlA,
+                    1 => Key::ControlB,
+                    2 => Key::ControlC,
+                    3 => Key::ControlD,
+                    4 => Key::ControlE,
+                    5 => Key::ControlF,
+                    6 => Key::ControlG,
+                    7 => Key::ControlH,
+                    8 => Key::ControlI,
+                    9 => Key::ControlJ,
+                    10 => Key::ControlK,
+                    11 => Key::ControlL,
+                    12 => Key::ControlM,
+                    13 => Key::ControlN,
+                    14 => Key::ControlO,
+                    15 => Key::ControlP,
+                    16 => Key::ControlQ,
+                    17 => Key::ControlR,
+                    18 => Key::ControlS,
+                    19 => Key::ControlT,
+                    20 => Key::ControlU,
+                    21 => Key::ControlV,
+                    22 => Key::ControlW,
+                    23 => Key::ControlX,
+                    24 => Key::ControlY,
+                    25 => Key::ControlZ,
+                    _ => Key::NotDefined,
                 };
                 return Some(KeyEvent::simple(key, vec![ch as u8]));
             }
-            
+
             // Handle special keys by virtual key code
             let key = match vk {
                 0x08 => Key::Backspace, // VK_BACK
@@ -197,27 +264,32 @@ mod imp {
                 0x1B => Key::Escape,    // VK_ESCAPE
                 _ => {
                     // Handle printable characters
-                    if ch != 0 && ch >= 32 { // Printable ASCII and above
+                    if ch != 0 && ch >= 32 {
+                        // Printable ASCII and above
                         if let Some(c) = char::from_u32(ch) {
                             // Create raw bytes from the character
                             let mut raw_bytes = Vec::new();
                             let mut buf = [0u8; 4];
                             let encoded = c.encode_utf8(&mut buf);
                             raw_bytes.extend_from_slice(encoded.as_bytes());
-                            return Some(KeyEvent::with_text(Key::NotDefined, raw_bytes, c.to_string()));
+                            return Some(KeyEvent::with_text(
+                                Key::NotDefined,
+                                raw_bytes,
+                                c.to_string(),
+                            ));
                         }
                     }
                     Key::NotDefined
                 }
             };
-            
+
             // For special keys, create appropriate raw bytes
             let raw_bytes = if key != Key::NotDefined {
                 vec![vk as u8] // Simple representation
             } else {
                 vec![]
             };
-            
+
             Some(KeyEvent::simple(key, raw_bytes))
         }
     }
@@ -230,8 +302,6 @@ mod imp {
         }
     }
 
-
-
     impl ConsoleInput for WindowsLegacyConsoleInput {
         fn enable_raw_mode(&self) -> Result<RawModeGuard, ConsoleError> {
             unsafe {
@@ -242,20 +312,19 @@ mod imp {
                     return Err(ConsoleError::IoError("GetConsoleMode failed".to_string()));
                 }
                 let original_mode = mode;
-                let mut new_mode = mode | ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT | ENABLE_EXTENDED_FLAGS;
+                let mut new_mode =
+                    mode | ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT | ENABLE_EXTENDED_FLAGS;
                 new_mode &= !ENABLE_QUICK_EDIT_MODE; // disable quick edit to avoid input freezing
                 new_mode &= !(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT); // disable processed input to handle Ctrl+C ourselves
                 if SetConsoleMode(self.h_input, new_mode) == 0 {
                     return Err(ConsoleError::IoError("SetConsoleMode failed".to_string()));
                 }
-                
+
                 let h_input = self.h_input;
-                let restore_fn = move || {
-                    unsafe {
-                        let _ = SetConsoleMode(h_input, original_mode);
-                    }
+                let restore_fn = move || unsafe {
+                    let _ = SetConsoleMode(h_input, original_mode);
                 };
-                
+
                 Ok(RawModeGuard::new(restore_fn, "Windows Legacy".to_string()))
             }
         }
@@ -265,38 +334,46 @@ mod imp {
                 // Check if input is available without blocking
                 let mut available: DWORD = 0;
                 if GetNumberOfConsoleInputEvents(self.h_input, &mut available) == 0 {
-                    return Err(ConsoleError::IoError("GetNumberOfConsoleInputEvents failed".to_string()));
+                    return Err(ConsoleError::IoError(
+                        "GetNumberOfConsoleInputEvents failed".to_string(),
+                    ));
                 }
-                
+
                 if available == 0 {
                     return Ok(None);
                 }
-                
+
                 // Read one input event
                 let mut buffer: INPUT_RECORD = zeroed();
                 let mut events_read: DWORD = 0;
                 if ReadConsoleInputW(self.h_input, &mut buffer, 1, &mut events_read) == 0 {
-                    return Err(ConsoleError::IoError("ReadConsoleInputW failed".to_string()));
+                    return Err(ConsoleError::IoError(
+                        "ReadConsoleInputW failed".to_string(),
+                    ));
                 }
-                
+
                 if events_read == 0 {
                     return Ok(None);
                 }
-                
+
                 // Process only key events
                 if buffer.EventType == KEY_EVENT {
                     let key_event = buffer.Event.KeyEvent;
-                    if key_event.bKeyDown != 0 { // Only process key down events
+                    if key_event.bKeyDown != 0 {
+                        // Only process key down events
                         return Ok(Some(self.convert_key_event(&key_event)));
                     }
                 }
-                
+
                 // For non-key events or key-up events, return None
                 Ok(None)
             }
         }
 
-        fn read_key_timeout(&self, timeout_ms: Option<u32>) -> Result<Option<KeyEvent>, ConsoleError> {
+        fn read_key_timeout(
+            &self,
+            timeout_ms: Option<u32>,
+        ) -> Result<Option<KeyEvent>, ConsoleError> {
             match timeout_ms {
                 Some(0) => {
                     // Non-blocking read
@@ -329,7 +406,8 @@ mod imp {
         }
 
         fn get_window_size(&self) -> ConsoleResult<(u16, u16)> {
-            self.query_window_size().map_err(crate::io_error_to_console_error)
+            self.query_window_size()
+                .map_err(crate::io_error_to_console_error)
         }
 
         fn get_capabilities(&self) -> ConsoleCapabilities {
@@ -343,36 +421,7 @@ mod imp {
                 backend_type: BackendType::WindowsLegacy,
             }
         }
-    }
-                    if wait == WAIT_FAILED { break; }
-                    if wait == WAIT_OBJECT_0 { // input ready
-                        // Drain available records (bounded)
-                        let mut buf: [INPUT_RECORD; 32] = [zeroed(); 32];
-                        if ReadConsoleInputW(h_input, buf.as_mut_ptr(), buf.len() as DWORD, &mut nread as *mut DWORD) == 0 {
-                            continue;
-                        }
-                        let count = nread as usize;
-                        for i in 0..count {
-                            let ir = &buf[i];
-                            match ir.EventType {
-                                KEY_EVENT => {
-                                    let kev = ir.Event.KeyEvent;
-                                    if let Some(ev) = super::imp::WindowsLegacyConsoleInput::translate_key(&kev) {
-                                        if let Ok(mut g) = key_cb.lock() { if let Some(cb) = g.as_mut() { (cb)(ev); } }
-                                    }
-                                }
-                                WINDOW_BUFFER_SIZE_EVENT => {
-                                    let sz = ir.Event.WindowBufferSizeEvent.dwSize;
-                                    if let Ok(mut g) = resize_cb.lock() { if let Some(cb) = g.as_mut() { (cb)(sz.X as u16, sz.Y as u16); } }
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                }
-            }));
-            Ok(())
-        
+
         // Helper method to convert Windows key event to our KeyEvent
         fn convert_key_event(&self, key_event: &KEY_EVENT_RECORD) -> KeyEvent {
             // Use existing translate_key function
@@ -384,75 +433,75 @@ mod imp {
     }
     impl ConsoleOutput for WindowsVtConsoleOutput {
         fn write_text(&self, _text: &str) -> ConsoleResult<()> {
-            Err(ConsoleError::UnsupportedFeature { 
-                feature: "Windows VT output".to_string(), 
-                platform: "Windows".to_string() 
+            Err(ConsoleError::UnsupportedFeature {
+                feature: "Windows VT output".to_string(),
+                platform: "Windows".to_string(),
             })
         }
         fn write_styled_text(&self, _text: &str, _style: &TextStyle) -> ConsoleResult<()> {
-            Err(ConsoleError::UnsupportedFeature { 
-                feature: "Windows VT output".to_string(), 
-                platform: "Windows".to_string() 
+            Err(ConsoleError::UnsupportedFeature {
+                feature: "Windows VT output".to_string(),
+                platform: "Windows".to_string(),
             })
         }
         fn write_safe_text(&self, _text: &str) -> ConsoleResult<()> {
-            Err(ConsoleError::UnsupportedFeature { 
-                feature: "Windows VT output".to_string(), 
-                platform: "Windows".to_string() 
+            Err(ConsoleError::UnsupportedFeature {
+                feature: "Windows VT output".to_string(),
+                platform: "Windows".to_string(),
             })
         }
         fn move_cursor_to(&self, _row: u16, _col: u16) -> ConsoleResult<()> {
-            Err(ConsoleError::UnsupportedFeature { 
-                feature: "Windows VT output".to_string(), 
-                platform: "Windows".to_string() 
+            Err(ConsoleError::UnsupportedFeature {
+                feature: "Windows VT output".to_string(),
+                platform: "Windows".to_string(),
             })
         }
         fn move_cursor_relative(&self, _row_delta: i16, _col_delta: i16) -> ConsoleResult<()> {
-            Err(ConsoleError::UnsupportedFeature { 
-                feature: "Windows VT output".to_string(), 
-                platform: "Windows".to_string() 
+            Err(ConsoleError::UnsupportedFeature {
+                feature: "Windows VT output".to_string(),
+                platform: "Windows".to_string(),
             })
         }
         fn clear(&self, _clear_type: ClearType) -> ConsoleResult<()> {
-            Err(ConsoleError::UnsupportedFeature { 
-                feature: "Windows VT output".to_string(), 
-                platform: "Windows".to_string() 
+            Err(ConsoleError::UnsupportedFeature {
+                feature: "Windows VT output".to_string(),
+                platform: "Windows".to_string(),
             })
         }
         fn set_style(&self, _style: &TextStyle) -> ConsoleResult<()> {
-            Err(ConsoleError::UnsupportedFeature { 
-                feature: "Windows VT output".to_string(), 
-                platform: "Windows".to_string() 
+            Err(ConsoleError::UnsupportedFeature {
+                feature: "Windows VT output".to_string(),
+                platform: "Windows".to_string(),
             })
         }
         fn reset_style(&self) -> ConsoleResult<()> {
-            Err(ConsoleError::UnsupportedFeature { 
-                feature: "Windows VT output".to_string(), 
-                platform: "Windows".to_string() 
+            Err(ConsoleError::UnsupportedFeature {
+                feature: "Windows VT output".to_string(),
+                platform: "Windows".to_string(),
             })
         }
         fn flush(&self) -> ConsoleResult<()> {
-            Err(ConsoleError::UnsupportedFeature { 
-                feature: "Windows VT output".to_string(), 
-                platform: "Windows".to_string() 
+            Err(ConsoleError::UnsupportedFeature {
+                feature: "Windows VT output".to_string(),
+                platform: "Windows".to_string(),
             })
         }
         fn set_alternate_screen(&self, _enabled: bool) -> ConsoleResult<()> {
-            Err(ConsoleError::UnsupportedFeature { 
-                feature: "Windows VT output".to_string(), 
-                platform: "Windows".to_string() 
+            Err(ConsoleError::UnsupportedFeature {
+                feature: "Windows VT output".to_string(),
+                platform: "Windows".to_string(),
             })
         }
         fn set_cursor_visible(&self, _visible: bool) -> ConsoleResult<()> {
-            Err(ConsoleError::UnsupportedFeature { 
-                feature: "Windows VT output".to_string(), 
-                platform: "Windows".to_string() 
+            Err(ConsoleError::UnsupportedFeature {
+                feature: "Windows VT output".to_string(),
+                platform: "Windows".to_string(),
             })
         }
         fn get_cursor_position(&self) -> ConsoleResult<(u16, u16)> {
-            Err(ConsoleError::UnsupportedFeature { 
-                feature: "Windows VT output".to_string(), 
-                platform: "Windows".to_string() 
+            Err(ConsoleError::UnsupportedFeature {
+                feature: "Windows VT output".to_string(),
+                platform: "Windows".to_string(),
             })
         }
         fn get_capabilities(&self) -> OutputCapabilities {
@@ -478,76 +527,78 @@ mod imp {
                 let mut written: DWORD = 0;
                 // This is a simplified approach - real implementation would use WriteConsoleW
                 if libc::write(1, bytes.as_ptr() as *const libc::c_void, bytes.len()) == -1 {
-                    return Err(ConsoleError::IoError("Failed to write to console".to_string()));
+                    return Err(ConsoleError::IoError(
+                        "Failed to write to console".to_string(),
+                    ));
                 }
             }
             Ok(())
         }
-        
+
         fn write_styled_text(&self, text: &str, _style: &TextStyle) -> ConsoleResult<()> {
             // For now, just write text without styling
             // Full implementation would use SetConsoleTextAttribute
             self.write_text(text)
         }
-        
+
         fn write_safe_text(&self, text: &str) -> ConsoleResult<()> {
             self.write_text(text)
         }
-        
+
         fn move_cursor_to(&self, _row: u16, _col: u16) -> ConsoleResult<()> {
             // Would use SetConsoleCursorPosition in full implementation
-            Err(ConsoleError::UnsupportedFeature { 
-                feature: "cursor positioning".to_string(), 
-                platform: "Windows Legacy".to_string() 
+            Err(ConsoleError::UnsupportedFeature {
+                feature: "cursor positioning".to_string(),
+                platform: "Windows Legacy".to_string(),
             })
         }
-        
+
         fn move_cursor_relative(&self, _row_delta: i16, _col_delta: i16) -> ConsoleResult<()> {
-            Err(ConsoleError::UnsupportedFeature { 
-                feature: "relative cursor movement".to_string(), 
-                platform: "Windows Legacy".to_string() 
+            Err(ConsoleError::UnsupportedFeature {
+                feature: "relative cursor movement".to_string(),
+                platform: "Windows Legacy".to_string(),
             })
         }
-        
+
         fn clear(&self, _clear_type: ClearType) -> ConsoleResult<()> {
             // Would use FillConsoleOutputCharacter in full implementation
-            Err(ConsoleError::UnsupportedFeature { 
-                feature: "screen clearing".to_string(), 
-                platform: "Windows Legacy".to_string() 
+            Err(ConsoleError::UnsupportedFeature {
+                feature: "screen clearing".to_string(),
+                platform: "Windows Legacy".to_string(),
             })
         }
-        
+
         fn set_style(&self, _style: &TextStyle) -> ConsoleResult<()> {
             // Would use SetConsoleTextAttribute in full implementation
             Ok(())
         }
-        
+
         fn reset_style(&self) -> ConsoleResult<()> {
             Ok(())
         }
-        
+
         fn flush(&self) -> ConsoleResult<()> {
             // Windows console doesn't need explicit flushing
             Ok(())
         }
-        
+
         fn set_alternate_screen(&self, _enabled: bool) -> ConsoleResult<()> {
-            Err(ConsoleError::UnsupportedFeature { 
-                feature: "alternate screen".to_string(), 
-                platform: "Windows Legacy".to_string() 
+            Err(ConsoleError::UnsupportedFeature {
+                feature: "alternate screen".to_string(),
+                platform: "Windows Legacy".to_string(),
             })
         }
-        
+
         fn set_cursor_visible(&self, _visible: bool) -> ConsoleResult<()> {
             // Would use SetConsoleCursorInfo in full implementation
             Ok(())
         }
-        
+
         fn get_cursor_position(&self) -> ConsoleResult<(u16, u16)> {
             // Would use GetConsoleScreenBufferInfo in full implementation
             Ok((0, 0))
         }
-        
+
         fn get_capabilities(&self) -> OutputCapabilities {
             OutputCapabilities {
                 supports_colors: true,
@@ -560,8 +611,8 @@ mod imp {
                 backend_type: BackendType::WindowsLegacy,
             }
         }
-    }}
-
+    }
+}
 
 #[cfg(windows)]
 pub use imp::*;
@@ -578,54 +629,66 @@ pub struct WindowsLegacyConsoleOutput;
 #[cfg(not(windows))]
 impl WindowsVtConsoleInput {
     pub fn new() -> std::io::Result<Self> {
-        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "Windows not supported"))
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Windows not supported",
+        ))
     }
 }
 
 #[cfg(not(windows))]
 impl WindowsVtConsoleOutput {
     pub fn new() -> std::io::Result<Self> {
-        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "Windows not supported"))
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Windows not supported",
+        ))
     }
 }
 
 #[cfg(not(windows))]
 impl WindowsLegacyConsoleInput {
     pub fn new() -> std::io::Result<Self> {
-        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "Windows not supported"))
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Windows not supported",
+        ))
     }
 }
 
 #[cfg(not(windows))]
 impl crate::ConsoleInput for WindowsLegacyConsoleInput {
     fn enable_raw_mode(&self) -> Result<crate::RawModeGuard, crate::ConsoleError> {
-        Err(crate::ConsoleError::UnsupportedFeature { 
-            feature: "Windows console input".to_string(), 
-            platform: "Non-Windows".to_string() 
+        Err(crate::ConsoleError::UnsupportedFeature {
+            feature: "Windows console input".to_string(),
+            platform: "Non-Windows".to_string(),
         })
     }
-    
+
     fn try_read_key(&self) -> Result<Option<replkit_core::KeyEvent>, crate::ConsoleError> {
-        Err(crate::ConsoleError::UnsupportedFeature { 
-            feature: "Windows console input".to_string(), 
-            platform: "Non-Windows".to_string() 
+        Err(crate::ConsoleError::UnsupportedFeature {
+            feature: "Windows console input".to_string(),
+            platform: "Non-Windows".to_string(),
         })
     }
-    
-    fn read_key_timeout(&self, _timeout_ms: Option<u32>) -> Result<Option<replkit_core::KeyEvent>, crate::ConsoleError> {
-        Err(crate::ConsoleError::UnsupportedFeature { 
-            feature: "Windows console input".to_string(), 
-            platform: "Non-Windows".to_string() 
+
+    fn read_key_timeout(
+        &self,
+        _timeout_ms: Option<u32>,
+    ) -> Result<Option<replkit_core::KeyEvent>, crate::ConsoleError> {
+        Err(crate::ConsoleError::UnsupportedFeature {
+            feature: "Windows console input".to_string(),
+            platform: "Non-Windows".to_string(),
         })
     }
-    
+
     fn get_window_size(&self) -> crate::ConsoleResult<(u16, u16)> {
-        Err(crate::ConsoleError::UnsupportedFeature { 
-            feature: "Windows console input".to_string(), 
-            platform: "Non-Windows".to_string() 
+        Err(crate::ConsoleError::UnsupportedFeature {
+            feature: "Windows console input".to_string(),
+            platform: "Non-Windows".to_string(),
         })
     }
-    
+
     fn get_capabilities(&self) -> crate::ConsoleCapabilities {
         crate::ConsoleCapabilities {
             supports_raw_mode: false,
@@ -642,6 +705,9 @@ impl crate::ConsoleInput for WindowsLegacyConsoleInput {
 #[cfg(not(windows))]
 impl WindowsLegacyConsoleOutput {
     pub fn new() -> std::io::Result<Self> {
-        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "Windows not supported"))
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Windows not supported",
+        ))
     }
 }
