@@ -1,5 +1,6 @@
 # Repository specific
 references/
+snapshot-tests/bin/
 
 # Rust
 target/

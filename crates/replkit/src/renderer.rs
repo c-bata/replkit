@@ -682,51 +682,26 @@ impl Renderer {
             .iter()
             .map(|s| display_width(&s.text))
             .max()
-            .unwrap_or(0)
-            .min(max_width / 2); // Don't use more than half width for text
+            .unwrap_or(0);
 
-        // Find maximum description width
-        let remaining_width = max_width.saturating_sub(max_text_width + 1); // -1 for space
-        let max_desc_width = suggestions
-            .iter()
-            .map(|s| display_width(&s.description))
-            .max()
-            .unwrap_or(0)
-            .min(remaining_width);
-
+        // Calculate available width for description (leave space for text + separator)
+        let remaining_width = max_width.saturating_sub(max_text_width + 2); // -2 for spaces
+        
         let mut formatted = Vec::new();
         
         for suggestion in suggestions {
-            // Format text with consistent width
-            let mut text = suggestion.text.clone();
-            let text_width = display_width(&text);
-            
-            if text_width > max_text_width {
-                // Truncate if too long
-                text = self.truncate_text(&text, max_text_width);
-            }
-            
-            // Pad to consistent width
-            let padding_needed = max_text_width.saturating_sub(display_width(&text));
-            text.push_str(&" ".repeat(padding_needed));
+            // Format text (don't truncate unless absolutely necessary)
+            let text = format!("{:<width$}", suggestion.text, width = max_text_width);
 
-            // Format description with consistent width
+            // Format description (don't truncate unless it exceeds remaining width significantly)
             let mut description = String::new();
-            if !suggestion.description.is_empty() && max_desc_width > 0 {
-                description = format!(" {}", suggestion.description);
-                let desc_width = display_width(&description);
+            if !suggestion.description.is_empty() && remaining_width > 10 {
+                description = format!("  {}", suggestion.description);
                 
-                if desc_width > max_desc_width {
-                    // Truncate if too long
-                    description = self.truncate_text(&description, max_desc_width);
+                // Only truncate if description is much longer than available space
+                if display_width(&description) > remaining_width + 20 {
+                    description = self.truncate_text(&description, remaining_width);
                 }
-                
-                // Pad to consistent width
-                let desc_padding = max_desc_width.saturating_sub(display_width(&description));
-                description.push_str(&" ".repeat(desc_padding));
-            } else if max_desc_width > 0 {
-                // Empty description, but pad to consistent width
-                description = " ".repeat(max_desc_width);
             }
 
             formatted.push(FormattedSuggestion { text, description });
